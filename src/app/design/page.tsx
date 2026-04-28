@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
+import CoverBuilder, { type CoverState } from './cover-builder';
 import './album-builder.css';
 
 /**
@@ -28,7 +30,47 @@ function fb(name: string, ...args: unknown[]) {
   if (typeof fn === 'function') fn(...args);
 }
 
+/**
+ * Step controls which view of the designer is shown:
+ *   'spreads' — the legacy album-builder.js drag/drop spread editor.
+ *   'cover'   — the React-based CoverBuilder (cover-builder.tsx).
+ *
+ * The spreads section is kept mounted (display: none) so that the legacy JS
+ * keeps its module-scoped state (spreadData, uploadedPhotos, history) when
+ * the user toggles between cover and spreads.
+ */
+type Step = 'spreads' | 'cover';
+
 export default function DesignerPage() {
+  const [step, setStep] = useState<Step>('spreads');
+  const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
+
+  /**
+   * Pulls the photo list from the legacy JS's `window.uploadedPhotos` map
+   * and transitions to the cover step. Called from the nav "Submit Order"
+   * button now that cover is part of the flow.
+   */
+  function goToCover() {
+    const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
+    const map = w.uploadedPhotos ?? {};
+    const list = Object.entries(map).map(([id, val]) => ({
+      id,
+      src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
+    })).filter((p) => p.src);
+    setPhotos(list);
+    setStep('cover');
+  }
+
+  /**
+   * onContinue from CoverBuilder: stash the cover state on window where
+   * the legacy submit modal will pick it up (Task #6 wires it into the
+   * Stripe checkout payload), then open the modal as before.
+   */
+  function continueFromCover(cover: CoverState) {
+    (window as unknown as { __coverState?: CoverState }).__coverState = cover;
+    fb('openModal');
+  }
+
   return (
     <>
       <Script src="/js/album-builder.js" strategy="afterInteractive" />
@@ -61,10 +103,10 @@ export default function DesignerPage() {
             type="button"
             className="nav-submit"
             id="navSubmitBtn"
-            onClick={() => fb('openModal')}
+            onClick={goToCover}
             style={{ display: 'none' }}
           >
-            Submit Order
+            Next: Cover &rarr;
           </button>
         </div>
       </nav>
@@ -152,8 +194,21 @@ export default function DesignerPage() {
         </div>
       </div>
 
+      {/* COVER BUILDER (shown when step === 'cover') */}
+      {step === 'cover' && (
+        <CoverBuilder
+          uploadedPhotos={photos}
+          onBack={() => setStep('spreads')}
+          onContinue={continueFromCover}
+        />
+      )}
+
       {/* SELF-DESIGN BUILDER */}
-      <div className="builder-section" id="builderSection">
+      <div
+        className="builder-section"
+        id="builderSection"
+        hidden={step === 'cover'}
+      >
         <div className="builder-wrap">
           {/* LEFT: Photos */}
           <div className="photo-panel">
@@ -593,7 +648,11 @@ export default function DesignerPage() {
       </div>
 
       {/* FLOATING PHOTO TOOLBAR */}
-      <div className="photo-float-toolbar" id="photoFloatToolbar">
+      <div
+        className="photo-float-toolbar"
+        id="photoFloatToolbar"
+        hidden={step === 'cover'}
+      >
         <span className="ftb-label">Photo</span>
         <div className="ftb-sep" />
         <button type="button" className="ftb-btn" onClick={() => fb('ftbFitFill')} title="Fit to fill">
