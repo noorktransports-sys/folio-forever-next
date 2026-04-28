@@ -99,7 +99,9 @@
 }
 
 /* The cover frame holds the 3D book. preserve-3d so the spine/pages
- * are positioned in the same 3D space as the cover face. */
+ * are positioned in the same 3D space as the cover face.
+ * z-index 5 keeps the frame above .cover-inside / .cover-spine etc.
+ * when closed; the inside is revealed via opacity, not stacking. */
 .cover-preview-frame {
   position: absolute;
   inset: 0;
@@ -109,6 +111,7 @@
     rotateY(calc(-14deg + var(--ty)));
   transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
   animation: cover-bob 7s ease-in-out infinite;
+  z-index: 5;
 }
 
 /* When user toggles the cover open, swing it on the spine hinge. */
@@ -219,7 +222,8 @@
 }
 
 /* INSIDE — visible only when cover is open. A light cream spread that
- * suggests the first page. translateZ(-1px) sits just behind the cover. */
+ * suggests the first page. Hidden by default via opacity (not display:none
+ * so the open transition can fade it in). */
 .cover-inside {
   position: absolute;
   inset: 0;
@@ -239,7 +243,10 @@
   z-index: 1;
   pointer-events: none;
   box-shadow: inset 0 0 40px rgba(139, 122, 95, 0.15);
+  opacity: 0;
+  transition: opacity 0.5s ease 0.15s;
 }
+.cover-stage.is-open .cover-inside { opacity: 1; }
 .cover-inside-title {
   font-family: var(--font-display);
   font-style: italic;
