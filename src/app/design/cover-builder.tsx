@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 import './cover-builder.css';
 
 /**
@@ -10,7 +10,12 @@ import './cover-builder.css';
  *   - Cover type: leather (with foil stamp), acrylic (photo-inside), or photo
  *     (full-bleed photo with 3D tactile printing).
  *   - Type-specific options (leather color, photo selection for acrylic/photo).
- *   - Primary text + subtitle, font (10 options), color/foil, position.
+ *   - Primary text + subtitle, font (10 options), font size, color/foil, position.
+ *
+ * The preview is a 3D scene: book with thickness, spine, page edges,
+ * weight shadow, gentle mouse-tilt, and an open-cover toggle that
+ * peeks at the first spread. CSS does most of the work; this component
+ * just maintains state and feeds CSS variables for tilt.
  *
  * Lives in React state — independent from the legacy album-builder.js that
  * tracks spread state on window. The submit flow combines both into a
@@ -30,6 +35,7 @@ export type CoverState = {
   primaryText: string;
   subtitleText: string;
   fontId: string;
+  fontSize: number;         // primary text size in px (24-96 range)
   foilColor: string;        // only meaningful when type === 'leather'
   textColor: string;        // only meaningful when type === 'photo'
   position: Position;
@@ -75,6 +81,10 @@ const PHOTO_TEXT_COLORS: { id: string; label: string; hex: string }[] = [
   { id: 'gold',  label: 'Gold',  hex: '#d4b07a' },
 ];
 
+const FONT_SIZE_MIN = 24;
+const FONT_SIZE_MAX = 96;
+const FONT_SIZE_DEFAULT = 52;
+
 const initialState: CoverState = {
   type: 'leather',
   leatherColor: 'black',
@@ -82,6 +92,7 @@ const initialState: CoverState = {
   primaryText: 'Sarah & James',
   subtitleText: 'September 2024',
   fontId: 'cormorant',
+  fontSize: FONT_SIZE_DEFAULT,
   foilColor: 'gold',
   textColor: 'white',
   position: 'center',
@@ -94,8 +105,17 @@ interface CoverBuilderProps {
   onContinue: (cover: CoverState) => void;
 }
 
+/**
+ * Mouse-tilt: clamp how far the cover rotates so colors stay readable.
+ * ±8 degrees is the sweet spot — enough to feel responsive, not enough
+ * to obscure leather color or photo content.
+ */
+const TILT_MAX_DEG = 8;
+
 export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: CoverBuilderProps) {
   const [state, setState] = useState<CoverState>(initialState);
+  const [coverOpen, setCoverOpen] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
   const update = <K extends keyof CoverState>(key: K, value: CoverState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
@@ -132,6 +152,32 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       default:       return { top: '50%',      bottom: 'auto',  transform: 'translate(-50%, -50%)' };
     }
   })();
+
+  /**
+   * Mouse-tilt handler. Maps cursor position within the stage to
+   * rotateX / rotateY values written to CSS custom properties. The
+   * rotation is gentle (±TILT_MAX_DEG) and skipped while the cover is
+   * open so the user can read the inside placeholder.
+   */
+  function handleMouseMove(e: MouseEvent<HTMLDivElement>) {
+    if (coverOpen) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const dx = (e.clientX - rect.left) / rect.width - 0.5;   // -0.5..+0.5
+    const dy = (e.clientY - rect.top) / rect.height - 0.5;
+    const ry = dx * TILT_MAX_DEG * 2;        // rotate Y from horizontal cursor pos
+    const rx = -dy * TILT_MAX_DEG * 2;       // rotate X from vertical (negate so up = up)
+    stage.style.setProperty('--tx', rx.toFixed(2) + 'deg');
+    stage.style.setProperty('--ty', ry.toFixed(2) + 'deg');
+  }
+
+  function handleMouseLeave() {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.style.setProperty('--tx', '0deg');
+    stage.style.setProperty('--ty', '0deg');
+  }
 
   // Acrylic + photo preview backgrounds use the picked photo. Acrylic adds a
   // subtle gloss overlay to suggest the transparent acrylic sheen on top.
@@ -171,6 +217,9 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
     </div>
   );
 
+  // Subtitle is sized proportionally to the primary so the slider drives both.
+  const subtitleSize = Math.max(10, Math.round(state.fontSize * 0.28));
+
   return (
     <div className="cover-builder-wrap">
       {/* TOOLBAR */}
@@ -191,74 +240,108 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       <div className="cover-grid">
         {/* LIVE PREVIEW (LEFT) */}
         <div className="cover-preview-panel">
-          <div className="cover-preview-frame">
-            <div
-              className={'cover-preview cover-type-' + state.type}
-              style={{ background: previewBackground }}
-            >
-              {(state.type === 'acrylic' || state.type === 'photo') && photoBackdrop}
+          <div
+            className={'cover-stage' + (coverOpen ? ' is-open' : '')}
+            ref={stageRef}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
+            {/* Ground shadow — sits under the book, suggests weight. */}
+            <div className="cover-ground-shadow" />
 
-              {/* Acrylic sheen overlay */}
-              {state.type === 'acrylic' && <div className="cover-acrylic-sheen" />}
+            {/* Inside spread placeholder — visible when cover swings open. */}
+            <div className="cover-inside">
+              <span>Your first spread</span>
+              <div className="cover-inside-title">{state.primaryText}</div>
+              <span>Lay-flat binding</span>
+            </div>
 
-              {/* Leather grain overlay */}
-              {state.type === 'leather' && <div className="cover-leather-grain" />}
+            {/* Spine — the book's left edge, rotated into 3D. */}
+            <div className="cover-spine" />
 
-              {/* 3D-touch indicator for photo cover */}
-              {state.type === 'photo' && <div className="cover-tactile-overlay" />}
+            {/* Page edges — the stacked-paper look at the right & bottom. */}
+            <div className="cover-page-edge-right" />
+            <div className="cover-page-edge-bottom" />
 
-              {/* Title text */}
+            {/* The cover itself, hinged on the left so it can swing open. */}
+            <div className="cover-preview-frame">
               <div
-                className="cover-title-block"
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  ...positionStyle,
-                  textAlign: 'center',
-                  width: '80%',
-                  pointerEvents: 'none',
-                }}
+                className={'cover-preview cover-type-' + state.type}
+                style={{ background: previewBackground }}
               >
-                {state.primaryText && (
-                  <div
-                    style={{
-                      fontFamily: font.family,
-                      fontStyle: font.style ?? 'normal',
-                      fontSize: 'clamp(28px, 5vw, 56px)',
-                      fontWeight: 400,
-                      color: textHex,
-                      lineHeight: 1.1,
-                      letterSpacing: state.fontId === 'cinzel' || state.fontId === 'bebas-neue' ? 4 : 1,
-                      textShadow: state.type === 'photo'
-                        ? '0 1px 4px rgba(0,0,0,0.5)'
-                        : 'none',
-                    }}
-                  >
-                    {state.primaryText}
-                  </div>
-                )}
-                {state.subtitleText && (
-                  <div
-                    style={{
-                      fontFamily: font.family,
-                      fontStyle: font.style ?? 'normal',
-                      fontSize: 'clamp(11px, 1.4vw, 16px)',
-                      color: textHex,
-                      letterSpacing: 3,
-                      marginTop: 12,
-                      opacity: 0.85,
-                      textTransform: state.fontId === 'cinzel' ? 'uppercase' : 'none',
-                      textShadow: state.type === 'photo'
-                        ? '0 1px 3px rgba(0,0,0,0.5)'
-                        : 'none',
-                    }}
-                  >
-                    {state.subtitleText}
-                  </div>
-                )}
+                {(state.type === 'acrylic' || state.type === 'photo') && photoBackdrop}
+
+                {/* Acrylic sheen overlay */}
+                {state.type === 'acrylic' && <div className="cover-acrylic-sheen" />}
+
+                {/* Leather grain overlay */}
+                {state.type === 'leather' && <div className="cover-leather-grain" />}
+
+                {/* 3D-touch indicator for photo cover */}
+                {state.type === 'photo' && <div className="cover-tactile-overlay" />}
+
+                {/* Title text */}
+                <div
+                  className="cover-title-block"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    ...positionStyle,
+                    textAlign: 'center',
+                    width: '80%',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {state.primaryText && (
+                    <div
+                      style={{
+                        fontFamily: font.family,
+                        fontStyle: font.style ?? 'normal',
+                        fontSize: state.fontSize + 'px',
+                        fontWeight: 400,
+                        color: textHex,
+                        lineHeight: 1.1,
+                        letterSpacing: state.fontId === 'cinzel' || state.fontId === 'bebas-neue' ? 4 : 1,
+                        textShadow: state.type === 'photo'
+                          ? '0 1px 4px rgba(0,0,0,0.5)'
+                          : 'none',
+                      }}
+                    >
+                      {state.primaryText}
+                    </div>
+                  )}
+                  {state.subtitleText && (
+                    <div
+                      style={{
+                        fontFamily: font.family,
+                        fontStyle: font.style ?? 'normal',
+                        fontSize: subtitleSize + 'px',
+                        color: textHex,
+                        letterSpacing: 3,
+                        marginTop: 12,
+                        opacity: 0.85,
+                        textTransform: state.fontId === 'cinzel' ? 'uppercase' : 'none',
+                        textShadow: state.type === 'photo'
+                          ? '0 1px 3px rgba(0,0,0,0.5)'
+                          : 'none',
+                      }}
+                    >
+                      {state.subtitleText}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="cover-open-toggle"
+            onClick={() => setCoverOpen((v) => !v)}
+          >
+            {coverOpen ? 'Close cover' : 'Open the album'}
+          </button>
+
           <p className="cover-preview-caption">
             Live preview · {state.type === 'leather' && 'Leather + foil stamp'}
             {state.type === 'acrylic' && 'Clear acrylic with photo inside'}
@@ -388,6 +471,23 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   <span className="cover-font-name">{f.label}</span>
                 </button>
               ))}
+            </div>
+          </section>
+
+          {/* Font size slider */}
+          <section className="cover-section">
+            <h3 className="cover-section-title">Font Size</h3>
+            <div className="cover-fontsize-row">
+              <input
+                type="range"
+                className="cover-fontsize-slider"
+                min={FONT_SIZE_MIN}
+                max={FONT_SIZE_MAX}
+                step={1}
+                value={state.fontSize}
+                onChange={(e) => update('fontSize', Number(e.target.value))}
+              />
+              <span className="cover-fontsize-val">{state.fontSize}px</span>
             </div>
           </section>
 
