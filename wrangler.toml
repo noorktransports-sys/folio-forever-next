@@ -1,0 +1,36 @@
+# Cloudflare Pages / Workers config for folio-forever-next.
+#
+# This file is the authoritative binding map. Secrets (Stripe keys, Drive
+# service-account JSON, Clerk keys, Resend API key) are set via:
+#   wrangler pages secret put <NAME>
+# and never committed.
+#
+# Update `name` and `account_id` once Jayvee provides the Cloudflare account.
+
+name = "folio-forever"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+# --- D1 (SQLite) — orders, designs, clients ---
+[[d1_databases]]
+binding = "DB"
+database_name = "folio-forever-db"
+database_id = "REPLACE_WITH_D1_ID_AFTER_CREATE"
+
+# --- KV — short-lived design drafts (anonymous, pre-signup) ---
+[[kv_namespaces]]
+binding = "DESIGN_DRAFTS"
+id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
+
+# --- R2 — fallback object storage if Drive 2TB fills up. Optional for now. ---
+# [[r2_buckets]]
+# binding = "PHOTOS"
+# bucket_name = "folio-forever-photos"
+
+# --- Public env vars (non-secret; safe in repo) ---
+[vars]
+SITE_NAME = "Folio & Forever"
+SITE_URL = "https://folioforever.com"
+DESIGN_RETENTION_DAYS = "60"   # 2-month photo retention per spec
+MAX_UPLOAD_BYTES = "15728640"  # 15 MB JPG cap

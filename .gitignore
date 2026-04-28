@@ -1,0 +1,31 @@
+# deps
+/node_modules
+
+# next
+/.next/
+/out/
+
+# cloudflare next-on-pages output
+/.vercel/
+/.wrangler/
+
+# env
+.env
+.env.local
+.env*.local
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
+
+# secrets — never commit
+service-account.json
+*.pem
