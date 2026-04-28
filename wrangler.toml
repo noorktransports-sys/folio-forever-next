@@ -26,11 +26,11 @@ pages_build_output_dir = ".vercel/output/static"
 # binding = "DESIGN_DRAFTS"
 # id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
 
-# --- R2 — primary photo storage (decided 2026-04-28, replacing Drive). ---
-# Commented out until the R2 bucket is created and bucket_name confirmed.
-# [[r2_buckets]]
-# binding = "PHOTOS"
-# bucket_name = "folioforever-photos"
+# --- R2 — primary photo storage. Bucket created 2026-04-28. ---
+# Native binding: env.PHOTOS.put(key, body) from edge route handlers.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "folioforever-photos"
 
 # --- Public env vars (non-secret; safe in repo) ---
 [vars]
