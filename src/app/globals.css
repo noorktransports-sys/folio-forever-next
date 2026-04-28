@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Folio & Forever brand tokens.
+ *
+ * Mirrored in tailwind.config.ts. Defined here as CSS variables so legacy
+ * inline-styled markup ported from the WP templates keeps working without
+ * a full rewrite to Tailwind utilities.
+ */
+:root {
+  --dark: #0e0c09;
+  --dark2: #1a1610;
+  --dark3: #2a2218;
+  --gold: #b8965a;
+  --gold-light: #d4b07a;
+  --cream: #e8d5b0;
+  --cream-light: #f5f0e8;
+  --muted: #6b5e4e;
+  --muted2: #8a7a65;
+  --white: #ffffff;
+  --font-display: 'Cormorant Garamond', serif;
+  --font-body: 'Montserrat', sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--dark);
+  color: var(--cream);
+  overflow-x: hidden;
+}
