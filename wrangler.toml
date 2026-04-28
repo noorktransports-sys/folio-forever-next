@@ -13,20 +13,24 @@ compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".vercel/output/static"
 
 # --- D1 (SQLite) — orders, designs, clients ---
-[[d1_databases]]
-binding = "DB"
-database_name = "folio-forever-db"
-database_id = "REPLACE_WITH_D1_ID_AFTER_CREATE"
+# Commented out until the D1 database is created and the real database_id
+# is pasted in. Cloudflare deploy fails on placeholder IDs.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "folio-forever-db"
+# database_id = "REPLACE_WITH_D1_ID_AFTER_CREATE"
 
 # --- KV — short-lived design drafts (anonymous, pre-signup) ---
-[[kv_namespaces]]
-binding = "DESIGN_DRAFTS"
-id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
+# Commented out until KV namespace is created and the real id is pasted in.
+# [[kv_namespaces]]
+# binding = "DESIGN_DRAFTS"
+# id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
 
-# --- R2 — fallback object storage if Drive 2TB fills up. Optional for now. ---
+# --- R2 — primary photo storage (decided 2026-04-28, replacing Drive). ---
+# Commented out until the R2 bucket is created and bucket_name confirmed.
 # [[r2_buckets]]
 # binding = "PHOTOS"
-# bucket_name = "folio-forever-photos"
+# bucket_name = "folioforever-photos"
 
 # --- Public env vars (non-secret; safe in repo) ---
 [vars]
