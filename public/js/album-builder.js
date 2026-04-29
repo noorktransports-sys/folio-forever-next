@@ -1193,7 +1193,7 @@
    * Built inline so we don't need a separate modal component or CSS file.
    * Cleans itself up on close. Esc key + backdrop click both dismiss.
    */
-  function showShareModal(url) {
+  function showShareModal(url, token) {
     // Tear down any previous instance to avoid stacking.
     const prev = document.getElementById('folio-share-modal');
     if (prev) prev.remove();
@@ -1315,6 +1315,85 @@
     shareRow.appendChild(emailBtn);
     shareRow.appendChild(waBtn);
 
+    // ---------- Place Order ----------
+    // Distinct CTA from Save & Share. Clicking this fires /api/notify-order
+    // which sends a confirmation to the customer + the order details to
+    // noorktransports@gmail.com (the business owner). Later this same
+    // button will hand off to Stripe Checkout before notifying.
+    const placeOrderBtn = document.createElement('button');
+    placeOrderBtn.type = 'button';
+    placeOrderBtn.textContent = 'Place order';
+    placeOrderBtn.style.cssText = [
+      'width:100%', 'background:#b8965a', 'color:#0e0c09',
+      'border:none', 'border-radius:30px', 'padding:14px',
+      'font-size:11px', 'letter-spacing:3px', 'text-transform:uppercase',
+      'font-weight:700', 'cursor:pointer', 'margin-bottom:10px',
+    ].join(';');
+
+    const orderStatus = document.createElement('div');
+    orderStatus.style.cssText = [
+      'font-size:11px', 'line-height:1.6', 'color:#a89a82',
+      'margin-bottom:12px', 'min-height:14px',
+    ].join(';');
+
+    placeOrderBtn.onclick = async () => {
+      if (!token) {
+        orderStatus.textContent = 'Save the design first.';
+        orderStatus.style.color = '#cf6a6a';
+        return;
+      }
+      const stored =
+        (typeof getStoredCustomer === 'function' && getStoredCustomer()) || {};
+      let customerEmail = (stored && stored.email) || '';
+      const customerName = (stored && stored.name) || '';
+      // If the user skipped the email gate, ask now — we need somewhere
+      // to send the confirmation.
+      if (!customerEmail) {
+        const entered = prompt(
+          'Enter your email so we can send the order confirmation:',
+        );
+        if (!entered) return;
+        customerEmail = entered.trim();
+        try {
+          if (typeof setStoredCustomer === 'function') {
+            setStoredCustomer({ email: customerEmail, name: customerName });
+          }
+        } catch (_) {}
+      }
+      placeOrderBtn.disabled = true;
+      const origLabel = placeOrderBtn.textContent;
+      placeOrderBtn.textContent = 'Placing order…';
+      orderStatus.textContent = '';
+      try {
+        const res = await fetch('/api/notify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, customerEmail, customerName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data && data.error ? data.error : 'HTTP ' + res.status);
+        }
+        placeOrderBtn.textContent = 'Order placed ✓';
+        placeOrderBtn.style.background = '#2f5e3a';
+        placeOrderBtn.style.color = '#f0e4ce';
+        orderStatus.style.color = '#a89a82';
+        orderStatus.textContent =
+          'Order ' +
+          (data.orderId || '') +
+          ' — confirmation sent to ' +
+          customerEmail +
+          '.';
+      } catch (err) {
+        placeOrderBtn.disabled = false;
+        placeOrderBtn.textContent = origLabel;
+        orderStatus.style.color = '#cf6a6a';
+        orderStatus.textContent =
+          'Could not place order: ' +
+          (err && err.message ? err.message : 'unknown error');
+      }
+    };
+
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.textContent = 'Done';
@@ -1332,6 +1411,8 @@
     card.appendChild(desc);
     card.appendChild(linkRow);
     card.appendChild(shareRow);
+    card.appendChild(placeOrderBtn);
+    card.appendChild(orderStatus);
     card.appendChild(closeBtn);
     overlay.appendChild(card);
 
@@ -1391,7 +1472,7 @@
           await navigator.clipboard.writeText(url);
         }
       } catch (_) { /* clipboard permission denied — not critical */ }
-      showShareModal(url);
+      showShareModal(url, data.token);
       return data;
     } catch (err) {
       console.warn('Folio: save to server failed, falling back to local-only', err);
