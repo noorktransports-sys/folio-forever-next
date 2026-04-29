@@ -35,6 +35,21 @@ interface KVNamespace {
   get(key: string): Promise<string | null>;
 }
 
+// Drafts index — every successful save appends a summary so the admin
+// dashboard can show "leads" (customers who designed but haven't
+// submitted). Capped to the most recent 200 entries to bound size.
+const DRAFTS_INDEX_KEY = '_drafts_index_v1';
+const DRAFTS_INDEX_MAX = 200;
+interface DraftEntry {
+  token: string;
+  customerName: string;
+  customerEmail: string;
+  size: string;
+  totalSpreads: number;
+  photoCount: number;
+  savedAt: string;
+}
+
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   SITE_URL?: string;
@@ -73,6 +88,41 @@ export async function POST(request: Request) {
   await env.DESIGN_DRAFTS.put(token, text, {
     expirationTtl: TTL_SECONDS,
   });
+
+  // Append to drafts index for the admin dashboard. Best-effort —
+  // failures here mustn't break the save itself.
+  try {
+    let parsed: unknown = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* shouldn't happen — already validated above */
+    }
+    const d = parsed as {
+      customer?: { name?: string; email?: string };
+      size?: string;
+      totalSpreads?: number;
+      uploadedPhotos?: Record<string, unknown>;
+    };
+    const entry: DraftEntry = {
+      token,
+      customerName: d.customer?.name || '',
+      customerEmail: d.customer?.email || '',
+      size: d.size || '',
+      totalSpreads: d.totalSpreads || 0,
+      photoCount: d.uploadedPhotos ? Object.keys(d.uploadedPhotos).length : 0,
+      savedAt: new Date().toISOString(),
+    };
+    const indexJson = await env.DESIGN_DRAFTS.get(DRAFTS_INDEX_KEY);
+    let list: DraftEntry[] = indexJson ? JSON.parse(indexJson) : [];
+    list.unshift(entry);
+    // Cap so the JSON stays under KV's value-size limit even if a
+    // burst of saves lands.
+    if (list.length > DRAFTS_INDEX_MAX) list = list.slice(0, DRAFTS_INDEX_MAX);
+    await env.DESIGN_DRAFTS.put(DRAFTS_INDEX_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Folio designs: drafts index update failed', e);
+  }
 
   const siteUrl = env.SITE_URL || 'https://folioforever.com';
   // Share URL points to the read-only viewer at /album/<token> — NOT

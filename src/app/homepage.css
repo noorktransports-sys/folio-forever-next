@@ -583,6 +583,12 @@ footer {
 .footer-links a:hover { color: var(--gold); }
 
 .footer-copy { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+.footer-admin {
+  color: rgba(168, 154, 130, 0.45);
+  text-decoration: none;
+  margin-left: 4px;
+}
+.footer-admin:hover { color: var(--gold); }
 
 /* RESPONSIVE */
 @media (max-width: 768px) {

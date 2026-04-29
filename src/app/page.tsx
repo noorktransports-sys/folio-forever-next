@@ -423,6 +423,12 @@ export default function HomePage() {
         </ul>
         <span className="footer-copy">
           © {new Date().getFullYear()} Folio &amp; Forever. All rights reserved.
+          {' · '}
+          {/* Discreet admin link — not advertised on the homepage hero
+              (would attract brute-force attempts) but easy to find for
+              Jayvee in the footer. Bookmarking /admin is the better
+              path; this is the safety net. */}
+          <a href="/admin" className="footer-admin">Admin</a>
         </span>
       </footer>
     </>

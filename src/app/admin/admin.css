@@ -1,0 +1,419 @@
+/**
+ * Admin styles — utilitarian, fast-loading, no decorative chrome.
+ *
+ * Different visual register from the customer-facing /design and /album
+ * pages. Those are intentionally cinematic; this is a workbench. White
+ * surfaces, dense rows, small type, copyable values.
+ */
+
+.admin-shell,
+.admin-login-shell {
+  min-height: 100vh;
+  background: #faf7f0;
+  color: #1a1410;
+  font-family: var(--font-body, system-ui, -apple-system, Segoe UI, sans-serif);
+  padding: 28px 36px 80px;
+  box-sizing: border-box;
+}
+.admin-login-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-tag {
+  font-size: 10px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: #b8965a;
+  margin-bottom: 6px;
+}
+
+.admin-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 0.5px solid #e1d8c4;
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.admin-top h1 {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 30px;
+  font-weight: 400;
+  margin: 0;
+}
+.admin-top-actions { display: flex; gap: 10px; }
+
+.admin-logout {
+  background: transparent;
+  color: #6b5e4d;
+  border: 0.5px solid #c8baa0;
+  border-radius: 30px;
+  padding: 8px 18px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 11px;
+}
+.admin-logout:hover { background: #efe8d6; color: #1a1410; }
+
+.admin-empty {
+  margin: 60px auto;
+  max-width: 460px;
+  text-align: center;
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 12px;
+  padding: 40px 28px;
+}
+.admin-empty h2 {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 24px;
+  margin: 0 0 8px;
+  font-weight: 400;
+}
+.admin-empty p {
+  font-size: 13px;
+  color: #6b5e4d;
+  line-height: 1.7;
+  margin: 0;
+}
+.admin-empty a { color: #b8965a; }
+
+/* ---------- stat cards ---------- */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.admin-stat {
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.admin-stat-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b5e4d;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.admin-stat-value {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 30px;
+  font-weight: 400;
+  color: #1a1410;
+  line-height: 1;
+}
+.admin-stat-pending { background: #fbf6e8; }
+.admin-stat-pending .admin-stat-value { color: #8a7d68; }
+.admin-stat-soon {
+  background: #ede1c5;
+  color: #6b5e4d;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ---------- tabs ---------- */
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 0.5px solid #e1d8c4;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  padding-bottom: 0;
+}
+.admin-tab {
+  padding: 10px 16px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #6b5e4d;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.admin-tab:hover { color: #1a1410; }
+.admin-tab.is-active {
+  color: #1a1410;
+  border-bottom-color: #b8965a;
+  font-weight: 500;
+}
+
+/* ---------- status badges + paid pills ---------- */
+.admin-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  border: 0.5px solid;
+}
+.admin-status-submitted { background: #fbf2db; color: #8a6913; border-color: #e6cf8b; }
+.admin-status-in_progress { background: #e8f0fa; color: #2a4a76; border-color: #a8c4e6; }
+.admin-status-shipped { background: #e7f5ec; color: #2a6a3f; border-color: #a8d8b8; }
+.admin-status-delivered { background: #d6efdc; color: #1c4a2c; border-color: #7abe92; }
+.admin-status-cancelled { background: #f4e0e0; color: #7a2828; border-color: #d8a8a8; }
+
+.admin-paid-yes { color: #2a6a3f; font-weight: 500; font-size: 13px; }
+.admin-paid-no { color: #6b5e4d; font-size: 12px; }
+
+.admin-status-control { display: flex; flex-direction: column; gap: 6px; }
+.admin-status-select {
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 0.5px solid #c8baa0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-family: inherit;
+  background: #fff;
+  cursor: pointer;
+}
+.admin-status-select:disabled { opacity: 0.6; cursor: progress; }
+
+/* ---------- orders table ---------- */
+.admin-orders-meta {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b5e4d;
+  margin-bottom: 10px;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 12px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 0.5px solid #efe8d6;
+  vertical-align: top;
+}
+.admin-table th {
+  background: #f5efdf;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b5e4d;
+  font-weight: 500;
+}
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table tr:hover td { background: #fdf9ee; }
+.admin-when { font-variant-numeric: tabular-nums; color: #6b5e4d; }
+.admin-orderid {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  background: #f5efdf;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.admin-cust-name { font-weight: 500; }
+.admin-cust-email {
+  color: #b8965a;
+  text-decoration: none;
+  font-size: 12px;
+}
+.admin-cust-email:hover { text-decoration: underline; }
+.admin-open-btn {
+  background: #1a1410;
+  color: #f0e4ce;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.admin-open-btn:hover { background: #2a201a; }
+
+/* ---------- order detail ---------- */
+.admin-order-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.admin-meta-block {
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.admin-meta-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #b8965a;
+  margin-bottom: 6px;
+}
+.admin-meta-value { font-size: 14px; line-height: 1.4; }
+.admin-meta-value.muted { color: #6b5e4d; font-size: 12px; }
+.admin-meta-link { color: #b8965a; font-size: 13px; text-decoration: none; }
+.admin-meta-link:hover { text-decoration: underline; }
+
+.admin-order-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 26px;
+  flex-wrap: wrap;
+}
+.admin-action-primary,
+.admin-action-secondary {
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-decoration: none;
+  font-family: inherit;
+  border: 0.5px solid transparent;
+}
+.admin-action-primary {
+  background: #b8965a;
+  color: #1a1410;
+  font-weight: 500;
+}
+.admin-action-primary:hover { background: #cca468; }
+.admin-action-secondary {
+  background: transparent;
+  color: #6b5e4d;
+  border-color: #c8baa0;
+}
+.admin-action-secondary:hover { background: #efe8d6; color: #1a1410; }
+
+.admin-photos-heading {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 22px;
+  font-weight: 400;
+  margin: 0 0 14px;
+}
+.admin-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.admin-photo-card {
+  display: block;
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 6px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.admin-photo-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(26, 20, 16, 0.1);
+}
+.admin-photo-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #f5efdf;
+}
+.admin-photo-id {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #6b5e4d;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- login form ---------- */
+.admin-login-card {
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 12px;
+  padding: 36px 32px;
+  width: min(420px, 100%);
+  text-align: center;
+}
+.admin-login-card h1 {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 28px;
+  font-weight: 400;
+  margin: 0 0 6px;
+}
+.admin-login-desc {
+  font-size: 13px;
+  color: #6b5e4d;
+  line-height: 1.6;
+  margin: 0 0 22px;
+}
+.admin-login-input {
+  width: 100%;
+  background: #faf7f0;
+  border: 0.5px solid #c8baa0;
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  margin-bottom: 14px;
+  box-sizing: border-box;
+  color: #1a1410;
+}
+.admin-login-input:focus {
+  outline: none;
+  border-color: #b8965a;
+  box-shadow: 0 0 0 2px rgba(184, 150, 90, 0.18);
+}
+.admin-login-error {
+  font-size: 12px;
+  color: #cf3a3a;
+  margin-bottom: 12px;
+  background: rgba(207, 58, 58, 0.08);
+  padding: 8px;
+  border-radius: 4px;
+}
+.admin-login-submit {
+  width: 100%;
+  background: #1a1410;
+  color: #f0e4ce;
+  border: none;
+  border-radius: 30px;
+  padding: 12px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+}
+.admin-login-submit:disabled { opacity: 0.6; cursor: progress; }
+
+@media (max-width: 720px) {
+  .admin-shell { padding: 16px 14px 60px; }
+  .admin-table th,
+  .admin-table td { padding: 10px 8px; font-size: 12px; }
+  .admin-photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}

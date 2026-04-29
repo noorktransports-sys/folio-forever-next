@@ -42,6 +42,25 @@ interface KVNamespace {
   ): Promise<void>;
 }
 
+// Special KV key — holds a JSON array of every submitted-order summary
+// so the admin dashboard can list them without scanning the whole KV.
+// We append on each successful submit. Rare race window if two orders
+// land in the same millisecond; acceptable at our volume.
+const ORDERS_INDEX_KEY = '_orders_index_v1';
+interface IndexEntry {
+  token: string;
+  orderId: string;
+  customerName: string;
+  customerEmail: string;
+  size: string;
+  totalSpreads: number;
+  photoCount: number;
+  submittedAt: string;
+  status?: string;
+  paid?: boolean;
+  amountPaid?: number;
+}
+
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   SITE_URL?: string;
@@ -120,6 +139,57 @@ export async function POST(request: Request) {
   await env.DESIGN_DRAFTS.put(token, JSON.stringify(design), {
     expirationTtl: SUBMITTED_TTL_SECONDS,
   });
+
+  // Append to the orders index so the admin dashboard can list
+  // submissions chronologically. Read-modify-write — two simultaneous
+  // submits in the same millisecond could lose one entry, but at this
+  // scale that's a non-issue and the underlying design record is still
+  // safely written above.
+  try {
+    const indexJson = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
+    const index: IndexEntry[] = indexJson ? JSON.parse(indexJson) : [];
+    const customerForIndex = (design.customer || {}) as {
+      email?: string;
+      name?: string;
+    };
+    const photos =
+      design && (design as { uploadedPhotos?: Record<string, string> })
+        .uploadedPhotos;
+    const photoCount = photos ? Object.keys(photos).length : 0;
+    index.unshift({
+      token,
+      orderId,
+      customerName: customerForIndex.name || '',
+      customerEmail: customerForIndex.email || '',
+      size: (design as { size?: string }).size || '',
+      totalSpreads: (design as { totalSpreads?: number }).totalSpreads || 0,
+      photoCount,
+      submittedAt,
+      status: 'submitted',
+      // Payment placeholder — populated later by Stripe webhook.
+      paid: false,
+      amountPaid: 0,
+    });
+    await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
+  } catch (e) {
+    console.warn('Folio submit-order: failed to update orders index', e);
+  }
+
+  // Once submitted, drop the design from the drafts index — it's no
+  // longer a "lead" since the customer crossed the commit line.
+  try {
+    const draftsJson = await env.DESIGN_DRAFTS.get('_drafts_index_v1');
+    if (draftsJson) {
+      const drafts = JSON.parse(draftsJson) as Array<{ token: string }>;
+      const filtered = drafts.filter((d) => d.token !== token);
+      await env.DESIGN_DRAFTS.put(
+        '_drafts_index_v1',
+        JSON.stringify(filtered),
+      );
+    }
+  } catch (e) {
+    console.warn('Folio submit-order: drafts index cleanup failed', e);
+  }
 
   // Fire the owner + customer emails in 'order' mode. Same Resend wiring
   // we already use for save-mode confirmations; this just flips the
