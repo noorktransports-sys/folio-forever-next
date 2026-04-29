@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
 import './cover-builder.css';
 
 /**
@@ -193,14 +193,79 @@ interface CoverBuilderProps {
  */
 const TILT_MAX_DEG = 8;
 
+/**
+ * localStorage keys.
+ *   COVER_LS_KEY — cover-builder state (CoverState).
+ *   PHOTOS_LS_KEY — photos uploaded directly from the cover step
+ *                   (so they survive refresh in the photo grid).
+ *
+ * Versioning prevents stale shapes from breaking new builds: bump v on
+ * incompatible schema changes and reads will fall back to defaults.
+ */
+const COVER_LS_KEY = 'folio-cover-v1';
+const COVER_PHOTOS_LS_KEY = 'folio-cover-photos-v1';
+
+function loadCoverState(): CoverState {
+  if (typeof window === 'undefined') return initialState;
+  try {
+    const raw = window.localStorage.getItem(COVER_LS_KEY);
+    if (!raw) return initialState;
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 1 || !data.state) return initialState;
+    return { ...initialState, ...data.state };
+  } catch {
+    return initialState;
+  }
+}
+
+function loadCoverPhotos(): { id: string; src: string }[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(COVER_PHOTOS_LS_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 1 || !Array.isArray(data.photos)) return [];
+    return data.photos;
+  } catch {
+    return [];
+  }
+}
+
 export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: CoverBuilderProps) {
-  const [state, setState] = useState<CoverState>(initialState);
+  // Lazy initializers read once from localStorage on mount. Subsequent
+  // updates are flushed back via the useEffects below.
+  const [state, setState] = useState<CoverState>(loadCoverState);
   const [coverOpen, setCoverOpen] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>([]);
+  const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>(loadCoverPhotos);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Persist whenever cover state changes — names, fonts, position, photo
+  // crop transforms, everything. localStorage write is synchronous but
+  // tiny (~1 kB) so no debounce needed at this scale.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        COVER_LS_KEY,
+        JSON.stringify({ v: 1, state, savedAt: new Date().toISOString() }),
+      );
+    } catch {
+      // Storage disabled / quota — silently fall through.
+    }
+  }, [state]);
+
+  // Persist the cover-direct upload list separately from CoverState so the
+  // photo grid keeps its history even if state is reset.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        COVER_PHOTOS_LS_KEY,
+        JSON.stringify({ v: 1, photos: extraCoverPhotos }),
+      );
+    } catch {}
+  }, [extraCoverPhotos]);
 
   const update = <K extends keyof CoverState>(key: K, value: CoverState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));

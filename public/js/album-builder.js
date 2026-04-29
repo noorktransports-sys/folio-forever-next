@@ -61,6 +61,88 @@
 
   for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 1, slots: [null, null] });
 
+  /**
+   * localStorage persistence — keeps the design alive across refreshes.
+   *
+   * Why: photos are already safely uploaded to R2; what disappears on refresh
+   * is the *map* of which photos belong to this design and which slot they
+   * sit in. We persist the small metadata (URLs + slot transforms), not the
+   * actual image bytes. ~10 kB per design, well under the 5 MB cap.
+   *
+   * Schema versioning (v: 1) lets us bump and ignore stale state if we ever
+   * change the shape. Failures (storage disabled, quota full, JSON parse) are
+   * logged and swallowed — the builder keeps working from defaults.
+   *
+   * The "right" answer is server-side persistence in D1 with a cookie-based
+   * design id, which we'll add when login lands. Until then, localStorage
+   * covers ~99% of the "I came back to my design" use case (same browser,
+   * same device).
+   */
+  const LS_KEY = 'folio-design-v1';
+
+  function saveLocalState() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        v: 1,
+        uploadedPhotos,
+        spreadData,
+        currentSpread,
+        totalSpreads,
+        currentSize,
+        selectedLayout,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch (e) {
+      // Quota or disabled-storage. Don't crash the app over a save failure.
+      console.warn('Folio: cannot persist design state', e);
+    }
+  }
+
+  function loadLocalState() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (!data || data.v !== 1) return false;
+      if (data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
+        uploadedPhotos = data.uploadedPhotos;
+      }
+      if (Array.isArray(data.spreadData) && data.spreadData.length > 0) {
+        spreadData = data.spreadData;
+        totalSpreads = data.spreadData.length;
+      }
+      if (typeof data.currentSpread === 'number') {
+        currentSpread = Math.max(0, Math.min(totalSpreads - 1, data.currentSpread));
+      }
+      if (typeof data.currentSize === 'string' && sizes[data.currentSize]) {
+        currentSize = data.currentSize;
+      }
+      if (typeof data.selectedLayout === 'number') {
+        selectedLayout = Math.max(0, Math.min(layouts.length - 1, data.selectedLayout));
+      }
+      return true;
+    } catch (e) {
+      console.warn('Folio: cannot restore design state', e);
+      return false;
+    }
+  }
+
+  function rebuildPhotoGrid() {
+    const grid = document.getElementById('photoGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    Object.entries(uploadedPhotos).forEach(([id, raw]) => {
+      const src = typeof raw === 'string' ? raw : raw && raw.src;
+      if (src) addThumb(id, src);
+    });
+    updatePhotoCount();
+  }
+
+  // Restore on script init. Render is deferred — the spread builder isn't
+  // mounted until the user picks "I'll design it", at which point choosePath
+  // calls renderCanvas + rebuildPhotoGrid against the already-restored state.
+  loadLocalState();
+
   function choosePath(type) {
     const intro = document.getElementById('introSection');
     if (intro) intro.style.display = 'none';
@@ -76,6 +158,8 @@
       renderPageStrip();
       renderCanvas();
       updateSpreadInfoLabel();
+      // Repopulate the photo sidebar from any restored uploads.
+      rebuildPhotoGrid();
     } else {
       const expert = document.getElementById('expertSection');
       if (expert) expert.classList.add('active');
@@ -90,6 +174,7 @@
       b.classList.toggle('active', b.dataset.size === sizeKey);
     });
     updateSpreadInfoLabel();
+    saveLocalState();
   }
 
   function applySizeToCanvas(sizeKey) {
@@ -505,23 +590,29 @@
   }
 
   // ── UNDO / REDO ──
+  // saveHistory/doUndo/doRedo all funnel through saveLocalState so the
+  // localStorage snapshot stays in sync with whatever state the user
+  // can see on the canvas.
   let history = [], future = [];
   function saveHistory() {
     history.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     if (history.length > 30) history.shift();
     future = [];
+    saveLocalState();
   }
   function doUndo() {
     if (!history.length) return;
     future.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(history.pop());
     renderCanvas();
+    saveLocalState();
   }
   function doRedo() {
     if (!future.length) return;
     history.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(future.pop());
     renderCanvas();
+    saveLocalState();
   }
 
   /**
@@ -759,6 +850,8 @@
     t.draggable = true;
     t.ondragstart = e => dragPhoto(e, id);
     t.innerHTML = '<img src="' + src + '" alt=""><div class="thumb-overlay">Drag</div>';
+    // Persist the new photo so it's still in the grid after refresh.
+    saveLocalState();
   }
 
   function markPlaceholderError(tmpId, fileName, errMsg, file) {
@@ -818,7 +911,7 @@
     for (let i = 0; i < totalSpreads; i++) {
       const m = document.createElement('div');
       m.className = 'page-mini' + (i === currentSpread ? ' active' : '');
-      m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); };
+      m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); saveLocalState(); };
       m.innerHTML = (i + 1) + '<span class="page-mini-num">Spread ' + (i + 1) + '</span>';
       strip.appendChild(m);
     }
@@ -833,6 +926,7 @@
       renderPageStrip();
       currentSpread = totalSpreads - 1;
       renderCanvas();
+      saveLocalState();
     };
     strip.appendChild(add);
   }
@@ -846,6 +940,7 @@
       selectedLayout = spreadData[currentSpread].layoutId;
       renderCanvas();
       renderLayoutPanel();
+      saveLocalState();
     }
   }
   function nextSpread() {
@@ -854,6 +949,7 @@
       selectedLayout = spreadData[currentSpread].layoutId;
       renderCanvas();
       renderLayoutPanel();
+      saveLocalState();
     }
   }
   function zoom(d) {
