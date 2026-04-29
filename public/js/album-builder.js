@@ -1001,6 +1001,175 @@
   }
 
   /**
+   * showShareModal — vanilla-JS overlay shown after a successful Save.
+   *
+   * Why a custom modal instead of window.prompt: prompt can only show one
+   * label + one input, no buttons, ugly mobile keyboard pop-up. The custom
+   * modal gives Copy / Email / WhatsApp side-by-side, and lets us use
+   * neutral wording (Save & Share is shown to both couples designing for
+   * themselves AND photographers designing for their couples — saying
+   * "share with your client" assumes the photographer audience).
+   *
+   * Built inline so we don't need a separate modal component or CSS file.
+   * Cleans itself up on close. Esc key + backdrop click both dismiss.
+   */
+  function showShareModal(url) {
+    // Tear down any previous instance to avoid stacking.
+    const prev = document.getElementById('folio-share-modal');
+    if (prev) prev.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'folio-share-modal';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:9999',
+      'background:rgba(14,12,9,0.78)',
+      'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'padding:20px',
+    ].join(';');
+
+    const card = document.createElement('div');
+    card.style.cssText = [
+      'background:#1a1610', 'color:#f0e4ce',
+      'border:0.5px solid rgba(184,150,90,0.25)',
+      'border-radius:14px', 'padding:32px 28px',
+      'max-width:460px', 'width:100%',
+      'box-shadow:0 30px 80px rgba(0,0,0,0.6)',
+      'font-family:var(--font-body, system-ui, sans-serif)',
+    ].join(';');
+
+    const tag = document.createElement('div');
+    tag.textContent = 'Saved';
+    tag.style.cssText = [
+      'font-size:9px', 'letter-spacing:3px', 'text-transform:uppercase',
+      'color:#b8965a', 'margin-bottom:10px',
+    ].join(';');
+
+    const title = document.createElement('div');
+    title.textContent = 'Your design is saved';
+    title.style.cssText = [
+      'font-family:var(--font-display, "Cormorant Garamond", serif)',
+      'font-size:24px', 'color:#f0e4ce', 'margin-bottom:8px',
+    ].join(';');
+
+    const desc = document.createElement('div');
+    desc.textContent = 'Open this link on any device to come back to it. The link works for 60 days.';
+    desc.style.cssText = [
+      'font-size:12px', 'line-height:1.7', 'color:#a89a82',
+      'margin-bottom:18px',
+    ].join(';');
+
+    const linkRow = document.createElement('div');
+    linkRow.style.cssText = 'display:flex;gap:6px;margin-bottom:14px';
+
+    const linkInput = document.createElement('input');
+    linkInput.type = 'text';
+    linkInput.value = url;
+    linkInput.readOnly = true;
+    linkInput.style.cssText = [
+      'flex:1', 'background:#0e0c09',
+      'border:0.5px solid rgba(184,150,90,0.3)', 'border-radius:6px',
+      'padding:10px 12px', 'color:#f0e4ce', 'font-size:11px',
+      'font-family:ui-monospace, SFMono-Regular, monospace',
+      'outline:none',
+    ].join(';');
+    linkInput.onclick = () => linkInput.select();
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.textContent = 'Copy';
+    copyBtn.style.cssText = [
+      'background:#b8965a', 'color:#0e0c09', 'border:none',
+      'border-radius:6px', 'padding:10px 16px',
+      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
+      'cursor:pointer', 'font-weight:600',
+    ].join(';');
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        copyBtn.textContent = 'Copied ✓';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      } catch (_) {
+        linkInput.select();
+        document.execCommand('copy');
+        copyBtn.textContent = 'Copied ✓';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      }
+    };
+
+    linkRow.appendChild(linkInput);
+    linkRow.appendChild(copyBtn);
+
+    // Share buttons row
+    const shareRow = document.createElement('div');
+    shareRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap';
+
+    const shareSubject = encodeURIComponent('My album design — Folio & Forever');
+    const shareBody = encodeURIComponent(
+      'Here is the link to my album design:\n\n' + url +
+      '\n\nClick to view it on any device.',
+    );
+    const waText = encodeURIComponent('My album design: ' + url);
+
+    const emailBtn = document.createElement('a');
+    emailBtn.href = 'mailto:?subject=' + shareSubject + '&body=' + shareBody;
+    emailBtn.textContent = '✉  Email this link';
+    emailBtn.style.cssText = [
+      'flex:1', 'min-width:140px',
+      'background:transparent', 'color:#b8965a',
+      'border:0.5px solid rgba(184,150,90,0.4)', 'border-radius:6px',
+      'padding:10px 14px', 'text-align:center',
+      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
+      'text-decoration:none', 'cursor:pointer',
+    ].join(';');
+
+    const waBtn = document.createElement('a');
+    waBtn.href = 'https://wa.me/?text=' + waText;
+    waBtn.target = '_blank';
+    waBtn.rel = 'noopener';
+    waBtn.textContent = 'WhatsApp';
+    waBtn.style.cssText = emailBtn.style.cssText;
+
+    shareRow.appendChild(emailBtn);
+    shareRow.appendChild(waBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.textContent = 'Done';
+    closeBtn.style.cssText = [
+      'width:100%', 'background:transparent',
+      'color:#a89a82', 'border:0.5px solid rgba(184,150,90,0.2)',
+      'border-radius:30px', 'padding:10px',
+      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
+      'cursor:pointer',
+    ].join(';');
+    closeBtn.onclick = () => overlay.remove();
+
+    card.appendChild(tag);
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(linkRow);
+    card.appendChild(shareRow);
+    card.appendChild(closeBtn);
+    overlay.appendChild(card);
+
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    const escListener = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', escListener);
+      }
+    };
+    document.addEventListener('keydown', escListener);
+
+    document.body.appendChild(overlay);
+    // Auto-select the URL so screen readers / paste-keyboards get it.
+    setTimeout(() => linkInput.select(), 50);
+  }
+
+  /**
    * Save & Share — POSTs the full design state to /api/designs which
    * stores it in Cloudflare KV (binding DESIGN_DRAFTS) and returns a
    * shareable token. The user gets a URL like
@@ -1035,16 +1204,14 @@
       }
       const data = await res.json();
       const url = data.shareUrl || (window.location.origin + '/design?d=' + data.token);
-      // Copy to clipboard if possible, then prompt so the user has the link.
+      // Auto-copy to clipboard, then show a real share modal — not the
+      // browser's native prompt which only shows one piece of text.
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(url);
         }
-      } catch (_) { /* not critical */ }
-      window.prompt(
-        'Saved! Share this link to come back to your design from any device:',
-        url,
-      );
+      } catch (_) { /* clipboard permission denied — not critical */ }
+      showShareModal(url);
       return data;
     } catch (err) {
       console.warn('Folio: save to server failed, falling back to local-only', err);
