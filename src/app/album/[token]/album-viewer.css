@@ -605,6 +605,12 @@
     padding: 0;
     /* Hide native scrollbar — keep the rail looking clean. */
     scrollbar-width: none;
+    /* Press-and-slide gesture: the rail's onTouchStart/Move handlers
+       jump to whichever pill is under the finger. touch-action:none
+       stops the browser from scrolling the page at the same time —
+       otherwise the rail would only catch the first tap and the
+       finger drag would just scroll the spread list. */
+    touch-action: none;
   }
   .album-page-numbers::-webkit-scrollbar { display: none; }
 

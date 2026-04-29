@@ -365,6 +365,10 @@ export default function AlbumViewer({
     if (!cells || cells.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
+        // Don't update index during programmatic scrolls — otherwise the
+        // observer reads transient mid-scroll positions and lands us on
+        // page 4 when the user clicked 5.
+        if (programmaticScrollRef.current) return;
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
@@ -426,6 +430,67 @@ export default function AlbumViewer({
   }, [submitting, isSubmitted, customerName, token]);
 
   const carouselRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  // True while we're driving the scroll (click or drag on the rail).
+  // The IntersectionObserver below ignores updates during this window
+  // so it doesn't fight the programmatic scroll and land us off-by-one.
+  const programmaticScrollRef = useRef(false);
+
+  /**
+   * Jump to a specific spread. Locks the observer briefly so it doesn't
+   * fire mid-smooth-scroll and clobber index. Used by both click and
+   * the press-and-slide rail gesture.
+   */
+  const jumpTo = useCallback(
+    (i: number) => {
+      const target = Math.max(0, Math.min(total - 1, i));
+      programmaticScrollRef.current = true;
+      setIndex(target);
+      const cells = carouselRef.current?.querySelectorAll(
+        '.album-carousel-cell',
+      );
+      const cell = cells?.[target] as HTMLElement | undefined;
+      cell?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 700 ms covers a typical smooth scroll; the observer can resume
+      // once the user is in control again.
+      window.setTimeout(() => {
+        programmaticScrollRef.current = false;
+      }, 700);
+    },
+    [total],
+  );
+
+  /**
+   * Press-and-slide on the side rail (mobile-friendly): touching or
+   * dragging the rail finds whichever pill is under the finger and
+   * jumps to that spread. Lets the customer "scrub" through pages by
+   * holding the rail and sliding — same affordance iOS Contacts
+   * uses for the alphabet index.
+   */
+  const handleRailPointer = useCallback(
+    (clientY: number) => {
+      const rail = railRef.current;
+      if (!rail) return;
+      const buttons = rail.querySelectorAll<HTMLButtonElement>(
+        '.album-page-num',
+      );
+      for (let i = 0; i < buttons.length; i++) {
+        const r = buttons[i].getBoundingClientRect();
+        if (clientY >= r.top && clientY <= r.bottom) {
+          if (i !== index) jumpTo(i);
+          return;
+        }
+      }
+      // Above the first or below the last pill — clamp.
+      if (buttons.length > 0) {
+        const firstRect = buttons[0].getBoundingClientRect();
+        const lastRect = buttons[buttons.length - 1].getBoundingClientRect();
+        if (clientY < firstRect.top) jumpTo(0);
+        else if (clientY > lastRect.bottom) jumpTo(buttons.length - 1);
+      }
+    },
+    [index, jumpTo],
+  );
 
   return (
     <main className="album-viewer">
@@ -549,9 +614,29 @@ export default function AlbumViewer({
             </div>
             {total > 1 ? (
               <div
+                ref={railRef}
                 className="album-page-numbers"
                 role="tablist"
                 aria-label="Jump to spread"
+                onTouchStart={(e) => {
+                  // touch-action: none on the CSS prevents the browser
+                  // from also scrolling the page while we scrub.
+                  if (e.touches[0]) handleRailPointer(e.touches[0].clientY);
+                }}
+                onTouchMove={(e) => {
+                  if (e.touches[0]) handleRailPointer(e.touches[0].clientY);
+                }}
+                onMouseDown={(e) => {
+                  // Desktop press-and-slide also works (rare but cheap).
+                  handleRailPointer(e.clientY);
+                  const move = (m: MouseEvent) => handleRailPointer(m.clientY);
+                  const up = () => {
+                    document.removeEventListener('mousemove', move);
+                    document.removeEventListener('mouseup', up);
+                  };
+                  document.addEventListener('mousemove', move);
+                  document.addEventListener('mouseup', up);
+                }}
               >
                 {spreads.map((_, i) => (
                   <button
@@ -563,22 +648,7 @@ export default function AlbumViewer({
                     className={
                       'album-page-num' + (i === index ? ' is-active' : '')
                     }
-                    onClick={() => {
-                      setIndex(i);
-                      // On mobile the carousel is a vertical scroll-snap
-                      // column, not a translate-X track — setIndex alone
-                      // doesn't move the viewport. Explicitly scroll the
-                      // target cell into view so the side-rail jump works
-                      // on phone too.
-                      const cells = carouselRef.current?.querySelectorAll(
-                        '.album-carousel-cell',
-                      );
-                      const cell = cells?.[i] as HTMLElement | undefined;
-                      cell?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start',
-                      });
-                    }}
+                    onClick={() => jumpTo(i)}
                   >
                     {i + 1}
                   </button>
