@@ -1001,16 +1001,17 @@
   }
 
   /**
-   * Save & Share — for v1 this is a localStorage-only checkpoint. The
-   * real implementation (server-side persistence + shareable preview URL)
-   * needs the D1 database + /api/designs route, which lands with the
-   * Clerk login phase. Until then we:
-   *   - Force a save to localStorage so the design is durable on this device
-   *   - Show a friendly toast confirming the save (no fake share URL —
-   *     we won't pretend a feature exists when it doesn't)
+   * Save & Share — POSTs the full design state to /api/designs which
+   * stores it in Cloudflare KV (binding DESIGN_DRAFTS) and returns a
+   * shareable token. The user gets a URL like
+   *   https://folioforever.com/design?d=ab12cd34
+   * which they can paste into chat / email / their own site. Opening
+   * that URL on any device pulls the design back via /api/designs/[token].
    *
-   * Once D1 is wired we'll re-enable the fetch to /api/designs and replace
-   * the toast with the real share-link prompt that was here before.
+   * 60-day TTL — abandoned designs auto-purge.
+   *
+   * Falls back to a localStorage-only save if the network call fails
+   * (offline, server down) so the user doesn't lose their work.
    */
   async function saveDesign(opts) {
     opts = opts || {};
@@ -1020,19 +1021,38 @@
       btn.dataset.origLabel = btn.textContent;
       btn.textContent = 'Saving…';
     }
+    // Always update localStorage as a fast-path / offline backup.
+    saveLocalState();
     try {
-      saveLocalState();
-      // Brief flash to confirm. Reuse alert for now; nicer toast can wait.
-      if (btn) {
-        btn.textContent = 'Saved ✓';
-        await new Promise((r) => setTimeout(r, 1200));
-      } else {
-        alert('Design saved on this device. Sharing links are coming once login is enabled.');
+      const res = await fetch('/api/designs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serializeDesign()),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body && body.error ? body.error : 'HTTP ' + res.status);
       }
-      return { saved: true, local: true };
+      const data = await res.json();
+      const url = data.shareUrl || (window.location.origin + '/design?d=' + data.token);
+      // Copy to clipboard if possible, then prompt so the user has the link.
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+        }
+      } catch (_) { /* not critical */ }
+      window.prompt(
+        'Saved! Share this link to come back to your design from any device:',
+        url,
+      );
+      return data;
     } catch (err) {
-      alert('Could not save: ' + (err && err.message ? err.message : 'unknown error'));
-      return null;
+      console.warn('Folio: save to server failed, falling back to local-only', err);
+      alert(
+        'Saved on this device only — the share link couldn’t be created.\n' +
+        '(' + (err && err.message ? err.message : 'unknown error') + ')',
+      );
+      return { saved: true, local: true };
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -1040,6 +1060,52 @@
       }
     }
   }
+
+  /**
+   * If the URL contains ?d=<token>, fetch that saved design and replace
+   * the in-memory state with it before any rendering happens. This is
+   * how shared links open the same design on any device.
+   *
+   * Errors fall back to whatever loadLocalState() already restored — the
+   * user sees their last-edited design, not an empty designer.
+   */
+  async function loadFromTokenIfPresent() {
+    if (typeof window === 'undefined' || !window.location) return;
+    const m = window.location.search.match(/[?&]d=([a-f0-9]{8,64})/i);
+    if (!m) return;
+    const token = m[1];
+    try {
+      const res = await fetch('/api/designs/' + encodeURIComponent(token));
+      if (!res.ok) {
+        console.warn('Folio: shared design not found or expired', token);
+        return;
+      }
+      const data = await res.json();
+      if (data && Array.isArray(data.spreadData)) {
+        spreadData = data.spreadData;
+        totalSpreads = data.spreadData.length;
+      }
+      if (data && data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
+        uploadedPhotos = data.uploadedPhotos;
+      }
+      if (data && typeof data.currentSpread === 'number') currentSpread = data.currentSpread;
+      if (data && typeof data.currentSize === 'string' && sizes[data.currentSize]) currentSize = data.currentSize;
+      // After replacing state, persist locally so a subsequent refresh
+      // (without the ?d= query) still shows the same design.
+      saveLocalState();
+      // If the spread builder is already mounted, force a re-render.
+      if (document.getElementById('photoGrid')) {
+        renderCanvas();
+        renderPageStrip();
+        renderLayoutPanel();
+        rebuildPhotoGrid();
+      }
+    } catch (e) {
+      console.warn('Folio: failed to load shared design', e);
+    }
+  }
+  // Fire on script init so the URL token wins over any localStorage state.
+  loadFromTokenIfPresent();
 
   // Defensive: function declarations in a non-module script are already on
   // window in browser contexts, but explicit assignment guarantees the

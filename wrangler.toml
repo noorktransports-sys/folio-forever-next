@@ -20,11 +20,13 @@ pages_build_output_dir = ".vercel/output/static"
 # database_name = "folio-forever-db"
 # database_id = "REPLACE_WITH_D1_ID_AFTER_CREATE"
 
-# --- KV — short-lived design drafts (anonymous, pre-signup) ---
-# Commented out until KV namespace is created and the real id is pasted in.
-# [[kv_namespaces]]
-# binding = "DESIGN_DRAFTS"
-# id = "REPLACE_WITH_KV_ID_AFTER_CREATE"
+# --- KV — design drafts. Namespace created 2026-04-28 in dashboard. ---
+# Used by /api/designs (POST writes the design under a random token,
+# GET /api/designs/{token} reads it back). 60-day TTL matches the photo
+# retention spec. Native binding: env.DESIGN_DRAFTS.put / get.
+[[kv_namespaces]]
+binding = "DESIGN_DRAFTS"
+id = "325e972a22e749e2915d3ac0ce98eb6b"
 
 # --- R2 — primary photo storage. Bucket created 2026-04-28. ---
 # Native binding: env.PHOTOS.put(key, body) from edge route handlers.
