@@ -76,7 +76,7 @@ export default function DesignerPage() {
       {/* ?v= query bumps a hard cache miss — Cloudflare serves /js/* with
           max-age=14400 so without this, browsers keep the old JS for hours
           after a deploy. Bump this string on every functional JS change. */}
-      <Script src="/js/album-builder.js?v=20260429-4" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260429-5" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>

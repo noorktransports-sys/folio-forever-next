@@ -990,12 +990,24 @@
   }
 
   function serializeDesign() {
+    // Cover state lives in the React cover-builder component (separate
+    // from this script) and is mirrored onto window.__coverState by
+    // /design/page.tsx every render. The viewer at /album/[token] needs
+    // it to render the cover face — without this, the share link would
+    // open with no cover image / no text / no leather color.
+    let cover = null;
+    try {
+      if (typeof window !== 'undefined' && window.__coverState) {
+        cover = window.__coverState;
+      }
+    } catch (_) { /* ignore — non-blocking */ }
     return {
       version: 1,
       size: currentSize,
       totalSpreads,
       spreadData,
       uploadedPhotos,
+      cover,
       // Customer info captured by the email-gate modal at design start.
       // Server stores it alongside the design so we know who owns each
       // share token. Empty when user skipped the gate.
@@ -1447,7 +1459,7 @@
         throw new Error(body && body.error ? body.error : 'HTTP ' + res.status);
       }
       const data = await res.json();
-      const url = data.shareUrl || (window.location.origin + '/design?d=' + data.token);
+      const url = data.shareUrl || (window.location.origin + '/album/' + data.token);
       // Auto-copy to clipboard, then show a real share modal — not the
       // browser's native prompt which only shows one piece of text.
       try {

@@ -75,7 +75,13 @@ export async function POST(request: Request) {
   });
 
   const siteUrl = env.SITE_URL || 'https://folioforever.com';
-  const shareUrl = `${siteUrl}/design?d=${token}`;
+  // Share URL points to the read-only viewer at /album/<token> — NOT
+  // the editor at /design?d=<token>. Customers landing in the editor
+  // tend to keep tweaking and re-saving, generating duplicate tokens
+  // and order-confirmation noise. The viewer is the artifact; the
+  // editor is the workshop. The original customer can still reach
+  // the editor via the "Edit this design" link inside the viewer.
+  const shareUrl = `${siteUrl}/album/${token}`;
 
   return new Response(
     JSON.stringify({ token, shareUrl, expiresIn: TTL_SECONDS }),

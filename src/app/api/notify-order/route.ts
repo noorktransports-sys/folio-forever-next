@@ -159,7 +159,7 @@ export async function POST(request: Request) {
   const fromAddr = env.ORDER_FROM_EMAIL || DEFAULT_FROM;
   const ownerAddr = env.OWNER_EMAIL || DEFAULT_OWNER;
 
-  const designLink = `${siteUrl}/design?d=${token}`;
+  const designLink = `${siteUrl}/album/${token}`;
   const photos = photoUrls(design, siteUrl);
   const photoCount = photos.length;
   const size = design.size || '—';
