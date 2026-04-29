@@ -1000,29 +1000,44 @@
     };
   }
 
+  /**
+   * Save & Share — for v1 this is a localStorage-only checkpoint. The
+   * real implementation (server-side persistence + shareable preview URL)
+   * needs the D1 database + /api/designs route, which lands with the
+   * Clerk login phase. Until then we:
+   *   - Force a save to localStorage so the design is durable on this device
+   *   - Show a friendly toast confirming the save (no fake share URL —
+   *     we won't pretend a feature exists when it doesn't)
+   *
+   * Once D1 is wired we'll re-enable the fetch to /api/designs and replace
+   * the toast with the real share-link prompt that was here before.
+   */
   async function saveDesign(opts) {
     opts = opts || {};
     const btn = opts.buttonEl;
-    if (btn) { btn.disabled = true; btn.dataset.origLabel = btn.textContent; btn.textContent = 'Saving…'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.origLabel = btn.textContent;
+      btn.textContent = 'Saving…';
+    }
     try {
-      const res = await fetch('/api/designs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ design: serializeDesign(), title: opts.title || '' })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = data && data.message ? data.message : 'Save failed (HTTP ' + res.status + ')';
-        alert(msg);
-        return null;
+      saveLocalState();
+      // Brief flash to confirm. Reuse alert for now; nicer toast can wait.
+      if (btn) {
+        btn.textContent = 'Saved ✓';
+        await new Promise((r) => setTimeout(r, 1200));
+      } else {
+        alert('Design saved on this device. Sharing links are coming once login is enabled.');
       }
-      window.prompt('Design saved. Copy this preview URL to share with your client:', data.preview_url);
-      return data;
+      return { saved: true, local: true };
     } catch (err) {
-      alert('Network error saving design: ' + err.message);
+      alert('Could not save: ' + (err && err.message ? err.message : 'unknown error'));
       return null;
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origLabel || 'Save & Share'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.origLabel || 'Save & Share';
+      }
     }
   }
 
@@ -1056,3 +1071,28 @@
   window.ftbRotate = ftbRotate;
   window.ftbReset = ftbReset;
   window.ftbDelete = ftbDelete;
+
+  /**
+   * Failsafe persistence.
+   *
+   * Per-action hooks (saveLocalState calls inside uploadOne, saveHistory,
+   * etc.) sometimes silently miss — async timing, DOM disruption, errors
+   * swallowed by .catch handlers. A periodic poll catches every change
+   * within 2 s regardless of which path mutated state. Cost is trivial:
+   * the whole design serializes to ~10 KB and localStorage writes are
+   * synchronous but cheap.
+   *
+   * Also expose saveLocalState + uploadedPhotos to the window so we can
+   * verify state from devtools (read-only inspection — nothing else
+   * depends on these globals).
+   */
+  window.saveLocalState = saveLocalState;
+  window.__folioInspect = {
+    get uploadedPhotos() { return uploadedPhotos; },
+    get spreadData() { return spreadData; },
+    get currentSpread() { return currentSpread; },
+    get totalSpreads() { return totalSpreads; },
+    get currentSize() { return currentSize; },
+    get selectedLayout() { return selectedLayout; },
+  };
+  setInterval(saveLocalState, 2000);
