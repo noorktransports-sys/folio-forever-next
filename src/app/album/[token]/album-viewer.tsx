@@ -578,11 +578,12 @@ export default function AlbumViewer({
               ← Cover
             </button>
           ) : null}
-          {/* Edit affordance is in the top bar for the original device,
-              always visible across stages. Hidden once submitted (the
-              album is locked) and hidden for non-owner viewers (a
-              photographer the link was shared with shouldn't see an
-              edit button — they'd be editing someone else's album). */}
+          {/* Edit affordance — visible to the original device (owner)
+              and only on draft / not-yet-submitted albums. Once
+              submitted, Edit is replaced with "Request changes" so the
+              customer can email Jayvee instead of silently re-editing
+              an order that's already in production. Photographers /
+              family the link was shared with see neither. */}
           {isOwner && !isSubmitted ? (
             <Link
               href={editLink}
@@ -591,6 +592,25 @@ export default function AlbumViewer({
             >
               ✎ Edit
             </Link>
+          ) : null}
+          {isOwner && isSubmitted && design.status !== 'cancelled' ? (
+            <a
+              href={`mailto:orders@folioforever.com?subject=${encodeURIComponent(
+                'Change request — order ' + (design.orderId || ''),
+              )}&body=${encodeURIComponent(
+                'Order: ' +
+                  (design.orderId || '') +
+                  '\nAlbum link: ' +
+                  (typeof window !== 'undefined' ? window.location.origin : '') +
+                  '/album/' +
+                  token +
+                  '\n\nWhat I’d like to change:\n',
+              )}`}
+              className="album-edit-link"
+              aria-label="Request changes"
+            >
+              ✎ Request changes
+            </a>
           ) : null}
           {isSubmitted ? (
             <span className="album-badge-submitted" title="This album has been submitted for production">
