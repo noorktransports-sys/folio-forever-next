@@ -82,7 +82,7 @@ export default function DesignerPage() {
       {/* ?v= query bumps a hard cache miss — Cloudflare serves /js/* with
           max-age=14400 so without this, browsers keep the old JS for hours
           after a deploy. Bump this string on every functional JS change. */}
-      <Script src="/js/album-builder.js?v=20260429-8" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260429-9" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -93,21 +93,15 @@ export default function DesignerPage() {
           <Link href="/" className="nav-back">
             ← Back
           </Link>
-          <button
-            type="button"
-            className="nav-submit"
-            id="navSaveBtn"
-            onClick={(e) => fb('saveDesign', { buttonEl: e.currentTarget })}
-            style={{
-              display: 'none',
-              background: 'transparent',
-              color: 'var(--gold)',
-              border: '0.5px solid var(--gold)',
-              marginRight: 6,
-            }}
-          >
-            Save &amp; Share
-          </button>
+          {/* The old "Save & Share" button is removed deliberately.
+              It called saveDesign directly, which serializes the design
+              before the cover step has been touched — so window.__coverState
+              is null and the saved record has no cover. Users then opened
+              the share link and saw the default "Our Story" placeholder.
+              The canonical path is now: spreads → Cover → Preview album.
+              That button below transitions to the cover step; the
+              "Preview album →" button inside cover-builder.tsx is what
+              actually saves + redirects to /album/<token>. */}
           <button
             type="button"
             className="nav-submit"

@@ -452,6 +452,20 @@ export default function AlbumViewer({
               ← Cover
             </button>
           ) : null}
+          {/* Edit affordance is in the top bar for the original device,
+              always visible across stages. Hidden once submitted (the
+              album is locked) and hidden for non-owner viewers (a
+              photographer the link was shared with shouldn't see an
+              edit button — they'd be editing someone else's album). */}
+          {isOwner && !isSubmitted ? (
+            <Link
+              href={editLink}
+              className="album-edit-link"
+              aria-label="Edit album"
+            >
+              ✎ Edit
+            </Link>
+          ) : null}
           {isSubmitted ? (
             <span className="album-badge-submitted" title="This album has been submitted for production">
               Submitted &#10003;

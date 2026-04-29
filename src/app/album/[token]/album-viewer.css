@@ -63,6 +63,22 @@
   background: rgba(184, 150, 90, 0.22);
   color: #f0e4ce;
 }
+.album-edit-link {
+  background: transparent;
+  border: 0.5px solid rgba(184, 150, 90, 0.4);
+  border-radius: 30px;
+  padding: 7px 14px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #b8965a;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.album-edit-link:hover {
+  background: rgba(184, 150, 90, 0.18);
+  color: #f0e4ce;
+}
 
 /* ---------- stage ---------- */
 .album-stage {
