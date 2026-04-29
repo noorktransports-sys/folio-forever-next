@@ -348,6 +348,36 @@ export default function AlbumViewer({
     return () => window.removeEventListener('keydown', onKey);
   }, [next, prev, stage]);
 
+  // Mobile scroll-spy: on phones the carousel is a vertical scroll-snap
+  // column rather than a translate-X track. When the customer scrolls
+  // through spreads with their finger, the highlighted page-number pill
+  // in the side rail must follow them — otherwise pill 1 stays gold no
+  // matter where they are. IntersectionObserver fires when each spread
+  // crosses the middle of the viewport; whichever spread is most-visible
+  // becomes the new index. Desktop ignores this — the carousel transform
+  // already keeps index in sync.
+  useEffect(() => {
+    if (stage !== 'spreads') return;
+    if (typeof window === 'undefined') return;
+    const isMobile = window.matchMedia('(max-width: 720px)').matches;
+    if (!isMobile) return;
+    const cells = carouselRef.current?.querySelectorAll('.album-carousel-cell');
+    if (!cells || cells.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        const idx = Number((visible.target as HTMLElement).dataset.spreadIndex);
+        if (!Number.isNaN(idx)) setIndex(idx);
+      },
+      { threshold: [0.5, 0.7, 0.9] },
+    );
+    cells.forEach((c) => observer.observe(c));
+    return () => observer.disconnect();
+  }, [stage, total]);
+
   const sizeLabel = design.size || '';
   const customerName = design.customer?.name || '';
   const editLink = `/design?d=${encodeURIComponent(token)}`;
@@ -475,7 +505,11 @@ export default function AlbumViewer({
               style={{ transform: `translateX(-${index * 100}%)` }}
             >
               {spreads.map((s, i) => (
-                <div className="album-carousel-cell" key={i}>
+                <div
+                  className="album-carousel-cell"
+                  key={i}
+                  data-spread-index={i}
+                >
                   <SpreadCard spread={s} />
                 </div>
               ))}
@@ -515,7 +549,22 @@ export default function AlbumViewer({
                     className={
                       'album-page-num' + (i === index ? ' is-active' : '')
                     }
-                    onClick={() => setIndex(i)}
+                    onClick={() => {
+                      setIndex(i);
+                      // On mobile the carousel is a vertical scroll-snap
+                      // column, not a translate-X track — setIndex alone
+                      // doesn't move the viewport. Explicitly scroll the
+                      // target cell into view so the side-rail jump works
+                      // on phone too.
+                      const cells = carouselRef.current?.querySelectorAll(
+                        '.album-carousel-cell',
+                      );
+                      const cell = cells?.[i] as HTMLElement | undefined;
+                      cell?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                      });
+                    }}
                   >
                     {i + 1}
                   </button>

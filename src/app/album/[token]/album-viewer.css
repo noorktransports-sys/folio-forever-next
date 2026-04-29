@@ -548,17 +548,57 @@
     aspect-ratio: 3 / 2;
   }
   .album-nav { display: none; }
+  /* Page jump = vertical side rail on the right edge.
+     Reasoning: a horizontal pill-row eats valuable spread height on
+     phones; a fixed side rail is one thumb-tap away without intruding
+     on the photo. The current page number is highlighted gold like
+     desktop. The rail floats above content (z-index) and uses a
+     translucent dark backdrop so it stays legible over any spread. */
   .album-progress {
-    position: sticky;
-    bottom: 12px;
-    left: 0;
-    transform: none;
-    background: rgba(14, 10, 7, 0.92);
-    padding: 8px 12px;
-    border-radius: 14px;
+    position: fixed;
+    top: 50%;
+    right: 6px;
+    bottom: auto;
+    left: auto;
+    transform: translateY(-50%);
+    background: rgba(14, 10, 7, 0.85);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 8px 6px;
+    border-radius: 18px;
+    border: 0.5px solid rgba(184, 150, 90, 0.25);
     width: auto;
+    max-height: 80vh;
+    z-index: 6;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
   }
-  .album-page-numbers { max-width: 88vw; }
-  .album-page-num { min-width: 24px; height: 24px; font-size: 10px; }
+  /* Hide the "Spread X of Y" caption on phone — the highlighted
+     pill in the rail already conveys position, and the label takes
+     vertical space the rail can't afford. */
+  .album-progress-label { display: none; }
+
+  .album-page-numbers {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    max-width: none;
+    max-height: 78vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    /* Hide native scrollbar — keep the rail looking clean. */
+    scrollbar-width: none;
+  }
+  .album-page-numbers::-webkit-scrollbar { display: none; }
+
+  .album-page-num {
+    min-width: 28px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
   .album-meta { gap: 10px; }
 }
