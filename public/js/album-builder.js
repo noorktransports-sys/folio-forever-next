@@ -1315,84 +1315,18 @@
     shareRow.appendChild(emailBtn);
     shareRow.appendChild(waBtn);
 
-    // ---------- Place Order ----------
-    // Distinct CTA from Save & Share. Clicking this fires /api/notify-order
-    // which sends a confirmation to the customer + the order details to
-    // noorktransports@gmail.com (the business owner). Later this same
-    // button will hand off to Stripe Checkout before notifying.
-    const placeOrderBtn = document.createElement('button');
-    placeOrderBtn.type = 'button';
-    placeOrderBtn.textContent = 'Place order';
-    placeOrderBtn.style.cssText = [
-      'width:100%', 'background:#b8965a', 'color:#0e0c09',
-      'border:none', 'border-radius:30px', 'padding:14px',
-      'font-size:11px', 'letter-spacing:3px', 'text-transform:uppercase',
-      'font-weight:700', 'cursor:pointer', 'margin-bottom:10px',
-    ].join(';');
-
+    // ---------- Auto-email status line ----------
+    // Save & Share auto-fires /api/notify-order in customer-only mode so
+    // the customer gets the share link in their inbox without an extra
+    // click. The status line below the buttons confirms the send (or
+    // explains the failure). The owner email (noorktransports@gmail.com)
+    // is NOT fired here — that goes out on actual payment, otherwise
+    // every draft save would look like a new order.
     const orderStatus = document.createElement('div');
     orderStatus.style.cssText = [
       'font-size:11px', 'line-height:1.6', 'color:#a89a82',
-      'margin-bottom:12px', 'min-height:14px',
+      'margin-bottom:14px', 'min-height:14px', 'text-align:center',
     ].join(';');
-
-    placeOrderBtn.onclick = async () => {
-      if (!token) {
-        orderStatus.textContent = 'Save the design first.';
-        orderStatus.style.color = '#cf6a6a';
-        return;
-      }
-      const stored =
-        (typeof getStoredCustomer === 'function' && getStoredCustomer()) || {};
-      let customerEmail = (stored && stored.email) || '';
-      const customerName = (stored && stored.name) || '';
-      // If the user skipped the email gate, ask now — we need somewhere
-      // to send the confirmation.
-      if (!customerEmail) {
-        const entered = prompt(
-          'Enter your email so we can send the order confirmation:',
-        );
-        if (!entered) return;
-        customerEmail = entered.trim();
-        try {
-          if (typeof setStoredCustomer === 'function') {
-            setStoredCustomer({ email: customerEmail, name: customerName });
-          }
-        } catch (_) {}
-      }
-      placeOrderBtn.disabled = true;
-      const origLabel = placeOrderBtn.textContent;
-      placeOrderBtn.textContent = 'Placing order…';
-      orderStatus.textContent = '';
-      try {
-        const res = await fetch('/api/notify-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, customerEmail, customerName }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data && data.error ? data.error : 'HTTP ' + res.status);
-        }
-        placeOrderBtn.textContent = 'Order placed ✓';
-        placeOrderBtn.style.background = '#2f5e3a';
-        placeOrderBtn.style.color = '#f0e4ce';
-        orderStatus.style.color = '#a89a82';
-        orderStatus.textContent =
-          'Order ' +
-          (data.orderId || '') +
-          ' — confirmation sent to ' +
-          customerEmail +
-          '.';
-      } catch (err) {
-        placeOrderBtn.disabled = false;
-        placeOrderBtn.textContent = origLabel;
-        orderStatus.style.color = '#cf6a6a';
-        orderStatus.textContent =
-          'Could not place order: ' +
-          (err && err.message ? err.message : 'unknown error');
-      }
-    };
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
@@ -1411,9 +1345,50 @@
     card.appendChild(desc);
     card.appendChild(linkRow);
     card.appendChild(shareRow);
-    card.appendChild(placeOrderBtn);
     card.appendChild(orderStatus);
     card.appendChild(closeBtn);
+
+    // ---------- Auto-fire the customer email ----------
+    // Runs in parallel with the modal showing. Status line above gets
+    // updated when it resolves. Failures are non-blocking — the share
+    // link is already in the modal, the email is a bonus.
+    (async () => {
+      if (!token) return;
+      const stored =
+        (typeof getStoredCustomer === 'function' && getStoredCustomer()) || {};
+      const customerEmail = (stored && stored.email) || '';
+      const customerName = (stored && stored.name) || '';
+      if (!customerEmail) {
+        orderStatus.textContent =
+          'Tip: enter your email next time and we’ll send this link to your inbox.';
+        return;
+      }
+      orderStatus.textContent = 'Sending the link to ' + customerEmail + '…';
+      try {
+        const res = await fetch('/api/notify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            customerEmail,
+            customerName,
+            mode: 'save',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data && data.error ? data.error : 'HTTP ' + res.status);
+        }
+        orderStatus.style.color = '#9ec79a';
+        orderStatus.textContent = '✓ Sent to ' + customerEmail;
+      } catch (err) {
+        orderStatus.style.color = '#cf6a6a';
+        orderStatus.textContent =
+          'Could not email the link (' +
+          (err && err.message ? err.message : 'unknown') +
+          ') — you can still copy or share it above.';
+      }
+    })();
     overlay.appendChild(card);
 
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };

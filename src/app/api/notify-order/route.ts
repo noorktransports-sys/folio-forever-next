@@ -8,7 +8,14 @@
  * called from the checkout.session.completed webhook.
  *
  * Body shape:
- *   { token: string, customerEmail?: string, customerName?: string }
+ *   { token: string, customerEmail?: string, customerName?: string,
+ *     mode?: 'save' | 'order' }
+ *
+ * mode = 'save'  → email the customer only (their share-link receipt).
+ *                  Used by Save & Share so iterating doesn't spam the owner.
+ * mode = 'order' → email both customer + owner. This is the real "new order"
+ *                  notification, fired only on payment success (eventually
+ *                  by the Stripe webhook). Default if mode is omitted.
  *
  * The design is fetched from KV (DESIGN_DRAFTS) using the token. We pull
  * size / total spreads / photo URLs directly from the saved JSON instead
@@ -119,13 +126,19 @@ export async function POST(request: Request) {
   if (!env.DESIGN_DRAFTS) return err(503, 'design storage unavailable');
   if (!env.RESEND_API_KEY) return err(503, 'email provider not configured');
 
-  let body: { token?: string; customerEmail?: string; customerName?: string };
+  let body: {
+    token?: string;
+    customerEmail?: string;
+    customerName?: string;
+    mode?: string;
+  };
   try {
     body = await request.json();
   } catch {
     return err(400, 'invalid JSON body');
   }
 
+  const mode = body.mode === 'save' ? 'save' : 'order';
   const token = body.token;
   if (!token || !/^[a-f0-9]{8,64}$/i.test(token)) {
     return err(400, 'invalid or missing token');
@@ -200,7 +213,24 @@ export async function POST(request: Request) {
     }
   }
 
-  // ---------- Owner email (always, this is how Jayvee gets the order) ----------
+  // ---------- Owner email ----------
+  // Save mode skips this — Save & Share fires repeatedly while the
+  // customer iterates, and we don't want to spam Jayvee with fake
+  // "new order" notices. Real orders fire the route in 'order' mode
+  // (later: from the Stripe webhook on payment success).
+  if (mode === 'save') {
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        orderId,
+        customerEmailSent,
+        ownerEmailSent: false,
+        mode,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const photoListHtml = photos.length
     ? `<ul style="font-size:12px;line-height:1.7;padding-left:18px">${photos
         .map(
@@ -251,6 +281,7 @@ export async function POST(request: Request) {
       orderId,
       customerEmailSent,
       ownerEmailSent: true,
+      mode,
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );
