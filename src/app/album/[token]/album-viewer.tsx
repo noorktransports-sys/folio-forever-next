@@ -489,8 +489,39 @@ export default function AlbumViewer({
           >
             ›
           </button>
+          {/* Quick-jump page numbers. Click any number to jump straight
+              to that spread — beats clicking through six arrows when the
+              user remembers "the photo I wanted to fix is on page 9".
+              Wraps onto multiple rows for big albums; the active page
+              gets a gold pill. The "Spread X of Y" text stays as a
+              positional readout, just smaller and above the numbers. */}
           <div className="album-progress">
-            Spread {index + 1} <span>of {total}</span>
+            <div className="album-progress-label">
+              Spread {index + 1} <span>of {total}</span>
+            </div>
+            {total > 1 ? (
+              <div
+                className="album-page-numbers"
+                role="tablist"
+                aria-label="Jump to spread"
+              >
+                {spreads.map((_, i) => (
+                  <button
+                    type="button"
+                    key={i}
+                    role="tab"
+                    aria-selected={i === index}
+                    aria-label={`Go to spread ${i + 1}`}
+                    className={
+                      'album-page-num' + (i === index ? ' is-active' : '')
+                    }
+                    onClick={() => setIndex(i)}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
