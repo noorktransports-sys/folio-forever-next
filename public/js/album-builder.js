@@ -996,8 +996,188 @@
       totalSpreads,
       spreadData,
       uploadedPhotos,
+      // Customer info captured by the email-gate modal at design start.
+      // Server stores it alongside the design so we know who owns each
+      // share token. Empty when user skipped the gate.
+      customer: getStoredCustomer() || null,
       savedAt: new Date().toISOString()
     };
+  }
+
+  /**
+   * showEmailGate — captures customer email before they start designing.
+   *
+   * Why a soft gate (skippable) rather than hard block:
+   *   - Hard blocking before the design tool is seen tanks conversion
+   *   - But asking AFTER they've designed for 20 min is a friction spike
+   *     at the worst moment (they just want to save)
+   *   - Compromise: ask up-front with clear value ("we'll email you your
+   *     design link so you can come back later"), but allow Skip
+   *
+   * Captured email lives in localStorage (folio-customer-v1) and is also
+   * included in the /api/designs POST payload so the server knows who
+   * owns each saved design. Future: Resend will send them an email with
+   * their share link automatically when they hit Save & Share.
+   */
+  const CUSTOMER_LS_KEY = 'folio-customer-v1';
+
+  function getStoredCustomer() {
+    try {
+      const raw = localStorage.getItem(CUSTOMER_LS_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  }
+  function setStoredCustomer(data) {
+    try {
+      localStorage.setItem(CUSTOMER_LS_KEY, JSON.stringify({ v: 1, ...data, savedAt: new Date().toISOString() }));
+    } catch (_) { /* storage disabled */ }
+  }
+
+  function showEmailGate() {
+    if (getStoredCustomer()) return; // already captured
+
+    const overlay = document.createElement('div');
+    overlay.id = 'folio-email-gate';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:9998',
+      'background:rgba(14,12,9,0.9)',
+      'backdrop-filter:blur(6px)', '-webkit-backdrop-filter:blur(6px)',
+      'display:flex', 'align-items:center', 'justify-content:center',
+      'padding:20px',
+    ].join(';');
+
+    const card = document.createElement('div');
+    card.style.cssText = [
+      'background:#1a1610', 'color:#f0e4ce',
+      'border:0.5px solid rgba(184,150,90,0.25)',
+      'border-radius:14px', 'padding:36px 30px 28px',
+      'max-width:440px', 'width:100%',
+      'box-shadow:0 30px 80px rgba(0,0,0,0.6)',
+      'font-family:var(--font-body, system-ui, sans-serif)',
+    ].join(';');
+
+    const tag = document.createElement('div');
+    tag.textContent = 'Before you begin';
+    tag.style.cssText = 'font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:10px';
+
+    const title = document.createElement('div');
+    title.innerHTML = 'Where should we send<br>your design link?';
+    title.style.cssText = [
+      'font-family:var(--font-display, "Cormorant Garamond", serif)',
+      'font-size:26px', 'line-height:1.2',
+      'color:#f0e4ce', 'margin-bottom:10px',
+    ].join(';');
+
+    const desc = document.createElement('div');
+    desc.textContent = 'Your design auto-saves while you work. We email you a link so you can come back to it from any device, any time.';
+    desc.style.cssText = 'font-size:12px;line-height:1.7;color:#a89a82;margin-bottom:22px';
+
+    const inputStyle = [
+      'width:100%', 'box-sizing:border-box',
+      'background:#0e0c09',
+      'border:0.5px solid rgba(184,150,90,0.3)', 'border-radius:6px',
+      'padding:12px 14px', 'color:#f0e4ce',
+      'font-size:13px', 'font-family:inherit',
+      'outline:none', 'margin-bottom:10px',
+    ].join(';');
+
+    const emailLabel = document.createElement('div');
+    emailLabel.textContent = 'Email';
+    emailLabel.style.cssText = 'font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a89a82;margin-bottom:6px';
+    const emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.placeholder = 'you@example.com';
+    emailInput.required = true;
+    emailInput.style.cssText = inputStyle;
+
+    const nameLabel = document.createElement('div');
+    nameLabel.innerHTML = 'Name <span style="opacity:0.5">(optional)</span>';
+    nameLabel.style.cssText = 'font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a89a82;margin-bottom:6px';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Sarah';
+    nameInput.style.cssText = inputStyle;
+
+    const errorMsg = document.createElement('div');
+    errorMsg.style.cssText = 'font-size:11px;color:#ff6b6b;margin-bottom:10px;min-height:16px';
+
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'button';
+    submitBtn.textContent = 'Continue to designer →';
+    submitBtn.style.cssText = [
+      'width:100%', 'background:#b8965a', 'color:#0e0c09',
+      'border:none', 'border-radius:30px',
+      'padding:14px', 'font-size:11px',
+      'letter-spacing:2px', 'text-transform:uppercase',
+      'cursor:pointer', 'font-weight:600',
+      'margin-top:6px',
+    ].join(';');
+
+    function submit() {
+      const email = emailInput.value.trim();
+      if (!email) { errorMsg.textContent = 'Email is required'; emailInput.focus(); return; }
+      // Loose RFC check — server will validate properly later
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        errorMsg.textContent = 'That email looks off — please double-check';
+        emailInput.focus();
+        return;
+      }
+      setStoredCustomer({ email, name: nameInput.value.trim() });
+      overlay.remove();
+    }
+
+    submitBtn.onclick = submit;
+    emailInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+    nameInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+
+    const skipLink = document.createElement('a');
+    skipLink.href = '#';
+    skipLink.textContent = 'Skip — I’ll add my email later';
+    skipLink.style.cssText = [
+      'display:block', 'text-align:center',
+      'font-size:10px', 'letter-spacing:1px',
+      'color:#a89a82', 'text-decoration:none',
+      'margin-top:14px', 'opacity:0.7',
+    ].join(';');
+    skipLink.onclick = (e) => {
+      e.preventDefault();
+      // Mark as deferred so we don't keep nagging — but with no email value
+      setStoredCustomer({ email: '', name: '', deferred: true });
+      overlay.remove();
+    };
+
+    const privacy = document.createElement('div');
+    privacy.textContent = 'We never share your email. No marketing — only your saved designs and order updates.';
+    privacy.style.cssText = 'font-size:10px;color:#7a6f5b;text-align:center;margin-top:14px;line-height:1.5';
+
+    card.appendChild(tag);
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(emailLabel);
+    card.appendChild(emailInput);
+    card.appendChild(nameLabel);
+    card.appendChild(nameInput);
+    card.appendChild(errorMsg);
+    card.appendChild(submitBtn);
+    card.appendChild(skipLink);
+    card.appendChild(privacy);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    setTimeout(() => emailInput.focus(), 50);
+  }
+
+  // Show the gate as soon as the script runs. If it's already captured,
+  // showEmailGate is a no-op (early return).
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', showEmailGate);
+    } else {
+      showEmailGate();
+    }
   }
 
   /**
