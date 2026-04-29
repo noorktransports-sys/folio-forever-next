@@ -20,6 +20,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { readProSession } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
 
@@ -53,6 +54,7 @@ interface DraftEntry {
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   SITE_URL?: string;
+  ADMIN_PASSWORD?: string;
 }
 
 function err(status: number, message: string) {
@@ -67,6 +69,11 @@ export async function POST(request: Request) {
   if (!env.DESIGN_DRAFTS) {
     return err(503, 'design storage unavailable');
   }
+
+  // Detect logged-in photographer (cookie). If present, the design
+  // gets tagged with their accountId so the /pro dashboard can list
+  // it. Anonymous (couple-direct) saves stay un-tagged.
+  const photographerId = await readProSession(request, env.ADMIN_PASSWORD);
 
   const text = await request.text();
   if (!text || text.length === 0) return err(400, 'empty body');
@@ -85,9 +92,58 @@ export async function POST(request: Request) {
   // Generate a 12-hex-char token. Web Crypto is available at the edge.
   const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
-  await env.DESIGN_DRAFTS.put(token, text, {
+  // If a photographer is signed in, splice their accountId into the
+  // saved design JSON before persisting so /album and admin views can
+  // attribute the order. We do a parse/stringify round trip here only
+  // when needed — most saves just write `text` straight through.
+  let bodyToWrite = text;
+  if (photographerId) {
+    try {
+      const parsed = JSON.parse(text);
+      parsed.photographerId = photographerId;
+      bodyToWrite = JSON.stringify(parsed);
+    } catch { /* validated above; defensive */ }
+  }
+  await env.DESIGN_DRAFTS.put(token, bodyToWrite, {
     expirationTtl: TTL_SECONDS,
   });
+
+  // Append to the photographer's album index so /pro dashboard lists it.
+  if (photographerId) {
+    try {
+      const indexKey = `_photographer_${photographerId}_albums_v1`;
+      const existing = await env.DESIGN_DRAFTS.get(indexKey);
+      const list: Array<Record<string, unknown>> = existing
+        ? JSON.parse(existing)
+        : [];
+      // Avoid duplicates if the same token was saved before.
+      if (!list.find((e) => (e as { token?: string }).token === token)) {
+        const parsed = JSON.parse(text) as {
+          customer?: { name?: string; email?: string };
+          size?: string;
+          totalSpreads?: number;
+          uploadedPhotos?: Record<string, unknown>;
+        };
+        const photoCount = parsed.uploadedPhotos
+          ? Object.keys(parsed.uploadedPhotos).length
+          : 0;
+        list.unshift({
+          token,
+          customerName: parsed.customer?.name || '',
+          customerEmail: parsed.customer?.email || '',
+          size: parsed.size || '',
+          totalSpreads: parsed.totalSpreads || 0,
+          photoCount,
+          status: 'draft',
+          savedAt: new Date().toISOString(),
+        });
+        if (list.length > 200) list.length = 200;
+        await env.DESIGN_DRAFTS.put(indexKey, JSON.stringify(list));
+      }
+    } catch (e) {
+      console.warn('Folio designs: photographer index update failed', e);
+    }
+  }
 
   // Append to drafts index for the admin dashboard. Best-effort —
   // failures here mustn't break the save itself.

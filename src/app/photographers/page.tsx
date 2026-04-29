@@ -50,9 +50,27 @@ export default function PhotographersPage() {
             <Link href={ROUTE_SAMPLE}>Sample Kit</Link>
           </li>
         </ul>
-        <Link href={ROUTE_DESIGN} className="nav-cta">
-          Order Now
-        </Link>
+        {/* Pro nav cluster — sign-in goes to magic-link request,
+            apply opens the signup form. The original "Order now" CTA
+            is replaced because pros aren't supposed to enter via the
+            customer flow; their orders happen inside their dashboard. */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <Link
+            href="/pro/login"
+            style={{
+              color: 'var(--gold)',
+              fontSize: 12,
+              letterSpacing: 2,
+              textTransform: 'uppercase',
+              textDecoration: 'none',
+            }}
+          >
+            Sign in
+          </Link>
+          <Link href="/pro/join" className="nav-cta">
+            Apply
+          </Link>
+        </div>
       </nav>
 
       {/* HERO */}

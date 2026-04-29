@@ -136,9 +136,14 @@ export default async function AdminPage({
           <div className="admin-tag">Folio &amp; Forever — admin</div>
           <h1>Orders dashboard</h1>
         </div>
-        <form action="/api/admin/logout" method="post">
-          <button type="submit" className="admin-logout">Sign out</button>
-        </form>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Link href="/admin/photographers" className="admin-logout">
+            Photographers
+          </Link>
+          <form action="/api/admin/logout" method="post">
+            <button type="submit" className="admin-logout">Sign out</button>
+          </form>
+        </div>
       </header>
 
       {/* ----- stat cards ----- */}

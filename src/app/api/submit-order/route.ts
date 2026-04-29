@@ -72,6 +72,7 @@ interface SavedDesign {
   orderId?: string;
   customer?: { email?: string; name?: string } | null;
   shipping?: ShippingPayload | null;
+  photographerId?: string;
   [k: string]: unknown;
 }
 
@@ -225,6 +226,42 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     console.warn('Folio submit-order: drafts index cleanup failed', e);
+  }
+
+  // If the design was placed by a logged-in photographer, update their
+  // album index so /pro dashboard shows the new submitted status +
+  // orderId without needing to re-fetch each design's record.
+  if (design.photographerId) {
+    try {
+      const indexKey = `_photographer_${design.photographerId}_albums_v1`;
+      const raw = await env.DESIGN_DRAFTS.get(indexKey);
+      const list: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : [];
+      const i = list.findIndex(
+        (e) => (e as { token?: string }).token === token,
+      );
+      if (i >= 0) {
+        list[i].status = 'submitted';
+        list[i].orderId = orderId;
+        list[i].submittedAt = submittedAt;
+      } else {
+        // First time we see this token (rare — they submit a design
+        // saved by another route). Push a fresh entry.
+        list.unshift({
+          token,
+          orderId,
+          customerName: customerForIndex.name || '',
+          customerEmail: customerForIndex.email || '',
+          size: (design as { size?: string }).size || '',
+          totalSpreads: (design as { totalSpreads?: number }).totalSpreads || 0,
+          photoCount,
+          status: 'submitted',
+          submittedAt,
+        });
+      }
+      await env.DESIGN_DRAFTS.put(indexKey, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Folio submit-order: photographer index update failed', e);
+    }
   }
 
   // Fire the owner + customer emails in 'order' mode. Same Resend wiring
