@@ -37,4 +37,4 @@ bucket_name = "folioforever-photos"
 SITE_NAME = "Folio & Forever"
 SITE_URL = "https://folioforever.com"
 DESIGN_RETENTION_DAYS = "60"   # 2-month photo retention per spec
-MAX_UPLOAD_BYTES = "15728640"  # 15 MB JPG cap
+MAX_UPLOAD_BYTES = "31457280"  # 30 MB hard cap; client-side optimizer (album-builder.js) trims most uploads to ~5 MB before sending.
