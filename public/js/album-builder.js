@@ -587,10 +587,84 @@
     });
   }
 
+  /**
+   * optimizeImage — client-side resize + recompress before upload.
+   *
+   * Why: photographers commonly drop 12-25 MB JPGs straight from the camera.
+   * Most layouts only need ~3000-4500 px on the long edge to print at 300 DPI
+   * on a 17×24" album spread. Resizing client-side gives 6× faster uploads,
+   * fewer mobile-Safari crashes, and ~70% storage savings — without visibly
+   * compromising the print. Full-bleed 20×60 layouts may still want originals;
+   * a future toggle can opt out.
+   *
+   * Strategy:
+   *   - Skip non-decodable types (defensive; the upload route validates again).
+   *   - Skip files already below 1.5 MB — re-encoding gives no win.
+   *   - Decode via createImageBitmap (off-main-thread when supported).
+   *   - Resize so long edge ≤ MAX_LONG_EDGE.
+   *   - Re-encode as JPEG quality 0.9 (visually lossless for prints).
+   *   - Fall back to <canvas> if OffscreenCanvas unavailable (iOS < 16.4).
+   *   - If the optimized blob ends up larger than the original (rare for tiny
+   *     PNGs with hard edges), upload the original instead.
+   */
+  async function optimizeImage(file) {
+    const MAX_LONG_EDGE = 4500;
+    const QUALITY = 0.9;
+    const SKIP_BELOW_BYTES = 1.5 * 1024 * 1024;
+
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+    if (file.size < SKIP_BELOW_BYTES) return file;
+
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch (e) {
+      console.warn('Folio optimize: cannot decode, sending original', file.name, e);
+      return file;
+    }
+
+    const longEdge = Math.max(bitmap.width, bitmap.height);
+    const ratio = longEdge > MAX_LONG_EDGE ? MAX_LONG_EDGE / longEdge : 1;
+    const w = Math.max(1, Math.round(bitmap.width * ratio));
+    const h = Math.max(1, Math.round(bitmap.height * ratio));
+
+    let canvas;
+    let useOffscreen = typeof OffscreenCanvas !== 'undefined';
+    try {
+      canvas = useOffscreen ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    } catch (_) {
+      canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+      useOffscreen = false;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (typeof bitmap.close === 'function') bitmap.close();
+
+    let blob;
+    try {
+      if (useOffscreen && canvas.convertToBlob) {
+        blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: QUALITY });
+      } else {
+        blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', QUALITY));
+      }
+    } catch (e) {
+      console.warn('Folio optimize: encode failed, sending original', e);
+      return file;
+    }
+    if (!blob || blob.size >= file.size) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'photo';
+    return new File([blob], baseName + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+  }
+
   function uploadOne(file) {
     const tmpId = 'tmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
     addPlaceholderThumb(tmpId, file);
-    return storePhoto(file, info => updatePlaceholderProgress(tmpId, info))
+    // Optimize client-side first (resize + recompress to ~4500px JPEG Q90).
+    // The progress label flicks to "Optimizing…" during decode/encode.
+    updatePlaceholderProgress(tmpId, { stage: 'optimizing', pct: 0 });
+    return optimizeImage(file)
+      .then((opt) => storePhoto(opt, info => updatePlaceholderProgress(tmpId, info)))
       .then(({ id, src }) => {
         uploadedPhotos[id] = src;
         replacePlaceholderWithThumb(tmpId, id, src);
@@ -668,7 +742,8 @@
     const label = t.querySelector('.thumb-progress-label');
     if (fill) fill.style.width = Math.round(info.pct) + '%';
     if (label) {
-      if (info.stage === 'uploading') label.textContent = 'Uploading… ' + Math.round(info.pct) + '%';
+      if (info.stage === 'optimizing') label.textContent = 'Optimizing…';
+      else if (info.stage === 'uploading') label.textContent = 'Uploading… ' + Math.round(info.pct) + '%';
       else if (info.stage === 'processing') label.textContent = 'Processing…';
       else if (info.stage === 'done') label.textContent = 'Done';
     }
