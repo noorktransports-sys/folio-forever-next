@@ -1036,6 +1036,14 @@
 
   function showEmailGate() {
     if (getStoredCustomer()) return; // already captured
+    // If the URL has a ?d=<token>, the user is opening a saved/shared
+    // design — they're not starting a new project. Don't ask for email
+    // again. The original customer's email is already on the design,
+    // and a viewer (e.g. a photographer the customer shared with) should
+    // not be forced to hand over theirs just to look at the album.
+    if (typeof window !== 'undefined' && /[?&]d=[a-f0-9]{8,64}/i.test(window.location.search || '')) {
+      return;
+    }
 
     const overlay = document.createElement('div');
     overlay.id = 'folio-email-gate';
@@ -1493,6 +1501,16 @@
       }
       if (data && typeof data.currentSpread === 'number') currentSpread = data.currentSpread;
       if (data && typeof data.currentSize === 'string' && sizes[data.currentSize]) currentSize = data.currentSize;
+      // Restore the customer info that was saved with the design so the
+      // email gate stays dismissed and notify-order knows who placed it.
+      // Only seeds local storage when nothing's already there — never
+      // overwrite the current device's owner with someone else's data.
+      if (data && data.customer && data.customer.email && !getStoredCustomer()) {
+        setStoredCustomer({
+          email: data.customer.email,
+          name: data.customer.name || '',
+        });
+      }
       // After replacing state, persist locally so a subsequent refresh
       // (without the ?d= query) still shows the same design.
       saveLocalState();
