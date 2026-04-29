@@ -512,6 +512,98 @@
   .cover-add-photo-label { font-size: 8px; }
 }
 
+/* COVER CROP CONTROLS
+ * Shown beneath the photo grid once a photo is selected. Lets the user
+ * fine-tune zoom + position via slider/reset; drag-to-pan and wheel-zoom
+ * happen directly on the photo in the preview.
+ */
+.cover-crop-controls {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px dashed rgba(184, 150, 90, 0.2);
+}
+.cover-crop-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.cover-crop-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted2);
+  min-width: 38px;
+}
+.cover-crop-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: rgba(184, 150, 90, 0.3);
+  border-radius: 1px;
+  outline: none;
+  cursor: pointer;
+}
+.cover-crop-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px;
+  background: var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.cover-crop-slider::-moz-range-thumb {
+  width: 14px; height: 14px;
+  background: var(--gold);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.cover-crop-val {
+  font-size: 11px;
+  color: var(--cream);
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cover-crop-reset {
+  width: 100%;
+  background: transparent;
+  border: 0.5px solid rgba(184, 150, 90, 0.4);
+  color: var(--gold);
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border-radius: 30px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 8px;
+}
+.cover-crop-reset:hover:not(:disabled) {
+  background: rgba(184, 150, 90, 0.08);
+  border-color: var(--gold);
+}
+.cover-crop-reset:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cover-crop-hint {
+  font-size: 10px;
+  color: var(--muted2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* While the user is dragging the photo to pan, swap the cursor. */
+.cover-photo-backdrop:active {
+  cursor: grabbing !important;
+}
+
 /* COVER PHOTO UPLOAD BUTTON
  * Always visible inside the photo section for acrylic/photo types so users
  * can attach a cover photo without having to go back to the spread builder.

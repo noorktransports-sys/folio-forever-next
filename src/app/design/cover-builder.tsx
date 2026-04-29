@@ -100,6 +100,13 @@ export type CoverState = {
   type: CoverType;
   leatherColor: string;     // only meaningful when type === 'leather'
   photoSrc: string | null;  // only meaningful when type === 'acrylic' | 'photo'
+  // Cover-photo crop transforms. The photo is rendered with
+  //   transform: translate(photoX px, photoY px) scale(photoScale)
+  // so the user can pinch/drag/zoom to choose which part of the image
+  // sits on the printed cover. Reset on every new upload.
+  photoScale: number;
+  photoX: number;
+  photoY: number;
   primaryText: string;
   subtitleText: string;
   fontId: string;
@@ -153,10 +160,16 @@ const FONT_SIZE_MIN = 24;
 const FONT_SIZE_MAX = 96;
 const FONT_SIZE_DEFAULT = 52;
 
+const PHOTO_SCALE_MIN = 0.5;
+const PHOTO_SCALE_MAX = 3;
+
 const initialState: CoverState = {
   type: 'leather',
   leatherColor: 'black',
   photoSrc: null,
+  photoScale: 1,
+  photoX: 0,
+  photoY: 0,
   primaryText: 'Sarah & James',
   subtitleText: 'September 2024',
   fontId: 'cormorant',
@@ -228,6 +241,10 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       setState((prev) => ({
         ...prev,
         photoSrc: data.url,
+        // Reset crop transforms so the new photo starts cleanly fitted.
+        photoScale: 1,
+        photoX: 0,
+        photoY: 0,
         // If user is on leather, switch to photo cover so the upload is visible.
         type: prev.type === 'leather' ? 'photo' : prev.type,
       }));
@@ -258,6 +275,62 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       setState((prev) => ({ ...prev, type: 'photo' }));
     }
     coverFileInputRef.current?.click();
+  }
+
+  /**
+   * Drag-to-pan on the cover photo. Captures mousedown, tracks delta on
+   * window-level mousemove (so the drag survives leaving the photo bounds),
+   * releases on mouseup. While dragging we set --tx/--ty to 0 so the
+   * mouse-tilt doesn't fight the pan.
+   */
+  function handlePhotoMouseDown(e: MouseEvent<HTMLImageElement>) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startPx = state.photoX;
+    const startPy = state.photoY;
+    const stage = stageRef.current;
+    if (stage) {
+      stage.style.setProperty('--tx', '0deg');
+      stage.style.setProperty('--ty', '0deg');
+    }
+    const onMove = (ev: globalThis.MouseEvent) => {
+      setState((prev) => ({
+        ...prev,
+        photoX: startPx + (ev.clientX - startX),
+        photoY: startPy + (ev.clientY - startY),
+      }));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * Wheel zoom over the photo. preventDefault so the page doesn't scroll
+   * while the user is fine-tuning the crop. Step is small (4%) so it feels
+   * like a precise adjustment, not a jump.
+   */
+  function handlePhotoWheel(e: React.WheelEvent<HTMLImageElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setState((prev) => {
+      const next = prev.photoScale + (e.deltaY > 0 ? -0.04 : 0.04);
+      return {
+        ...prev,
+        photoScale: Math.max(PHOTO_SCALE_MIN, Math.min(PHOTO_SCALE_MAX, next)),
+      };
+    });
+  }
+
+  /** Snap the photo back to fit the cover (no zoom, no pan). */
+  function resetPhotoCrop() {
+    setState((prev) => ({ ...prev, photoScale: 1, photoX: 0, photoY: 0 }));
   }
 
   // Drag-and-drop on the preview frame. We accept the first image dropped,
@@ -334,21 +407,31 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
 
   // Acrylic + photo preview backgrounds use the picked photo. Acrylic adds a
   // subtle gloss overlay to suggest the transparent acrylic sheen on top.
+  // Transform combines pan (translate) and zoom (scale) so the user can crop
+  // the visible portion. transformOrigin is center so scale grows from middle.
   const photoBackdrop = state.photoSrc ? (
     <img
       src={state.photoSrc}
       alt=""
+      className="cover-photo-backdrop"
       style={{
         position: 'absolute',
         inset: 0,
         width: '100%',
         height: '100%',
         objectFit: 'cover',
+        transform: `translate(${state.photoX}px, ${state.photoY}px) scale(${state.photoScale})`,
+        transformOrigin: 'center center',
         // Acrylic mode: no filter, the gloss overlay is added via ::after.
         // Photo mode: subtle contrast bump to suggest the 3D tactile finish.
         filter: state.type === 'photo' ? 'contrast(1.05) saturate(1.05)' : 'none',
+        cursor: 'grab',
+        userSelect: 'none',
+        pointerEvents: 'auto',
       }}
       draggable={false}
+      onMouseDown={handlePhotoMouseDown}
+      onWheel={handlePhotoWheel}
     />
   ) : (
     <div
@@ -436,11 +519,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 {state.type === 'photo' && <div className="cover-tactile-overlay" />}
 
                 {/* "+ Add photo" button — rendered directly on the cover face
-                    when there's no photo set. Click opens the native file
-                    picker (iOS surfaces the camera roll, desktop opens the
-                    file dialog). On Leather we pre-switch to Photo Cover so
-                    the upload actually lands somewhere visible. */}
-                {!state.photoSrc && (
+                    when there's no photo set, but ONLY for cover types that
+                    actually use a photo (acrylic + photo). Leather is text +
+                    foil only; showing + there is misleading. If the user is
+                    on leather and wants to switch, they pick "Photo Cover"
+                    or "Acrylic" from the controls panel. */}
+                {!state.photoSrc &&
+                  (state.type === 'acrylic' || state.type === 'photo') && (
                   <button
                     type="button"
                     className="cover-add-photo-btn"
@@ -624,7 +709,15 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                         key={p.id}
                         type="button"
                         className={'cover-photo-thumb' + (state.photoSrc === p.src ? ' active' : '')}
-                        onClick={() => update('photoSrc', p.src)}
+                        onClick={() =>
+                          setState((prev) => ({
+                            ...prev,
+                            photoSrc: p.src,
+                            photoScale: 1,
+                            photoX: 0,
+                            photoY: 0,
+                          }))
+                        }
                       >
                         <img src={p.src} alt="" />
                       </button>
@@ -632,6 +725,44 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   </div>
                 );
               })()}
+
+              {/* Crop controls — only show once a photo is set. The user can
+                  drag the photo on the preview to pan, scroll-wheel to zoom,
+                  or use this slider for fine zoom adjustments. */}
+              {state.photoSrc && (
+                <div className="cover-crop-controls">
+                  <div className="cover-crop-row">
+                    <span className="cover-crop-label">Zoom</span>
+                    <input
+                      type="range"
+                      className="cover-crop-slider"
+                      min={PHOTO_SCALE_MIN}
+                      max={PHOTO_SCALE_MAX}
+                      step={0.01}
+                      value={state.photoScale}
+                      onChange={(e) => update('photoScale', Number(e.target.value))}
+                    />
+                    <span className="cover-crop-val">
+                      {Math.round(state.photoScale * 100)}%
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="cover-crop-reset"
+                    onClick={resetPhotoCrop}
+                    disabled={
+                      state.photoScale === 1 &&
+                      state.photoX === 0 &&
+                      state.photoY === 0
+                    }
+                  >
+                    Reset crop
+                  </button>
+                  <p className="cover-crop-hint">
+                    Drag the photo on the preview to reposition. Scroll to zoom.
+                  </p>
+                </div>
+              )}
             </section>
           )}
 
