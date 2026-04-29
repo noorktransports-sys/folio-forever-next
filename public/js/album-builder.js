@@ -760,6 +760,11 @@
         uploadedPhotos[id] = src;
         replacePlaceholderWithThumb(tmpId, id, src);
         updatePhotoCount();
+        // Persist the upload immediately. saveLocalState inside
+        // replacePlaceholderWithThumb only runs on the happy DOM path
+        // (placeholder thumb still present); pulling it up here means
+        // we record the new photo even if the DOM was disrupted.
+        saveLocalState();
         return { id, src };
       })
       .catch(err => {
