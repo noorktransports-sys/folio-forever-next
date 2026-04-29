@@ -1,7 +1,75 @@
 'use client';
 
-import { useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
 import './cover-builder.css';
+
+/**
+ * Optimize + upload a single file directly from the cover step.
+ *
+ * Mirrors the optimize logic in `public/js/album-builder.js`'s optimizeImage:
+ * resize so long edge ≤ 4500 px, recompress as JPEG Q90. Skips files already
+ * below 1.5 MB. Falls back to <canvas> if OffscreenCanvas is unavailable
+ * (older iOS Safari).
+ *
+ * Endpoint contract matches /api/upload's response: { id, url, key, ... }.
+ * We store the photo under designId="cover" so the R2 prefix stays separate
+ * from spread photos until login attaches everything to a real user id.
+ */
+const MAX_LONG_EDGE = 4500;
+const QUALITY = 0.9;
+const SKIP_BELOW_BYTES = 1.5 * 1024 * 1024;
+
+async function optimizeForUpload(file: File): Promise<File> {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
+  if (file.size < SKIP_BELOW_BYTES) return file;
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file;
+  }
+
+  const longEdge = Math.max(bitmap.width, bitmap.height);
+  const ratio = longEdge > MAX_LONG_EDGE ? MAX_LONG_EDGE / longEdge : 1;
+  const w = Math.max(1, Math.round(bitmap.width * ratio));
+  const h = Math.max(1, Math.round(bitmap.height * ratio));
+
+  const useOffscreen = typeof OffscreenCanvas !== 'undefined';
+  const canvas: OffscreenCanvas | HTMLCanvasElement = useOffscreen
+    ? new OffscreenCanvas(w, h)
+    : Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ctx = canvas.getContext('2d') as
+    | OffscreenCanvasRenderingContext2D
+    | CanvasRenderingContext2D
+    | null;
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  if (typeof bitmap.close === 'function') bitmap.close();
+
+  let blob: Blob | null = null;
+  try {
+    if (useOffscreen) {
+      blob = await (canvas as OffscreenCanvas).convertToBlob({
+        type: 'image/jpeg',
+        quality: QUALITY,
+      });
+    } else {
+      blob = await new Promise<Blob | null>((res) =>
+        (canvas as HTMLCanvasElement).toBlob(res, 'image/jpeg', QUALITY),
+      );
+    }
+  } catch {
+    return file;
+  }
+  if (!blob || blob.size >= file.size) return file;
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'cover';
+  return new File([blob], baseName + '.jpg', {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
+  });
+}
 
 /**
  * CoverBuilder — final step of the album designer.
@@ -115,11 +183,96 @@ const TILT_MAX_DEG = 8;
 export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: CoverBuilderProps) {
   const [state, setState] = useState<CoverState>(initialState);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>([]);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const update = <K extends keyof CoverState>(key: K, value: CoverState[K]) => {
     setState((prev) => ({ ...prev, [key]: value }));
   };
+
+  /**
+   * Upload a file picked from the file input or dropped on the preview.
+   * Optimizes client-side, posts to /api/upload, and on success:
+   *   - sets state.photoSrc so the preview reflects it immediately
+   *   - adds the new photo to extraCoverPhotos so it's selectable later
+   *   - if the user is currently on Leather, switches them to Photo Cover
+   *     (uploading a photo on a leather cover would have no effect otherwise)
+   */
+  async function uploadCoverPhoto(file: File) {
+    if (!file) return;
+    setUploadError(null);
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      setUploadError('JPG, PNG, or WEBP only');
+      return;
+    }
+    if (file.size > 30 * 1024 * 1024) {
+      setUploadError('Max 30 MB per photo');
+      return;
+    }
+    setUploadingCover(true);
+    try {
+      const opt = await optimizeForUpload(file);
+      const fd = new FormData();
+      fd.append('file', opt);
+      fd.append('designId', 'cover');
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { id: string; url: string };
+      setExtraCoverPhotos((prev) => [{ id: data.id, src: data.url }, ...prev]);
+      setState((prev) => ({
+        ...prev,
+        photoSrc: data.url,
+        // If user is on leather, switch to photo cover so the upload is visible.
+        type: prev.type === 'leather' ? 'photo' : prev.type,
+      }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Upload failed';
+      console.warn('Cover upload failed', msg);
+      setUploadError(msg);
+    } finally {
+      setUploadingCover(false);
+    }
+  }
+
+  function handleCoverFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) void uploadCoverPhoto(f);
+    // Reset so the same file can be re-picked.
+    e.target.value = '';
+  }
+
+  /**
+   * Triggered by the "+" button overlaid on the cover preview. Opens the
+   * native file picker; on mobile this surfaces the camera roll. If the
+   * user is on Leather (no photo slot), pre-switch to Photo Cover so the
+   * resulting upload is actually used.
+   */
+  function openCoverPicker() {
+    if (state.type === 'leather') {
+      setState((prev) => ({ ...prev, type: 'photo' }));
+    }
+    coverFileInputRef.current?.click();
+  }
+
+  // Drag-and-drop on the preview frame. We accept the first image dropped,
+  // ignore non-image drops. Drop also flips type to photo if currently leather.
+  function handleStageDragOver(e: DragEvent<HTMLDivElement>) {
+    if (Array.from(e.dataTransfer.items).some((i) => i.kind === 'file')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }
+  function handleStageDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'));
+    if (file) void uploadCoverPhoto(file);
+  }
 
   const font = FONTS.find((f) => f.id === state.fontId) ?? FONTS[0];
 
@@ -241,10 +394,12 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
         {/* LIVE PREVIEW (LEFT) */}
         <div className="cover-preview-panel">
           <div
-            className={'cover-stage' + (coverOpen ? ' is-open' : '')}
+            className={'cover-stage' + (coverOpen ? ' is-open' : '') + (uploadingCover ? ' is-uploading' : '')}
             ref={stageRef}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
+            onDragOver={handleStageDragOver}
+            onDrop={handleStageDrop}
           >
             {/* Ground shadow — sits under the book, suggests weight. */}
             <div className="cover-ground-shadow" />
@@ -279,6 +434,26 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
 
                 {/* 3D-touch indicator for photo cover */}
                 {state.type === 'photo' && <div className="cover-tactile-overlay" />}
+
+                {/* "+ Add photo" button — rendered directly on the cover face
+                    when there's no photo set. Click opens the native file
+                    picker (iOS surfaces the camera roll, desktop opens the
+                    file dialog). On Leather we pre-switch to Photo Cover so
+                    the upload actually lands somewhere visible. */}
+                {!state.photoSrc && (
+                  <button
+                    type="button"
+                    className="cover-add-photo-btn"
+                    onClick={openCoverPicker}
+                    disabled={uploadingCover}
+                    aria-label="Add cover photo"
+                  >
+                    <span className="cover-add-photo-plus">{uploadingCover ? '⋯' : '+'}</span>
+                    <span className="cover-add-photo-label">
+                      {uploadingCover ? 'Uploading' : 'Add photo'}
+                    </span>
+                  </button>
+                )}
 
                 {/* Title text */}
                 <div
@@ -403,25 +578,60 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               <h3 className="cover-section-title">
                 {state.type === 'acrylic' ? 'Photo Behind Acrylic' : 'Cover Photo'}
               </h3>
-              {uploadedPhotos.length === 0 ? (
-                <p className="cover-hint">
-                  No photos uploaded yet. Go back to spreads, upload some
-                  photos, then return.
-                </p>
-              ) : (
-                <div className="cover-photo-grid">
-                  {uploadedPhotos.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={'cover-photo-thumb' + (state.photoSrc === p.src ? ' active' : '')}
-                      onClick={() => update('photoSrc', p.src)}
-                    >
-                      <img src={p.src} alt="" />
-                    </button>
-                  ))}
-                </div>
+
+              {/* Upload button — always visible for these cover types. Triggers
+                  hidden file input. Drag-drop on the preview is the alternative. */}
+              <button
+                type="button"
+                className="cover-photo-upload-btn"
+                onClick={() => coverFileInputRef.current?.click()}
+                disabled={uploadingCover}
+              >
+                {uploadingCover ? 'Uploading…' : '+ Upload cover photo'}
+              </button>
+              <input
+                ref={coverFileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={handleCoverFileChange}
+              />
+              {uploadError && (
+                <p className="cover-upload-error">{uploadError}</p>
               )}
+
+              {/* Existing photos: spread-builder uploads first, cover-direct
+                  uploads stacked above (most recent first). De-dupe by URL. */}
+              {(() => {
+                const merged = [...extraCoverPhotos, ...uploadedPhotos];
+                const seen = new Set<string>();
+                const uniq = merged.filter((p) => {
+                  if (seen.has(p.src)) return false;
+                  seen.add(p.src);
+                  return true;
+                });
+                if (uniq.length === 0) {
+                  return (
+                    <p className="cover-hint">
+                      Upload a photo above, or drag one onto the preview.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="cover-photo-grid">
+                    {uniq.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={'cover-photo-thumb' + (state.photoSrc === p.src ? ' active' : '')}
+                        onClick={() => update('photoSrc', p.src)}
+                      >
+                        <img src={p.src} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
             </section>
           )}
 

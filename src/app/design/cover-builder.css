@@ -445,6 +445,119 @@
   white-space: nowrap;
 }
 
+/* "+ Add photo" button overlaid directly on the cover face.
+ * Visible only when there's no photo set. Click opens the native file
+ * picker — on mobile this surfaces the camera roll, on desktop a file
+ * dialog. The button auto-hides as soon as a photo is chosen.
+ *
+ * Positioned at center-bottom so it doesn't overlap the title text in
+ * the upper portion of the cover. Z-index 5 sits above the surface
+ * overlays (leather grain, tactile dots, acrylic sheen) but below the
+ * title text block (which is centered with pointer-events: none).
+ */
+.cover-add-photo-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-width: 120px;
+  padding: 18px 24px;
+  background: rgba(184, 150, 90, 0.18);
+  border: 1.5px dashed rgba(184, 150, 90, 0.7);
+  border-radius: 14px;
+  color: #f3e6cf;
+  cursor: pointer;
+  font-family: var(--font-body);
+  z-index: 5;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+  pointer-events: auto;
+}
+.cover-add-photo-btn:hover:not(:disabled) {
+  background: rgba(184, 150, 90, 0.32);
+  border-color: var(--gold);
+  transform: translateX(-50%) scale(1.04);
+}
+.cover-add-photo-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.cover-add-photo-plus {
+  font-size: 36px;
+  font-weight: 200;
+  line-height: 1;
+  color: var(--gold);
+}
+.cover-add-photo-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* On mobile / narrow viewports, shrink so the + still fits inside the
+ * cover even at 320 px max-width. */
+@media (max-width: 860px) {
+  .cover-add-photo-btn {
+    min-width: 96px;
+    padding: 14px 18px;
+  }
+  .cover-add-photo-plus { font-size: 28px; }
+  .cover-add-photo-label { font-size: 8px; }
+}
+
+/* COVER PHOTO UPLOAD BUTTON
+ * Always visible inside the photo section for acrylic/photo types so users
+ * can attach a cover photo without having to go back to the spread builder.
+ * Drag-drop on the preview frame is the alternative (handled in JS).
+ */
+.cover-photo-upload-btn {
+  width: 100%;
+  background: rgba(184, 150, 90, 0.08);
+  border: 1px dashed rgba(184, 150, 90, 0.5);
+  color: var(--gold);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 14px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+}
+.cover-photo-upload-btn:hover:not(:disabled) {
+  background: rgba(184, 150, 90, 0.14);
+  border-color: var(--gold);
+}
+.cover-photo-upload-btn:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.cover-upload-error {
+  font-size: 11px;
+  color: #ff6b6b;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: rgba(255, 107, 107, 0.08);
+  border: 0.5px solid rgba(255, 107, 107, 0.3);
+}
+
+/* While uploading, dim the preview a touch so the user knows something
+ * is in flight even before the photo updates the live cover. */
+.cover-stage.is-uploading .cover-preview {
+  opacity: 0.7;
+  transition: opacity 0.3s;
+}
+
 /* PHOTO GRID (acrylic + photo cover types) */
 .cover-photo-grid {
   display: grid;
