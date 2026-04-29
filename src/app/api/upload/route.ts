@@ -14,7 +14,9 @@
  *
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
- *   - Max 15 MB per photo (also enforced at upstream MAX_UPLOAD_BYTES env var)
+ *   - Max 30 MB per photo. Client compresses most uploads to ~5 MB before
+ *     sending; the 30 MB ceiling exists for full-bleed 20×60 spreads where
+ *     the photographer opts out of optimization.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
  *
@@ -32,7 +34,7 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-const MAX_BYTES = 15 * 1024 * 1024; // 15 MB cap; mirrors wrangler [vars].MAX_UPLOAD_BYTES
+const MAX_BYTES = 30 * 1024 * 1024; // 30 MB hard cap; client compresses most uploads to ~5 MB before sending. The 30 MB ceiling exists for the rare case where a photographer opts out of optimization for a full-bleed 20×60 spread.
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -80,7 +82,7 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return err(400, 'no file field in request');
   if (file.size === 0) return err(400, 'file is empty');
   if (file.size > MAX_BYTES) {
-    return err(413, `file too large; max ${MAX_BYTES} bytes (15 MB)`);
+    return err(413, `file too large; max ${MAX_BYTES} bytes (30 MB)`);
   }
   const ext = ALLOWED_TYPES[file.type];
   if (!ext) {
