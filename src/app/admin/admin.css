@@ -409,6 +409,79 @@
 }
 .admin-login-submit:disabled { opacity: 0.6; cursor: progress; }
 
+/* ---------- shipping address block ---------- */
+.admin-shipping {
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.admin-ship-address {
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 4px;
+  color: #1a1410;
+}
+.admin-ship-phone a {
+  color: #b8965a;
+  text-decoration: none;
+}
+.admin-ship-phone a:hover { text-decoration: underline; }
+.admin-ship-notes {
+  font-size: 12px;
+  color: #6b5e4d;
+  font-style: italic;
+  margin-top: 6px;
+}
+
+/* ---------- internal notes ---------- */
+.admin-notes {
+  background: #fff;
+  border: 0.5px solid #e1d8c4;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 18px 0;
+}
+.admin-notes-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.admin-notes-state {
+  font-size: 11px;
+  color: #6b5e4d;
+}
+.admin-notes-err { color: #cf3a3a; }
+.admin-notes-area {
+  width: 100%;
+  background: #faf7f0;
+  border: 0.5px solid #c8baa0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+  color: #1a1410;
+  box-sizing: border-box;
+}
+.admin-notes-area:focus { outline: none; border-color: #b8965a; }
+
+/* ---------- download all ---------- */
+.admin-download-wrap { display: flex; flex-direction: column; gap: 6px; }
+.admin-download-errors {
+  background: #fbecec;
+  border: 0.5px solid #d8a8a8;
+  color: #7a2828;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.admin-download-errors ul { margin: 4px 0 0 16px; padding: 0; }
+
 @media (max-width: 720px) {
   .admin-shell { padding: 16px 14px 60px; }
   .admin-table th,

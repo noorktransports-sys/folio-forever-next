@@ -67,11 +67,27 @@ interface Env {
 }
 
 interface SavedDesign {
-  status?: 'draft' | 'submitted';
+  status?: string;
   submittedAt?: string;
   orderId?: string;
   customer?: { email?: string; name?: string } | null;
+  shipping?: ShippingPayload | null;
   [k: string]: unknown;
+}
+
+// Shipping data captured by the customer-side ShippingForm modal
+// before they confirm submit. Stored alongside the design so admin
+// can read it without an extra round-trip.
+interface ShippingPayload {
+  recipientName: string;
+  phone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  region: string;
+  postalCode: string;
+  country: string;
+  notes?: string;
 }
 
 function err(status: number, message: string) {
@@ -85,7 +101,7 @@ export async function POST(request: Request) {
   const { env } = getRequestContext() as { env: Env };
   if (!env.DESIGN_DRAFTS) return err(503, 'design storage unavailable');
 
-  let body: { token?: string };
+  let body: { token?: string; shipping?: ShippingPayload };
   try {
     body = await request.json();
   } catch {
@@ -93,6 +109,11 @@ export async function POST(request: Request) {
   }
 
   const token = (body.token || '').trim();
+  const shipping = body.shipping;
+  // Shipping is required for new submissions — without an address we
+  // can't ship the album. Existing submitted records retain whatever
+  // shipping they had; we only enforce on a fresh submit (handled by
+  // the idempotency check below).
   if (!/^[a-f0-9]{8,64}$/i.test(token)) {
     return err(400, 'invalid or missing token');
   }
@@ -129,10 +150,25 @@ export async function POST(request: Request) {
     '-' +
     Date.now().toString(36).toUpperCase();
 
+  // Validate the shipping payload — basic required fields.
+  if (
+    !shipping ||
+    !shipping.recipientName?.trim() ||
+    !shipping.phone?.trim() ||
+    !shipping.line1?.trim() ||
+    !shipping.city?.trim() ||
+    !shipping.region?.trim() ||
+    !shipping.postalCode?.trim() ||
+    !shipping.country?.trim()
+  ) {
+    return err(400, 'shipping address required (name/phone/line1/city/region/postalCode/country)');
+  }
+
   const submittedAt = new Date().toISOString();
   design.status = 'submitted';
   design.submittedAt = submittedAt;
   design.orderId = orderId;
+  design.shipping = shipping;
 
   // Re-save with extended TTL (1 year). Submitted designs are real
   // orders, not drafts that should auto-purge in 60 days.

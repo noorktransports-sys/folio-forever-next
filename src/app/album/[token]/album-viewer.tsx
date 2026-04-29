@@ -27,6 +27,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ShippingForm, { type ShippingValues } from './shipping-form';
 
 // ----- types matching what album-builder.js writes -----
 
@@ -236,6 +237,62 @@ function SpreadCard({ spread }: { spread: Spread }) {
   );
 }
 
+/**
+ * StatusTimeline — 4-step horizontal progress for the customer.
+ *   Submitted → In production → Shipped → Delivered
+ *
+ * The current step glows gold, completed steps are filled, future
+ * steps are muted. Cancelled lights up a single red node and hides
+ * the rest. This is the customer's tracking page; reload to see
+ * latest because the admin's status updates happen out of band.
+ */
+function StatusTimeline({
+  status,
+  orderId,
+}: {
+  status: string;
+  orderId: string;
+}) {
+  if (status === 'cancelled') {
+    return (
+      <div className="album-timeline album-timeline-cancelled">
+        <div className="album-tl-step is-cancelled">
+          <span className="album-tl-dot" aria-hidden />
+          <span className="album-tl-label">Cancelled</span>
+        </div>
+        <p className="album-tl-orderid">Order {orderId}</p>
+      </div>
+    );
+  }
+  const steps: { key: string; label: string }[] = [
+    { key: 'submitted', label: 'Submitted' },
+    { key: 'in_progress', label: 'In production' },
+    { key: 'shipped', label: 'Shipped' },
+    { key: 'delivered', label: 'Delivered' },
+  ];
+  const currentIndex = Math.max(
+    0,
+    steps.findIndex((s) => s.key === status),
+  );
+  return (
+    <div className="album-timeline">
+      <div className="album-tl-row">
+        {steps.map((s, i) => {
+          const state =
+            i < currentIndex ? 'done' : i === currentIndex ? 'now' : 'todo';
+          return (
+            <div className={`album-tl-step is-${state}`} key={s.key}>
+              <span className="album-tl-dot" aria-hidden />
+              <span className="album-tl-label">{s.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="album-tl-orderid">Order {orderId}</p>
+    </div>
+  );
+}
+
 export default function AlbumViewer({
   design,
   token,
@@ -265,7 +322,8 @@ export default function AlbumViewer({
   const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(
     design.orderId || null,
   );
-  const isSubmitted = design.status === 'submitted' || !!submittedOrderId;
+  const [showShippingForm, setShowShippingForm] = useState(false);
+  const isSubmitted = !!design.status && design.status !== 'draft';
 
   // Owner detection: only the device that designed this gets the Edit
   // affordance. Photographers / family receiving the link see no editor
@@ -387,47 +445,50 @@ export default function AlbumViewer({
   const editLink = `/design?d=${encodeURIComponent(token)}`;
 
   /**
-   * Submit album — the commit point. Confirms with the user, calls
-   * /api/submit-order which (a) marks the KV record submitted with
-   * a 1-year TTL, (b) emails the owner with photo download links,
-   * (c) emails the customer their confirmation. On success transitions
-   * to the thank-you stage.
-   *
-   * Disabled while in flight to prevent double-submits.
+   * Submit album — the commit point. Opens the ShippingForm modal,
+   * which captures address + phone, then POSTs to /api/submit-order.
+   * That route marks the KV record submitted with a 1-year TTL,
+   * emails the owner with photo download links, and emails the
+   * customer their confirmation. On success transitions to the
+   * thank-you stage.
    */
-  const submitAlbum = useCallback(async () => {
+  const openShippingForm = useCallback(() => {
     if (submitting || isSubmitted) return;
-    const ok = window.confirm(
-      `Submit ${customerName ? customerName + "'s " : 'this '}album for production?\n\nWe'll email you within 24 hours with a proof + invoice. Photos will be locked from further edits.`,
-    );
-    if (!ok) return;
-    setSubmitting(true);
     setSubmitError(null);
-    try {
-      const res = await fetch('/api/submit-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        orderId?: string;
-        error?: string;
-      };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+    setShowShippingForm(true);
+  }, [submitting, isSubmitted]);
+
+  const handleShippingSubmit = useCallback(
+    async (shipping: ShippingValues) => {
+      setSubmitting(true);
+      setSubmitError(null);
+      try {
+        const res = await fetch('/api/submit-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, shipping }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          orderId?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        setSubmittedOrderId(data.orderId || 'pending');
+        setShowShippingForm(false);
+        setStage('submitted');
+      } catch (e) {
+        // Bubble up so ShippingForm renders the inline error and the
+        // user can retry without losing what they typed.
+        throw e;
+      } finally {
+        setSubmitting(false);
       }
-      setSubmittedOrderId(data.orderId || 'pending');
-      setStage('submitted');
-    } catch (e) {
-      setSubmitError(
-        (e instanceof Error ? e.message : 'unknown error') +
-          ' — please try again.',
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }, [submitting, isSubmitted, customerName, token]);
+    },
+    [token],
+  );
 
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
@@ -669,9 +730,15 @@ export default function AlbumViewer({
             <h2 className="album-end-title">
               {customerName ? `${customerName}'s album` : 'Your album'}
             </h2>
+            {isSubmitted ? (
+              <StatusTimeline
+                status={design.status || 'submitted'}
+                orderId={design.orderId || submittedOrderId || ''}
+              />
+            ) : null}
             <p className="album-end-desc">
               {isSubmitted
-                ? `Order ${design.orderId || submittedOrderId || ''} is in production. We'll email you with a proof and invoice within 24 hours.`
+                ? `Save this link to check progress any time. We'll email you whenever the status moves forward.`
                 : 'Reviewed everything? Submitting locks the design and sends it to our team. You’ll get an emailed proof + invoice within 24 hours.'}
             </p>
             {submitError ? (
@@ -700,7 +767,7 @@ export default function AlbumViewer({
                   type="button"
                   className="album-end-primary"
                   disabled={submitting}
-                  onClick={submitAlbum}
+                  onClick={openShippingForm}
                 >
                   {submitting ? 'Submitting…' : 'Submit album'}
                 </button>
@@ -714,6 +781,14 @@ export default function AlbumViewer({
             ) : null}
           </div>
         </section>
+      ) : null}
+
+      {showShippingForm ? (
+        <ShippingForm
+          defaultName={customerName}
+          onCancel={() => setShowShippingForm(false)}
+          onSubmit={handleShippingSubmit}
+        />
       ) : null}
 
       {/* Stage: Submitted — thank-you confirmation, only reachable after the

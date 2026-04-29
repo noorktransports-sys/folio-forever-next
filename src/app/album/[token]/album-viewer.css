@@ -489,6 +489,192 @@
   text-transform: uppercase;
 }
 
+/* ---------- shipping form modal ---------- */
+.ship-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(14, 12, 9, 0.78);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.ship-card {
+  background: #1a1610;
+  color: #f0e4ce;
+  border: 0.5px solid rgba(184, 150, 90, 0.25);
+  border-radius: 14px;
+  padding: 32px 28px 26px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  font-family: var(--font-body, system-ui, sans-serif);
+}
+.ship-tag {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #b8965a;
+  margin-bottom: 8px;
+}
+.ship-title {
+  font-family: var(--font-display, "Cormorant Garamond", serif);
+  font-size: 26px;
+  margin: 0 0 6px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+.ship-desc {
+  font-size: 13px;
+  color: #a89a82;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+.ship-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.ship-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ship-field span {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #8a7d68;
+}
+.ship-field input,
+.ship-field textarea {
+  background: #0e0c09;
+  border: 0.5px solid rgba(184, 150, 90, 0.3);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #f0e4ce;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.ship-field input:focus,
+.ship-field textarea:focus { border-color: #b8965a; }
+.ship-col-2 { grid-column: span 2; }
+.ship-error {
+  background: rgba(207, 106, 106, 0.12);
+  border: 0.5px solid rgba(207, 106, 106, 0.4);
+  color: #cf6a6a;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+.ship-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+.ship-cancel,
+.ship-submit {
+  padding: 12px 22px;
+  border-radius: 30px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-family: inherit;
+  border: 0.5px solid;
+}
+.ship-cancel {
+  background: transparent;
+  color: #a89a82;
+  border-color: rgba(184, 150, 90, 0.3);
+}
+.ship-submit {
+  background: #b8965a;
+  color: #0e0a07;
+  border-color: #b8965a;
+  font-weight: 500;
+}
+.ship-submit:disabled,
+.ship-cancel:disabled { opacity: 0.6; cursor: progress; }
+@media (max-width: 540px) {
+  .ship-grid { grid-template-columns: 1fr; }
+  .ship-col-2 { grid-column: auto; }
+}
+
+/* ---------- status timeline ---------- */
+.album-timeline {
+  margin: 8px 0 18px;
+}
+.album-tl-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px;
+  position: relative;
+  margin-bottom: 8px;
+}
+.album-tl-row::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 6%;
+  right: 6%;
+  height: 1px;
+  background: rgba(184, 150, 90, 0.2);
+  z-index: 0;
+}
+.album-tl-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+.album-tl-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1a1410;
+  border: 0.5px solid rgba(184, 150, 90, 0.4);
+}
+.album-tl-step.is-done .album-tl-dot { background: #b8965a; border-color: #b8965a; }
+.album-tl-step.is-now .album-tl-dot {
+  background: #b8965a;
+  border-color: #b8965a;
+  box-shadow: 0 0 0 4px rgba(184, 150, 90, 0.2);
+}
+.album-tl-step.is-cancelled .album-tl-dot {
+  background: #cf6a6a;
+  border-color: #cf6a6a;
+}
+.album-tl-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b5e4d;
+  text-align: center;
+}
+.album-tl-step.is-done .album-tl-label,
+.album-tl-step.is-now .album-tl-label { color: #b8965a; }
+.album-tl-step.is-now .album-tl-label { color: #f0e4ce; font-weight: 500; }
+.album-tl-orderid {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #6b5e4d;
+  margin: 4px 0 0;
+}
+
 /* ---------- not found ---------- */
 .album-not-found {
   min-height: 100vh;

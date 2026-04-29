@@ -15,6 +15,8 @@ import Link from 'next/link';
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthedFromCookieHeader } from '@/lib/admin-auth';
 import StatusControl from './status-control';
+import DownloadAll from './download-all';
+import AdminNotes from './admin-notes';
 import '../../admin.css';
 
 export const runtime = 'edge';
@@ -36,6 +38,18 @@ interface SavedDesign {
   orderId?: string;
   submittedAt?: string;
   savedAt?: string;
+  shipping?: {
+    recipientName?: string;
+    phone?: string;
+    line1?: string;
+    line2?: string;
+    city?: string;
+    region?: string;
+    postalCode?: string;
+    country?: string;
+    notes?: string;
+  } | null;
+  adminNotes?: string;
 }
 
 export default async function OrderDetail({
@@ -148,12 +162,51 @@ export default async function OrderDetail({
         </div>
       </section>
 
+      {/* Shipping block — separate from the meta cards so the address
+          is easy to copy/paste into a label. Hidden when the order
+          pre-dates shipping capture. */}
+      {design.shipping ? (
+        <section className="admin-shipping">
+          <div className="admin-meta-label">Ship to</div>
+          <div className="admin-ship-address">
+            <div>
+              <strong>{design.shipping.recipientName}</strong>
+            </div>
+            <div>{design.shipping.line1}</div>
+            {design.shipping.line2 ? (
+              <div>{design.shipping.line2}</div>
+            ) : null}
+            <div>
+              {design.shipping.city}, {design.shipping.region}{' '}
+              {design.shipping.postalCode}
+            </div>
+            <div>{design.shipping.country}</div>
+            {design.shipping.phone ? (
+              <div className="admin-ship-phone">
+                <a href={`tel:${design.shipping.phone}`}>
+                  {design.shipping.phone}
+                </a>
+              </div>
+            ) : null}
+            {design.shipping.notes ? (
+              <div className="admin-ship-notes">
+                Notes: {design.shipping.notes}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       <section className="admin-order-actions">
+        <DownloadAll
+          orderId={design.orderId || token}
+          photos={photos}
+        />
         <Link
           href={`/album/${token}`}
           target="_blank"
           rel="noopener"
-          className="admin-action-primary"
+          className="admin-action-secondary"
         >
           Open customer preview ↗
         </Link>
@@ -168,6 +221,8 @@ export default async function OrderDetail({
           </a>
         ) : null}
       </section>
+
+      <AdminNotes token={token} initial={design.adminNotes} />
 
       <section>
         <h2 className="admin-photos-heading">Photos ({photos.length})</h2>
