@@ -1,0 +1,165 @@
+/**
+ * /api/submit-order — the commit point for an album order.
+ *
+ * Flow:
+ *   1. Customer designs in /design
+ *   2. Cover-step Continue auto-saves to /api/designs and redirects them
+ *      to /album/<token> (the viewer = the preview).
+ *   3. Customer reviews, clicks Submit album on the end card.
+ *   4. That click hits this endpoint, which:
+ *        - reads the design from KV
+ *        - re-saves it with status='submitted', submittedAt=<iso>
+ *          (TTL extended to a year — submitted orders are real records,
+ *          not 60-day drafts)
+ *        - fires /api/notify-order in 'order' mode → owner inbox + customer
+ *          confirmation
+ *        - returns { ok, orderId, alreadySubmitted? }
+ *
+ * Idempotent: a second submit on an already-submitted token does NOT
+ * re-fire emails. The viewer locks as soon as status==='submitted', so
+ * users shouldn't be able to double-submit, but we belt-and-brace it
+ * here in case the lock UI didn't render in time.
+ *
+ * Stripe wiring lands later: when payment is required, this endpoint
+ * will be replaced (or fronted by) /api/checkout that returns a Stripe
+ * Checkout URL, and the actual KV write + owner email will move to
+ * the stripe-webhook on checkout.session.completed. The contract this
+ * route exposes (token in → orderId out + side-effects) is the same.
+ */
+
+import { getRequestContext } from '@cloudflare/next-on-pages';
+
+export const runtime = 'edge';
+
+const SUBMITTED_TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
+
+interface KVNamespace {
+  get(key: string): Promise<string | null>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>;
+}
+
+interface Env {
+  DESIGN_DRAFTS?: KVNamespace;
+  SITE_URL?: string;
+}
+
+interface SavedDesign {
+  status?: 'draft' | 'submitted';
+  submittedAt?: string;
+  orderId?: string;
+  customer?: { email?: string; name?: string } | null;
+  [k: string]: unknown;
+}
+
+function err(status: number, message: string) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function POST(request: Request) {
+  const { env } = getRequestContext() as { env: Env };
+  if (!env.DESIGN_DRAFTS) return err(503, 'design storage unavailable');
+
+  let body: { token?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return err(400, 'invalid JSON body');
+  }
+
+  const token = (body.token || '').trim();
+  if (!/^[a-f0-9]{8,64}$/i.test(token)) {
+    return err(400, 'invalid or missing token');
+  }
+
+  const json = await env.DESIGN_DRAFTS.get(token);
+  if (!json) return err(404, 'design not found or expired');
+
+  let design: SavedDesign;
+  try {
+    design = JSON.parse(json) as SavedDesign;
+  } catch {
+    return err(500, 'saved design is not valid JSON');
+  }
+
+  // Idempotency: if already submitted, return the existing orderId
+  // without re-firing emails. The viewer should already show the
+  // locked state, but guard against double-clicks / network retries.
+  if (design.status === 'submitted' && design.orderId) {
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        orderId: design.orderId,
+        alreadySubmitted: true,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // Mint an order ID. Ties the share token to a human-friendly invoice
+  // string the customer and owner can both reference.
+  const orderId =
+    'FF-' +
+    token.slice(0, 6).toUpperCase() +
+    '-' +
+    Date.now().toString(36).toUpperCase();
+
+  const submittedAt = new Date().toISOString();
+  design.status = 'submitted';
+  design.submittedAt = submittedAt;
+  design.orderId = orderId;
+
+  // Re-save with extended TTL (1 year). Submitted designs are real
+  // orders, not drafts that should auto-purge in 60 days.
+  await env.DESIGN_DRAFTS.put(token, JSON.stringify(design), {
+    expirationTtl: SUBMITTED_TTL_SECONDS,
+  });
+
+  // Fire the owner + customer emails in 'order' mode. Same Resend wiring
+  // we already use for save-mode confirmations; this just flips the
+  // bit so the owner gets the order record + photo download links.
+  const customer = (design.customer || {}) as { email?: string; name?: string };
+  const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
+  let ownerEmailSent = false;
+  let customerEmailSent = false;
+  try {
+    const notifyRes = await fetch(`${siteUrl}/api/notify-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        customerEmail: customer.email || '',
+        customerName: customer.name || '',
+        mode: 'order',
+      }),
+    });
+    if (notifyRes.ok) {
+      const data = await notifyRes.json().catch(() => ({}));
+      ownerEmailSent = !!data.ownerEmailSent;
+      customerEmailSent = !!data.customerEmailSent;
+    } else {
+      console.warn('Folio submit-order: notify-order returned', notifyRes.status);
+    }
+  } catch (e) {
+    // Don't fail the submit if email sending breaks — the order is
+    // recorded in KV either way and the owner can find it manually.
+    console.warn('Folio submit-order: notify-order threw', e);
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      orderId,
+      submittedAt,
+      ownerEmailSent,
+      customerEmailSent,
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  );
+}

@@ -40,10 +40,28 @@
 .album-meta {
   display: flex;
   gap: 18px;
+  align-items: center;
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
   color: #8a7d68;
+}
+.album-back-cover {
+  background: rgba(184, 150, 90, 0.12);
+  border: 0.5px solid rgba(184, 150, 90, 0.3);
+  border-radius: 30px;
+  padding: 7px 14px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #b8965a;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.album-back-cover:hover {
+  background: rgba(184, 150, 90, 0.22);
+  color: #f0e4ce;
 }
 
 /* ---------- stage ---------- */
@@ -349,6 +367,66 @@
   color: #a89a82;
 }
 .album-end-secondary:hover { color: #f0e4ce; }
+.album-end-primary[disabled] { opacity: 0.6; cursor: progress; }
+.album-end-error {
+  background: rgba(207, 106, 106, 0.12);
+  border: 0.5px solid rgba(207, 106, 106, 0.4);
+  color: #cf6a6a;
+  font-size: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+.album-end-locked {
+  display: inline-block;
+  padding: 12px 28px;
+  border-radius: 30px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  background: rgba(158, 199, 154, 0.15);
+  color: #9ec79a;
+  border: 0.5px solid rgba(158, 199, 154, 0.4);
+  font-weight: 500;
+}
+.album-end-share-hint {
+  margin-top: 18px;
+  font-size: 11px;
+  color: #6b5e4d;
+  letter-spacing: 1px;
+}
+.album-end-share-hint a {
+  color: #b8965a;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------- submitted thank-you stage ---------- */
+.album-thanks-tick {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(158, 199, 154, 0.15);
+  border: 0.5px solid rgba(158, 199, 154, 0.5);
+  color: #9ec79a;
+  font-size: 32px;
+  line-height: 64px;
+  text-align: center;
+  margin: 0 auto 18px;
+}
+
+/* ---------- submitted top-bar badge ---------- */
+.album-badge-submitted {
+  background: rgba(158, 199, 154, 0.15);
+  border: 0.5px solid rgba(158, 199, 154, 0.45);
+  color: #9ec79a;
+  border-radius: 30px;
+  padding: 5px 12px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
 
 /* ---------- not found ---------- */
 .album-not-found {

@@ -1562,6 +1562,60 @@
   window.submitOrder = submitOrder;
   window.submitExpert = submitExpert;
   window.saveDesign = saveDesign;
+
+  /**
+   * previewAlbum — the new "Continue" target from the cover step.
+   *
+   * Saves the current design to KV and redirects the customer to the
+   * read-only viewer at /album/<token>, which IS the preview. The
+   * Submit Album button lives on that viewer's end card.
+   *
+   * Why redirect instead of showing the save & share modal: the modal
+   * lets the customer pick "Copy / Email / WhatsApp" but offers no
+   * commit point. Customers were saving 5 times in a row with no clear
+   * way to actually order. The viewer makes the order step explicit.
+   *
+   * Falls back to the legacy share modal if the save call fails — the
+   * customer's work is never lost, and they at least have a copy-link
+   * affordance even when offline.
+   */
+  async function previewAlbum(opts) {
+    opts = opts || {};
+    const btn = opts.buttonEl;
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.origLabel = btn.textContent;
+      btn.textContent = 'Saving…';
+    }
+    saveLocalState();
+    try {
+      const res = await fetch('/api/designs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serializeDesign()),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body && body.error ? body.error : 'HTTP ' + res.status);
+      }
+      const data = await res.json();
+      const token = data.token;
+      if (!token) throw new Error('save returned no token');
+      // Redirect to the viewer. The viewer fetches the same KV record
+      // server-side, so first paint already has the design.
+      window.location.href = '/album/' + encodeURIComponent(token);
+    } catch (err) {
+      console.warn('Folio preview: save failed, falling back to share modal', err);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.origLabel || 'Continue';
+      }
+      // Fallback: legacy save & share modal so the customer can still
+      // copy a link from local state. This path also surfaces the error.
+      saveDesign();
+    }
+  }
+  window.previewAlbum = previewAlbum;
   window.ftbFitFill = ftbFitFill;
   window.ftbFitOriginal = ftbFitOriginal;
   window.ftbZoomStep = ftbZoomStep;

@@ -256,6 +256,20 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
     }
   }, [state]);
 
+  // Mirror the latest cover state onto window.__coverState so
+  // album-builder.js's serializeDesign() can pick it up the moment
+  // the user clicks Save & Share — even if they never went through
+  // the formal "Continue from cover" transition. Without this,
+  // /album/<token> would render the default "Our Story" cover for
+  // anyone who designed cover then jumped straight back to spreads.
+  useEffect(() => {
+    try {
+      (window as unknown as { __coverState?: CoverState }).__coverState = state;
+    } catch {
+      /* non-blocking — viewer falls back to defaults if missing */
+    }
+  }, [state]);
+
   // Persist the cover-direct upload list separately from CoverState so the
   // photo grid keeps its history even if state is reset.
   useEffect(() => {
@@ -534,7 +548,7 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           className="cover-continue"
           onClick={() => onContinue(state)}
         >
-          Continue to Submit →
+          Preview album →
         </button>
       </div>
 

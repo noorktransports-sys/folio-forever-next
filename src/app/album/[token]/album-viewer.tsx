@@ -72,6 +72,10 @@ export interface SavedDesign {
   cover?: CoverSnapshot | null;
   customer?: { email?: string; name?: string; deferred?: boolean } | null;
   savedAt?: string;
+  // Order-state fields written by /api/submit-order. A draft has neither.
+  status?: 'draft' | 'submitted';
+  submittedAt?: string;
+  orderId?: string;
 }
 
 // Layout grid templates — must match album-builder.js's `layouts` array.
@@ -245,28 +249,60 @@ export default function AlbumViewer({
   );
   const total = spreads.length;
 
-  // Stage: 'cover' (initial), 'spreads' (carousel), 'end' (final card).
-  const [stage, setStage] = useState<'cover' | 'spreads' | 'end'>('cover');
+  // Stages:
+  //   cover     — landing screen with cover face + Open Album CTA
+  //   spreads   — horizontal carousel of designed spreads
+  //   end       — review card with Submit / Edit / Save & Share
+  //   submitted — thank-you confirmation (only reachable post-submit)
+  type Stage = 'cover' | 'spreads' | 'end' | 'submitted';
+  const initialStage: Stage = design.status === 'submitted' ? 'cover' : 'cover';
+  const [stage, setStage] = useState<Stage>(initialStage);
   const [index, setIndex] = useState(0);
+
+  // Submission state — drives the end-card UI and the locked badge.
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(
+    design.orderId || null,
+  );
+  const isSubmitted = design.status === 'submitted' || !!submittedOrderId;
 
   // Owner detection: only the device that designed this gets the Edit
   // affordance. Photographers / family receiving the link see no editor
   // entry point.
   const [isOwner, setIsOwner] = useState(false);
+  // Fallback cover: if the saved design pre-dates the cover-state mirror
+  // fix, design.cover will be null. For the original customer's device
+  // we can still pick the cover up from localStorage (folio-cover-v1)
+  // so they don't see the "Our Story" placeholder.
+  const [fallbackCover, setFallbackCover] = useState<CoverSnapshot | null>(null);
   useEffect(() => {
     try {
       const raw = localStorage.getItem('folio-customer-v1');
-      if (!raw) return;
-      const stored = JSON.parse(raw) as { email?: string };
       const ownerEmail = (design.customer?.email || '').trim().toLowerCase();
-      const localEmail = (stored.email || '').trim().toLowerCase();
-      if (ownerEmail && localEmail && ownerEmail === localEmail) {
-        setIsOwner(true);
+      let onOwnersDevice = false;
+      if (raw) {
+        const stored = JSON.parse(raw) as { email?: string };
+        const localEmail = (stored.email || '').trim().toLowerCase();
+        if (ownerEmail && localEmail && ownerEmail === localEmail) {
+          onOwnersDevice = true;
+          setIsOwner(true);
+        }
+      }
+      if (!design.cover && onOwnersDevice) {
+        const c = localStorage.getItem('folio-cover-v1');
+        if (c) {
+          try {
+            const parsed = JSON.parse(c) as { state?: CoverSnapshot };
+            if (parsed && parsed.state) setFallbackCover(parsed.state);
+          } catch { /* ignore */ }
+        }
       }
     } catch {
       /* localStorage unavailable — non-fatal */
     }
-  }, [design.customer?.email]);
+  }, [design.customer?.email, design.cover]);
+  const effectiveCover = design.cover || fallbackCover;
 
   const next = useCallback(() => {
     if (stage === 'cover') {
@@ -316,19 +352,86 @@ export default function AlbumViewer({
   const customerName = design.customer?.name || '';
   const editLink = `/design?d=${encodeURIComponent(token)}`;
 
+  /**
+   * Submit album — the commit point. Confirms with the user, calls
+   * /api/submit-order which (a) marks the KV record submitted with
+   * a 1-year TTL, (b) emails the owner with photo download links,
+   * (c) emails the customer their confirmation. On success transitions
+   * to the thank-you stage.
+   *
+   * Disabled while in flight to prevent double-submits.
+   */
+  const submitAlbum = useCallback(async () => {
+    if (submitting || isSubmitted) return;
+    const ok = window.confirm(
+      `Submit ${customerName ? customerName + "'s " : 'this '}album for production?\n\nWe'll email you within 24 hours with a proof + invoice. Photos will be locked from further edits.`,
+    );
+    if (!ok) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch('/api/submit-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        orderId?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setSubmittedOrderId(data.orderId || 'pending');
+      setStage('submitted');
+    } catch (e) {
+      setSubmitError(
+        (e instanceof Error ? e.message : 'unknown error') +
+          ' — please try again.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, isSubmitted, customerName, token]);
+
   const carouselRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <main className="album-viewer">
-      {/* Top bar — minimal, doesn't compete with the album */}
+      {/* Top bar — minimal, doesn't compete with the album.
+          Includes a "Cover" button that returns to the cover face from
+          any stage. Originally there was only keyboard ← to back out of
+          the carousel; users (correctly) couldn't tell that worked, so
+          the button is now an explicit affordance always on screen. */}
       <header className="album-top">
         <Link href="/" className="album-brand">
           FOLIO &amp; FOREVER
         </Link>
         <div className="album-meta">
+          {stage !== 'cover' ? (
+            <button
+              type="button"
+              className="album-back-cover"
+              onClick={() => {
+                setStage('cover');
+                setIndex(0);
+              }}
+              aria-label="Back to cover"
+            >
+              ← Cover
+            </button>
+          ) : null}
+          {isSubmitted ? (
+            <span className="album-badge-submitted" title="This album has been submitted for production">
+              Submitted &#10003;
+            </span>
+          ) : null}
           {customerName ? <span>{customerName}</span> : null}
           {sizeLabel ? <span>{sizeLabel}</span> : null}
-          <span>{total} spread{total === 1 ? '' : 's'}</span>
+          <span>
+            {total} spread{total === 1 ? '' : 's'}
+          </span>
         </div>
       </header>
 
@@ -337,7 +440,7 @@ export default function AlbumViewer({
         <section className="album-stage album-stage-cover">
           <div className="album-cover-pedestal">
             <div className="album-cover-shadow" />
-            <CoverFace cover={design.cover} />
+            <CoverFace cover={effectiveCover} />
           </div>
           <div className="album-cover-cta">
             <button
@@ -392,17 +495,24 @@ export default function AlbumViewer({
         </section>
       ) : null}
 
-      {/* Stage: End */}
+      {/* Stage: End — review screen with Submit album as primary CTA */}
       {stage === 'end' ? (
         <section className="album-stage album-stage-end">
           <div className="album-end-card">
-            <div className="album-end-tag">The end</div>
+            <div className="album-end-tag">
+              {isSubmitted ? 'Order received' : 'Ready to submit?'}
+            </div>
             <h2 className="album-end-title">
               {customerName ? `${customerName}'s album` : 'Your album'}
             </h2>
             <p className="album-end-desc">
-              Saved with Folio &amp; Forever. Your link works for 60 days.
+              {isSubmitted
+                ? `Order ${design.orderId || submittedOrderId || ''} is in production. We'll email you with a proof and invoice within 24 hours.`
+                : 'Reviewed everything? Submitting locks the design and sends it to our team. You’ll get an emailed proof + invoice within 24 hours.'}
             </p>
+            {submitError ? (
+              <p className="album-end-error">{submitError}</p>
+            ) : null}
             <div className="album-end-actions">
               <button
                 type="button"
@@ -414,15 +524,64 @@ export default function AlbumViewer({
               >
                 View again
               </button>
-              {isOwner ? (
-                <Link href={editLink} className="album-end-primary">
-                  Edit this design
+              {isSubmitted ? null : isOwner ? (
+                <Link href={editLink} className="album-end-secondary">
+                  Edit
                 </Link>
+              ) : null}
+              {isSubmitted ? (
+                <span className="album-end-locked">Submitted &#10003;</span>
               ) : (
-                <Link href="/design" className="album-end-primary">
-                  Start your own
-                </Link>
+                <button
+                  type="button"
+                  className="album-end-primary"
+                  disabled={submitting}
+                  onClick={submitAlbum}
+                >
+                  {submitting ? 'Submitting…' : 'Submit album'}
+                </button>
               )}
+            </div>
+            {!isSubmitted && isOwner ? (
+              <p className="album-end-share-hint">
+                Want feedback first? <Link href={editLink}>Go back to edit</Link>
+                {' '}or share this preview link with someone before submitting.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Stage: Submitted — thank-you confirmation, only reachable after the
+          Submit button click resolves successfully. The same content is
+          shown on the end-stage when re-loading a submitted design, but
+          this stage is the live "I just clicked submit" celebration. */}
+      {stage === 'submitted' ? (
+        <section className="album-stage album-stage-submitted">
+          <div className="album-end-card">
+            <div className="album-thanks-tick" aria-hidden>&#10003;</div>
+            <div className="album-end-tag">Order submitted</div>
+            <h2 className="album-end-title">Thank you</h2>
+            <p className="album-end-desc">
+              {customerName ? `${customerName}, your` : 'Your'} album order
+              {' '}<strong>{submittedOrderId || design.orderId}</strong>{' '}
+              is in. We&rsquo;ll email a proof + invoice within 24 hours.
+              Save this link to come back any time.
+            </p>
+            <div className="album-end-actions">
+              <button
+                type="button"
+                className="album-end-secondary"
+                onClick={() => {
+                  setStage('cover');
+                  setIndex(0);
+                }}
+              >
+                View album again
+              </button>
+              <Link href="/" className="album-end-primary">
+                Back to home
+              </Link>
             </div>
           </div>
         </section>

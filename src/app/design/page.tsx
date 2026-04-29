@@ -62,13 +62,19 @@ export default function DesignerPage() {
   }
 
   /**
-   * onContinue from CoverBuilder: stash the cover state on window where
-   * the legacy submit modal will pick it up (Task #6 wires it into the
-   * Stripe checkout payload), then open the modal as before.
+   * onContinue from CoverBuilder: stash the cover state on window so
+   * serializeDesign() picks it up, then call previewAlbum() in the
+   * legacy script — which saves the design to KV and redirects the
+   * customer to /album/<token> (the viewer = the preview = where the
+   * Submit Album button lives).
+   *
+   * The previous behaviour opened a Save & Share modal here, which had
+   * no commit point. Customers ended up generating 4–5 share links and
+   * never actually ordering. The viewer makes the order step explicit.
    */
   function continueFromCover(cover: CoverState) {
     (window as unknown as { __coverState?: CoverState }).__coverState = cover;
-    fb('openModal');
+    fb('previewAlbum');
   }
 
   return (
@@ -76,7 +82,7 @@ export default function DesignerPage() {
       {/* ?v= query bumps a hard cache miss — Cloudflare serves /js/* with
           max-age=14400 so without this, browsers keep the old JS for hours
           after a deploy. Bump this string on every functional JS change. */}
-      <Script src="/js/album-builder.js?v=20260429-5" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260429-7" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
