@@ -1497,6 +1497,16 @@
     const m = window.location.search.match(/[?&]d=([a-f0-9]{8,64})/i);
     if (!m) return;
     const token = m[1];
+    // If we're loading an existing design, the customer is editing — they
+    // already chose "I'll design it" the first time around. Skip the intro
+    // path-picker and drop them straight into the spread builder. Without
+    // this they'd land on the picker and have to re-click the same option
+    // before seeing their album. We do this BEFORE the network call so
+    // the UX feels instant; if the fetch later fails the builder is empty
+    // but they're already in the right place to start over.
+    try {
+      if (typeof choosePath === 'function') choosePath('self');
+    } catch (_) { /* defensive — non-blocking */ }
     try {
       const res = await fetch('/api/designs/' + encodeURIComponent(token));
       if (!res.ok) {
