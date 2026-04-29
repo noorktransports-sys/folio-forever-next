@@ -230,7 +230,9 @@ export async function POST(request: Request) {
 
   // If the design was placed by a logged-in photographer, update their
   // album index so /pro dashboard shows the new submitted status +
-  // orderId without needing to re-fetch each design's record.
+  // orderId without needing to re-fetch each design's record. Each
+  // variable is recomputed locally so this block doesn't depend on
+  // the orders-index try-block above (which would put them out of scope).
   if (design.photographerId) {
     try {
       const indexKey = `_photographer_${design.photographerId}_albums_v1`;
@@ -246,14 +248,18 @@ export async function POST(request: Request) {
       } else {
         // First time we see this token (rare — they submit a design
         // saved by another route). Push a fresh entry.
+        const cust = (design.customer || {}) as { email?: string; name?: string };
+        const photos = (design as { uploadedPhotos?: Record<string, string> })
+          .uploadedPhotos;
+        const pCount = photos ? Object.keys(photos).length : 0;
         list.unshift({
           token,
           orderId,
-          customerName: customerForIndex.name || '',
-          customerEmail: customerForIndex.email || '',
+          customerName: cust.name || '',
+          customerEmail: cust.email || '',
           size: (design as { size?: string }).size || '',
           totalSpreads: (design as { totalSpreads?: number }).totalSpreads || 0,
-          photoCount,
+          photoCount: pCount,
           status: 'submitted',
           submittedAt,
         });
