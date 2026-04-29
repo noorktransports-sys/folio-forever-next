@@ -73,8 +73,16 @@ export interface SavedDesign {
   cover?: CoverSnapshot | null;
   customer?: { email?: string; name?: string; deferred?: boolean } | null;
   savedAt?: string;
-  // Order-state fields written by /api/submit-order. A draft has neither.
-  status?: 'draft' | 'submitted';
+  // Order-state fields written by /api/submit-order + admin status updates.
+  // 'draft' means saved but not submitted; 'submitted' is the customer's
+  // commit point; the rest are admin-side production states.
+  status?:
+    | 'draft'
+    | 'submitted'
+    | 'in_progress'
+    | 'shipped'
+    | 'delivered'
+    | 'cancelled';
   submittedAt?: string;
   orderId?: string;
 }
