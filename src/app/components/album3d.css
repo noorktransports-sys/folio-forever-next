@@ -36,7 +36,7 @@
   outline: none;
   /* Default (rest) rotation; overridden by --rx/--ry from JS. */
   --rx: 4deg;
-  --ry: -22deg;
+  --ry: -16deg;
   /* Half-thickness of the book in px. ~14 reads as a substantial album
    * without becoming a phone book. */
   --book-depth: 14px;
@@ -66,6 +66,10 @@
   border-radius: 1px 5px 5px 1px;
   overflow: hidden;
   transform: translateZ(var(--book-depth));
+  /* Hide front face when rotated past 90° — otherwise you'd see a
+   * mirrored cover stacked behind the back. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   box-shadow:
     0 28px 50px -8px rgba(0, 0, 0, 0.75),
     0 12px 22px -6px rgba(0, 0, 0, 0.55),
@@ -82,6 +86,8 @@
   inset: 0;
   border-radius: 5px 1px 1px 5px;
   transform: translateZ(calc(var(--book-depth) * -1)) rotateY(180deg);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     inset 0 0 30px rgba(0, 0, 0, 0.6);

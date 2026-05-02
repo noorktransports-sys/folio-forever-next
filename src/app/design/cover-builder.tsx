@@ -109,6 +109,14 @@ export type CoverState = {
   type: CoverType;
   leatherColor: string;     // only meaningful when type === 'leather'
   photoSrc: string | null;  // only meaningful when type === 'acrylic' | 'photo'
+  /**
+   * Back-cover photo for the photo cover variant only. `null` means
+   * "use the same photo as the front" — the most common case, so it's
+   * the default. The user opts into a different back via the controls
+   * panel. Acrylic covers don't read this field; their back is a leather
+   * binding panel.
+   */
+  backPhotoSrc: string | null;
   // Cover-photo crop transforms. The photo is rendered with
   //   transform: translate(photoX px, photoY px) scale(photoScale)
   // so the user can pinch/drag/zoom to choose which part of the image
@@ -182,6 +190,7 @@ const initialState: CoverState = {
   type: 'leather',
   leatherColor: 'black',
   photoSrc: null,
+  backPhotoSrc: null,
   photoScale: 1,
   photoX: 0,
   photoY: 0,
@@ -204,19 +213,19 @@ interface CoverBuilderProps {
 /**
  * Drag-to-rotate constants.
  *
- * Old behavior was a passive ±8° mouse-hover tilt — too subtle to read as 3D
- * and the user couldn't *do* anything with it. New behavior: the user grabs
- * the cover and drags. Rest pose is already turned a bit on Y so the spine
- * + page edges are visible from the start ("see the corners" intent).
+ * Y is effectively unbounded so the user can spin the book all the way
+ * around and inspect the back face (which is its own design — leather
+ * for leather covers, photo for photo covers). 720° of accumulated angle
+ * is a soft cap; nobody drags past two full spins.
  *
- * The clamp around rest is wide on Y (±35°) so the user can swing the book
- * to inspect the spine without rotating it past the edge faces.
+ * X stays clamped (±28°) so the book can't be flipped upside-down — that
+ * looks awkward and there's no useful information past that tilt.
  */
 const REST_ROTATE_X_DEG = 2;
-const REST_ROTATE_Y_DEG = -18;
-const ROTATE_X_RANGE_DEG = 16;
-const ROTATE_Y_RANGE_DEG = 35;
-const DRAG_SENSITIVITY = 0.45;
+const REST_ROTATE_Y_DEG = -12;
+const ROTATE_X_RANGE_DEG = 28;
+const ROTATE_Y_RANGE_DEG = 720;
+const DRAG_SENSITIVITY = 0.5;
 
 /**
  * localStorage keys.
@@ -684,45 +693,71 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
              * user drags. This is the core of the "real 3D" rebuild.
              */}
             <div className="cover-preview-frame">
-              {/* BACK COVER — visible when the user rotates the book past
-               * the side. For acrylic / photo covers we use the binding
-               * leather color so the back matches the spine; for leather
-               * we use the leather color directly.
+              {/*
+               * BACK COVER — visible when the user rotates the book past
+               * the side. Per cover type:
+               *   - leather: same leather color as the front (one continuous
+               *     leather wrap)
+               *   - acrylic: the leather binding panel (acrylic is a framed
+               *     photo-behind-glass on the front; the back is leather)
+               *   - photo: another photo. Defaults to the same as the front
+               *     ("photos front and back"). User can override via the
+               *     back-cover picker.
                *
                * Class is `cover-backface` (not `cover-back`) because
                * `.cover-back` is already used by the "Back to Spreads"
-               * toolbar button. */}
+               * toolbar button.
+               */}
               <div
                 className="cover-backface"
                 style={{
                   background:
                     state.type === 'leather'
                       ? previewBackground
-                      : bindingHex,
+                      : state.type === 'acrylic'
+                      ? bindingHex
+                      : '#0e0c09',  // photo: dark binding when no back picked
                 }}
-              />
+              >
+                {state.type === 'photo' && state.backPhotoSrc && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    className="cover-backface-photo"
+                    src={state.backPhotoSrc}
+                    alt=""
+                    draggable={false}
+                  />
+                )}
+              </div>
 
               {/* SPINE — the perpendicular slab at the left.
                *
-               * Background reacts to cover type so the spine reads as part of
-               * the same product when the user rotates the book:
-               *   - leather: the CSS default dark-leather gradient.
-               *   - acrylic / photo: a gradient built on the user's chosen
-               *     binding color, since the leather binding strip wraps
-               *     from the front edge onto the spine in the real printed
-               *     product. Edges darkened so the spine still reads as
-               *     recessed, not a flat color block.
+               * Per cover type:
+               *   - leather: CSS default dark-leather gradient.
+               *   - acrylic: leather-binding gradient (binding wraps from
+               *     front-left strip onto the spine in the real product).
+               *   - photo: a dark neutral binding material (between two
+               *     printed photos — fabric/leatherette feel, no leather
+               *     strip wrap, no photo wrap onto the spine).
                */}
               <div
                 className="cover-spine"
                 style={
-                  state.type === 'acrylic' || state.type === 'photo'
+                  state.type === 'acrylic'
                     ? {
                         background: `linear-gradient(90deg,
                           rgba(0,0,0,0.65) 0%,
                           ${bindingHex} 40%,
                           ${bindingHex} 70%,
                           rgba(0,0,0,0.55) 100%)`,
+                      }
+                    : state.type === 'photo'
+                    ? {
+                        background: `linear-gradient(90deg,
+                          rgba(0,0,0,0.85) 0%,
+                          #1a1610 40%,
+                          #1a1610 70%,
+                          rgba(0,0,0,0.75) 100%)`,
                       }
                     : undefined
                 }
@@ -756,14 +791,15 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 {/* 3D-touch indicator for photo cover */}
                 {state.type === 'photo' && <div className="cover-tactile-overlay" />}
 
-                {/* Leather binding strip — only on acrylic / photo covers.
-                    Sits over the leftmost 12% of the cover face, where
-                    the leather spine wraps around onto the front in the
-                    real product. Reuses the customer's leatherColor pick.
+                {/* Leather binding strip — only on acrylic.
+                    The acrylic cover is a clear photo-behind-glass with a
+                    leather strip on the spine side that holds it to the
+                    binding. The photo cover does NOT have a binding strip
+                    (it's a full-bleed photo print, front and back).
                     z-index 2 puts it above the photo but below the title
                     so titles don't get clipped if positioned to the left.
                     pointer-events:none keeps the photo draggable behind. */}
-                {(state.type === 'acrylic' || state.type === 'photo') && (
+                {state.type === 'acrylic' && (
                   <div
                     className="cover-binding-strip"
                     style={{
@@ -811,8 +847,11 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     reduced from 80% → 78% to keep a margin from the
                     binding edge. Leather covers stay centered as before. */}
                 {(() => {
-                  const hasBinding =
-                    state.type === 'acrylic' || state.type === 'photo';
+                  // Only acrylic covers have the leather binding strip on
+                  // the front; the photo cover lost it in the rebuild.
+                  // Title shifts right only when the binding strip is
+                  // actually there.
+                  const hasBinding = state.type === 'acrylic';
                   const titleLeft = hasBinding ? '56%' : '50%';
                   const titleWidth = hasBinding ? '78%' : '80%';
                   return (
@@ -1058,6 +1097,75 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   </p>
                 </div>
               )}
+            </section>
+          )}
+
+          {/*
+           * Back cover photo — photo cover only.
+           *
+           * The photo cover is full-bleed photo on FRONT and BACK with no
+           * leather binding strip. Front and back are independent picks —
+           * customer typically wants two different images (a portrait on
+           * the front, a landscape on the back, or front-and-back of the
+           * same scene). Until they pick a back, the back face shows the
+           * dark binding material so it's obvious there's an unfilled slot.
+           *
+           * Only meaningful once the front photo is set — picking a back
+           * before a front would put the cart before the horse.
+           */}
+          {state.type === 'photo' && state.photoSrc && (
+            <section className="cover-section">
+              <h3 className="cover-section-title">Back Cover Photo</h3>
+              {(() => {
+                const merged = [...extraCoverPhotos, ...uploadedPhotos];
+                const seen = new Set<string>();
+                const uniq = merged.filter((p) => {
+                  if (seen.has(p.src)) return false;
+                  seen.add(p.src);
+                  return true;
+                });
+                if (uniq.length === 0) {
+                  return (
+                    <p className="cover-hint">
+                      Upload another photo above to use on the back cover.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="cover-photo-grid">
+                    {uniq.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={
+                          'cover-photo-thumb' +
+                          (state.backPhotoSrc === p.src ? ' active' : '')
+                        }
+                        onClick={() => update('backPhotoSrc', p.src)}
+                      >
+                        <img src={p.src} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {state.backPhotoSrc && (
+                <button
+                  type="button"
+                  className="cover-crop-reset"
+                  style={{ marginTop: 10 }}
+                  onClick={() => update('backPhotoSrc', null)}
+                >
+                  Clear back cover
+                </button>
+              )}
+
+              <p className="cover-crop-hint" style={{ marginTop: 10 }}>
+                {state.backPhotoSrc
+                  ? 'Drag the album all the way around to see the back.'
+                  : 'Pick a photo for the back of the album. It can be the same as the front, or completely different.'}
+              </p>
             </section>
           )}
 

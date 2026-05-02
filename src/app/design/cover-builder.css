@@ -98,7 +98,7 @@
   perspective: 1600px;
   perspective-origin: 50% 35%;
   --tx: 2deg;
-  --ty: -18deg;
+  --ty: -12deg;
   /* Half-thickness of the book in CSS px. The front cover sits at
    * translateZ(+depth), back at -depth; spine + 3 page edges fill the gap.
    * 9px reads as a substantial premium album. */
@@ -147,6 +147,10 @@
   transform-style: preserve-3d;
   transform: translateZ(var(--book-depth));
   transition: transform 0.7s cubic-bezier(0.4, 0.1, 0.2, 1), background 0.4s;
+  /* Hide when facing away — otherwise you'd see a mirrored design behind
+   * the back cover during a 180° rotation. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   box-shadow:
     0 60px 80px -20px rgba(0, 0, 0, 0.75),
     0 30px 40px -15px rgba(0, 0, 0, 0.55),
@@ -172,12 +176,29 @@
   position: absolute;
   inset: 0;
   border-radius: 6px 2px 2px 6px;
+  overflow: hidden;
   transform: translateZ(calc(var(--book-depth) * -1)) rotateY(180deg);
+  transform-style: preserve-3d;
+  /* Same backface treatment as the front so the design only paints when
+   * actually facing camera. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   background: #1a1610;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     inset 0 0 30px rgba(0, 0, 0, 0.55);
   pointer-events: none;
+}
+/* Photo backdrop on the back face for photo covers — same treatment as
+ * the front photo backdrop. Keep filter consistent so the back doesn't
+ * look mismatched in saturation. */
+.cover-backface-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: contrast(1.05) saturate(1.05);
 }
 
 /* SPINE — the perpendicular slab at the left of the book. Width =

@@ -30,10 +30,10 @@ import './album3d.css';
  */
 
 const REST_ROTATE_X_DEG = 4;     // gentle downward tilt at rest
-const REST_ROTATE_Y_DEG = -22;   // turned slightly so spine + page edges show
-const ROTATE_X_RANGE_DEG = 18;   // ±18° around rest on X axis
-const ROTATE_Y_RANGE_DEG = 35;   // ±35° around rest on Y axis (wide → corners)
-const DRAG_SENSITIVITY = 0.45;   // pixels of pointer movement → degrees of rotation
+const REST_ROTATE_Y_DEG = -16;   // turned slightly so spine + page edges show
+const ROTATE_X_RANGE_DEG = 28;   // ±28° around rest on X axis (no upside-down)
+const ROTATE_Y_RANGE_DEG = 720;  // effectively unbounded — full spin both ways
+const DRAG_SENSITIVITY = 0.5;    // pixels of pointer movement → degrees of rotation
 const KEY_STEP_DEG = 6;          // arrow-key nudge per press
 
 export interface Album3DProps {
