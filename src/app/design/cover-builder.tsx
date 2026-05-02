@@ -663,8 +663,32 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               <span>Lay-flat binding</span>
             </div>
 
-            {/* Spine — the book's left edge, rotated into 3D. */}
-            <div className="cover-spine" />
+            {/* Spine — the book's left edge, rotated into 3D.
+             *
+             * Background reacts to cover type so the spine reads as part of
+             * the same product when the user rotates the book:
+             *   - leather: the CSS default dark-leather gradient (matches the
+             *     leather face).
+             *   - acrylic / photo: a gradient built on the user's chosen
+             *     binding color, since the leather binding strip wraps from
+             *     the front edge onto the spine in the real printed product.
+             *     We darken the edges so the spine still reads as recessed,
+             *     not a flat color block.
+             */}
+            <div
+              className="cover-spine"
+              style={
+                state.type === 'acrylic' || state.type === 'photo'
+                  ? {
+                      background: `linear-gradient(90deg,
+                        rgba(0,0,0,0.65) 0%,
+                        ${bindingHex} 40%,
+                        ${bindingHex} 70%,
+                        rgba(0,0,0,0.55) 100%)`,
+                    }
+                  : undefined
+              }
+            />
 
             {/* Page edges — the stacked-paper look at the right & bottom. */}
             <div className="cover-page-edge-right" />
