@@ -37,9 +37,10 @@
   /* Default (rest) rotation; overridden by --rx/--ry from JS. */
   --rx: 4deg;
   --ry: -16deg;
-  /* Half-thickness of the book in px. ~14 reads as a substantial album
-   * without becoming a phone book. */
-  --book-depth: 14px;
+  /* Half-thickness of the book in px. 7 reads as a slim premium album
+   * on the dark homepage; 14 made the page-edge slab dominate the
+   * rotated view and look cheap. */
+  --book-depth: 7px;
 }
 .album3d-stage:focus-visible {
   box-shadow: 0 0 0 2px rgba(184, 150, 90, 0.55);
@@ -125,56 +126,57 @@
 }
 
 /*
- * PAGE EDGES — three slabs (right, top, bottom). Layered pattern:
- *   1. Very fine paper-banding (low-opacity warm tone, 0.7px lines)
- *   2. Shadow gradient at the cover-meeting edge
- *   3. Warm cream base gradient (ivory, never high-contrast)
- *   4. Inset border + soft inset shadow for dimension
+ * PAGE EDGES — three slabs (right, top, bottom).
  *
- * Old pattern was a 1px high-contrast stripe (#f8f4ee ↔ #d4cabb) that
- * read as a barcode under heavy rotation. This reads as fine cream pages.
+ * Tuned for the dark homepage: muted warm-paper tones (no bright cream),
+ * subtle banding at low opacity, no visible outline, and the slabs are
+ * inset by `--book-depth` at the corners so the right edge and top/
+ * bottom edges don't overlap and create those little white triangles.
+ *
+ * Color palette: muted warm paper #b8a47e → #998468 → #7d6c52 — sits
+ * close in luminance to the leather-on-dark, so edges read as "hint of
+ * pages" instead of "white slab".
  */
 .album3d-edge-right,
 .album3d-edge-top,
 .album3d-edge-bottom {
   position: absolute;
   pointer-events: none;
-  box-shadow:
-    inset 0 0 0 0.5px rgba(80, 65, 45, 0.22),
-    inset 0 0 5px rgba(0, 0, 0, 0.22);
+  /* No inset border — that 0.5px outline was popping against the dark bg. */
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.35);
 }
 
-/* Right edge — vertical slab on the right side of the book. Shadow runs
- * left→right (darker where pages tuck under the cover). */
+/* Right edge — vertical slab. Inset top/bottom by book-depth so the
+ * top/bottom edge slabs cleanly fill the corners without overlap. */
 .album3d-edge-right {
-  top: 1px;
+  top: var(--book-depth);
   right: 0;
-  bottom: 1px;
+  bottom: var(--book-depth);
   width: calc(var(--book-depth) * 2);
   transform-origin: left center;
   transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
   background:
     repeating-linear-gradient(
       0deg,
-      rgba(150, 125, 90, 0) 0px,
-      rgba(150, 125, 90, 0) 0.7px,
-      rgba(150, 125, 90, 0.08) 0.7px,
-      rgba(150, 125, 90, 0.08) 1.4px
+      rgba(60, 45, 25, 0) 0px,
+      rgba(60, 45, 25, 0) 0.6px,
+      rgba(60, 45, 25, 0.18) 0.6px,
+      rgba(60, 45, 25, 0.18) 1.2px
     ),
     linear-gradient(90deg,
-      rgba(0, 0, 0, 0.32) 0%,
-      rgba(0, 0, 0, 0.08) 18%,
-      rgba(0, 0, 0, 0) 55%,
-      rgba(0, 0, 0, 0.18) 100%
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(0, 0, 0, 0.15) 25%,
+      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(180deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
+    linear-gradient(180deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
 }
 
-/* Bottom edge — horizontal slab. Banding rotated 90° (lines perpendicular
- * to the spine). Shadow flipped so the cover-meeting edge is darker. */
+/* Bottom edge — horizontal slab. Spans the full book width since the
+ * right edge has been trimmed at the corners. */
 .album3d-edge-bottom {
-  left: 1px;
-  right: 1px;
+  left: 0;
+  right: 0;
   bottom: 0;
   height: calc(var(--book-depth) * 2);
   transform-origin: center top;
@@ -182,25 +184,24 @@
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(150, 125, 90, 0) 0px,
-      rgba(150, 125, 90, 0) 0.7px,
-      rgba(150, 125, 90, 0.08) 0.7px,
-      rgba(150, 125, 90, 0.08) 1.4px
+      rgba(60, 45, 25, 0) 0px,
+      rgba(60, 45, 25, 0) 0.6px,
+      rgba(60, 45, 25, 0.18) 0.6px,
+      rgba(60, 45, 25, 0.18) 1.2px
     ),
     linear-gradient(0deg,
-      rgba(0, 0, 0, 0.32) 0%,
-      rgba(0, 0, 0, 0.08) 18%,
-      rgba(0, 0, 0, 0) 55%,
-      rgba(0, 0, 0, 0.18) 100%
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(0, 0, 0, 0.15) 25%,
+      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(90deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
+    linear-gradient(90deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
 }
 
-/* Top edge — horizontal slab. Same banding as bottom; shadow runs
- * top→bottom so the cover-meeting edge (bottom in screen space) darkens. */
+/* Top edge — horizontal slab, mirror of bottom. */
 .album3d-edge-top {
-  left: 1px;
-  right: 1px;
+  left: 0;
+  right: 0;
   top: 0;
   height: calc(var(--book-depth) * 2);
   transform-origin: center bottom;
@@ -208,18 +209,18 @@
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(150, 125, 90, 0) 0px,
-      rgba(150, 125, 90, 0) 0.7px,
-      rgba(150, 125, 90, 0.08) 0.7px,
-      rgba(150, 125, 90, 0.08) 1.4px
+      rgba(60, 45, 25, 0) 0px,
+      rgba(60, 45, 25, 0) 0.6px,
+      rgba(60, 45, 25, 0.18) 0.6px,
+      rgba(60, 45, 25, 0.18) 1.2px
     ),
     linear-gradient(180deg,
-      rgba(0, 0, 0, 0.32) 0%,
-      rgba(0, 0, 0, 0.08) 18%,
-      rgba(0, 0, 0, 0) 55%,
-      rgba(0, 0, 0, 0.18) 100%
+      rgba(0, 0, 0, 0.5) 0%,
+      rgba(0, 0, 0, 0.15) 25%,
+      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(90deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
+    linear-gradient(90deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
 }
 
 /* COVER PHOTO — full-bleed inside the cover when variant=photo. */
