@@ -149,7 +149,7 @@ export default function HomePage() {
               variant="leather"
               leatherHex="#2a1c12"
               foilHex="#d4b07a"
-              width={400}
+              width={320}
               caption="Drag to rotate · Inspect every angle"
             />
           </div>

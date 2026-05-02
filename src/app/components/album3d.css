@@ -29,7 +29,7 @@
  * distort but tight enough that depth reads. */
 .album3d-stage {
   position: relative;
-  aspect-ratio: 17 / 12;          /* horizontal album layout */
+  aspect-ratio: 12 / 17;          /* portrait album — taller than wide */
   perspective: 1800px;
   perspective-origin: 50% 40%;
   cursor: grab;
