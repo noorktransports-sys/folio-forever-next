@@ -737,11 +737,26 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     draggable={false}
                   />
                 )}
-                {/* Back-cover foil mark for leather covers — small foil
-                 * title flanked by thin rules. Empty leather backs read as
-                 * unfinished; a real wedding album always has a stamp. */}
-                {state.type === 'leather' && state.primaryText && (
-                  <div className="cover-back-mark" style={{ color: textHex }}>
+                {/* Back-cover foil mark — small foil title flanked by
+                 * thin rules. Renders for both leather AND acrylic covers
+                 * since acrylic's back is also a leather binding panel
+                 * (the acrylic is only on the front). Empty leather backs
+                 * read as unfinished; a real album always has a stamp.
+                 *
+                 * Uses the user's foilColor so the back stamp is metallic
+                 * (gold/silver/rose-gold/black foil), not the front-face
+                 * textHex — which for acrylic is plain white text on the
+                 * photo and would look wrong as a foil stamp. */}
+                {(state.type === 'leather' || state.type === 'acrylic') &&
+                  state.primaryText && (
+                  <div
+                    className="cover-back-mark"
+                    style={{
+                      color:
+                        FOIL_COLORS.find((f) => f.id === state.foilColor)?.hex
+                        ?? '#d4b07a',
+                    }}
+                  >
                     <span className="cover-back-rule" aria-hidden="true" />
                     <span
                       className="cover-back-title"
@@ -1258,9 +1273,11 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           </section>
 
           {/* Foil (leather) or text color (photo) */}
-          {state.type === 'leather' && (
+          {(state.type === 'leather' || state.type === 'acrylic') && (
             <section className="cover-section">
-              <h3 className="cover-section-title">Foil Color</h3>
+              <h3 className="cover-section-title">
+                {state.type === 'leather' ? 'Foil Color' : 'Back Stamp Foil'}
+              </h3>
               <div className="cover-swatch-row">
                 {FOIL_COLORS.map((c) => (
                   <button
