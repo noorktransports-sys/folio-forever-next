@@ -145,7 +145,14 @@ function CoverFace({ cover }: { cover: CoverSnapshot | null | undefined }) {
   const type = c.type || 'leather';
   const font = COVER_FONTS[c.fontId || 'cormorant'] || COVER_FONTS.cormorant;
   const titleSize = c.fontSize ?? 48;
-  const photoTransform = `translate(${c.photoX ?? 0}px, ${c.photoY ?? 0}px) scale(${c.photoScale ?? 1})`;
+  // Scale floor of 1: with object-fit:cover + width/height 100% the photo
+  // already fills the frame at scale 1; anything below leaves a dark
+  // border around the photo (the previous cover-builder permitted scale
+  // down to 0.5, so legacy saves can carry shrunk values). Render-time
+  // clamp here means we don't need a KV migration to repair them.
+  const rawScale = c.photoScale ?? 1;
+  const safeScale = Number.isFinite(rawScale) ? Math.max(1, Math.min(3, rawScale)) : 1;
+  const photoTransform = `translate(${c.photoX ?? 0}px, ${c.photoY ?? 0}px) scale(${safeScale})`;
 
   const isPhoto = (type === 'acrylic' || type === 'photo') && c.photoSrc;
   const isLeather = type === 'leather';

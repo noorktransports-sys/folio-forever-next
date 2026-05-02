@@ -160,7 +160,13 @@ const FONT_SIZE_MIN = 24;
 const FONT_SIZE_MAX = 96;
 const FONT_SIZE_DEFAULT = 52;
 
-const PHOTO_SCALE_MIN = 0.5;
+// Cover photo scale floor.
+// `1` = photo exactly fills the cover frame (object-fit:cover baseline).
+// Anything below would shrink the photo inside the wrapper and reveal the
+// dark cover background at the edges — looks like an unintentional border
+// on the printed acrylic / photo cover. So scale is clamped to ≥ 1.
+// Customers can still zoom IN to crop tighter (up to PHOTO_SCALE_MAX).
+const PHOTO_SCALE_MIN = 1;
 const PHOTO_SCALE_MAX = 3;
 
 const initialState: CoverState = {
@@ -212,7 +218,17 @@ function loadCoverState(): CoverState {
     if (!raw) return initialState;
     const data = JSON.parse(raw);
     if (!data || data.v !== 1 || !data.state) return initialState;
-    return { ...initialState, ...data.state };
+    const merged = { ...initialState, ...data.state } as CoverState;
+    // Heal legacy drafts that were saved when scale < 1 was permitted.
+    // Clamp to the current floor so the photo always fills the cover.
+    if (typeof merged.photoScale !== 'number' || !Number.isFinite(merged.photoScale)) {
+      merged.photoScale = 1;
+    } else if (merged.photoScale < PHOTO_SCALE_MIN) {
+      merged.photoScale = PHOTO_SCALE_MIN;
+    } else if (merged.photoScale > PHOTO_SCALE_MAX) {
+      merged.photoScale = PHOTO_SCALE_MAX;
+    }
+    return merged;
   } catch {
     return initialState;
   }
