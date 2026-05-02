@@ -152,6 +152,23 @@
   background: linear-gradient(180deg, transparent 50%, rgba(0, 0, 0, 0.45) 100%);
   pointer-events: none;
 }
+/* Leather binding strip — only rendered on acrylic / photo covers in
+   CoverFace. Sits above the photo, below the title text. The inset
+   shadow on the right edge gives the binding a subtle 3D lift, like
+   it's slightly raised off the photo. */
+.album-cover-binding {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 12%;
+  z-index: 1;
+  pointer-events: none;
+  box-shadow:
+    inset -3px 0 8px rgba(0, 0, 0, 0.5),
+    inset 2px 0 3px rgba(255, 255, 255, 0.06),
+    2px 0 6px rgba(0, 0, 0, 0.25);
+}
 .album-cover-text {
   position: absolute;
   inset: 0;
@@ -162,6 +179,11 @@
   padding: 32px;
   text-align: center;
   z-index: 2;
+}
+/* When a binding strip is rendered, push the text rightward so the
+   title doesn't sit on the leather. 12% binding + a small margin. */
+.album-cover-text.has-binding {
+  padding-left: calc(12% + 16px);
 }
 .album-cover-title {
   line-height: 1.1;

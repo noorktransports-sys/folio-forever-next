@@ -115,13 +115,24 @@ const COVER_FONTS: Record<string, { family: string; style?: 'italic' | 'normal' 
   lora: { family: '"Lora", serif' },
 };
 
+// Leather backgrounds, keyed by the leather color id saved on the design.
+// Two generations of cover-builder shipped with different IDs (legacy:
+// ebony/cognac/navy/bone/forest; current: black/brown/ivory/burgundy).
+// Both are kept here so older saved designs and new ones both render
+// without a fallback. burgundy is shared between both generations and
+// uses the current cover-builder's hex (#5e1014) for consistency.
 const LEATHER_BG: Record<string, string> = {
+  // Legacy IDs — keep so designs saved on prior versions still render.
   ebony: 'linear-gradient(135deg, #1a1410 0%, #0e0a07 100%)',
   cognac: 'linear-gradient(135deg, #6b3a1f 0%, #4a2814 100%)',
   navy: 'linear-gradient(135deg, #2a3a5c 0%, #1a2640 100%)',
   bone: 'linear-gradient(135deg, #e8dec9 0%, #c8baa0 100%)',
-  burgundy: 'linear-gradient(135deg, #6b2a3a 0%, #4a1a26 100%)',
   forest: 'linear-gradient(135deg, #2a4a3a 0%, #1a3026 100%)',
+  // Current cover-builder IDs (LEATHER_COLORS in cover-builder.tsx).
+  black: 'linear-gradient(135deg, #2a2622 0%, #1a1816 100%)',
+  brown: 'linear-gradient(135deg, #6b4a2a 0%, #5a3a1a 100%)',
+  ivory: 'linear-gradient(135deg, #f8f0dc 0%, #f0e6d2 100%)',
+  burgundy: 'linear-gradient(135deg, #6e1820 0%, #5e1014 100%)',
 };
 
 function slotData(raw: PhotoSlot | string | null): PhotoSlot | null {
@@ -161,6 +172,12 @@ function CoverFace({ cover }: { cover: CoverSnapshot | null | undefined }) {
     ? LEATHER_BG[c.leatherColor || 'ebony'] || LEATHER_BG.ebony
     : '#1a1410';
 
+  // Binding background — used for the spine-side leather strip on
+  // acrylic / photo covers. Falls back to ebony when a design was
+  // saved before binding color was a thing.
+  const bindingBg =
+    LEATHER_BG[c.leatherColor || 'ebony'] || LEATHER_BG.ebony;
+
   // Foil text on leather, custom textColor on photo cover.
   const titleColor = isLeather
     ? c.foilColor || '#d4b16a'
@@ -186,7 +203,20 @@ function CoverFace({ cover }: { cover: CoverSnapshot | null | undefined }) {
           <div className="album-cover-photo-shade" />
         </div>
       ) : null}
-      <div className="album-cover-text">
+      {/* Leather binding strip on the spine side of acrylic / photo
+          covers. Mirrors the real product where the leather wraps onto
+          the front for ~12% of the cover width. Sits above the photo
+          (z-index via CSS) so it's always visible. */}
+      {isPhoto ? (
+        <div
+          className="album-cover-binding"
+          style={{ background: bindingBg }}
+          aria-hidden="true"
+        />
+      ) : null}
+      <div
+        className={'album-cover-text' + (isPhoto ? ' has-binding' : '')}
+      >
         <div
           className="album-cover-title"
           style={{

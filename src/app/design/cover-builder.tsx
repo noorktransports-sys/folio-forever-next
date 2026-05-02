@@ -453,6 +453,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
     return '#0e0c09'; // dark fallback when no photo picked
   })();
 
+  // Binding strip color — the leather wrap on the spine side of the cover.
+  // Used for acrylic / photo covers where the binding is structurally
+  // present as a thin left-edge strip. Same lookup as leather, just used
+  // in a smaller surface area.
+  const bindingHex =
+    (LEATHER_COLORS.find((c) => c.id === state.leatherColor) ?? LEATHER_COLORS[0]).hex;
+
   const textHex = (() => {
     if (state.type === 'leather') {
       return FOIL_COLORS.find((f) => f.id === state.foilColor)?.hex ?? '#d4b07a';
@@ -613,6 +620,31 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 {/* 3D-touch indicator for photo cover */}
                 {state.type === 'photo' && <div className="cover-tactile-overlay" />}
 
+                {/* Leather binding strip — only on acrylic / photo covers.
+                    Sits over the leftmost 12% of the cover face, where
+                    the leather spine wraps around onto the front in the
+                    real product. Reuses the customer's leatherColor pick.
+                    z-index 2 puts it above the photo but below the title
+                    so titles don't get clipped if positioned to the left.
+                    pointer-events:none keeps the photo draggable behind. */}
+                {(state.type === 'acrylic' || state.type === 'photo') && (
+                  <div
+                    className="cover-binding-strip"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      bottom: 0,
+                      width: '12%',
+                      background: bindingHex,
+                      boxShadow:
+                        'inset -3px 0 8px rgba(0,0,0,0.5), inset 2px 0 3px rgba(255,255,255,0.06)',
+                      pointerEvents: 'none',
+                      zIndex: 2,
+                    }}
+                  />
+                )}
+
                 {/* "+ Add photo" button — rendered directly on the cover face
                     when there's no photo set, but ONLY for cover types that
                     actually use a photo (acrylic + photo). Leather is text +
@@ -635,16 +667,29 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   </button>
                 )}
 
-                {/* Title text */}
+                {/* Title text. For acrylic/photo covers we shift the
+                    horizontal anchor right by 6% so the title is centered
+                    over the visible photo area (right 88%) instead of the
+                    full cover face — otherwise the leather binding strip
+                    would clip the left edge of long titles. Width is
+                    reduced from 80% → 78% to keep a margin from the
+                    binding edge. Leather covers stay centered as before. */}
+                {(() => {
+                  const hasBinding =
+                    state.type === 'acrylic' || state.type === 'photo';
+                  const titleLeft = hasBinding ? '56%' : '50%';
+                  const titleWidth = hasBinding ? '78%' : '80%';
+                  return (
                 <div
                   className="cover-title-block"
                   style={{
                     position: 'absolute',
-                    left: '50%',
+                    left: titleLeft,
                     ...positionStyle,
                     textAlign: 'center',
-                    width: '80%',
+                    width: titleWidth,
                     pointerEvents: 'none',
+                    zIndex: 3,
                   }}
                 >
                   {state.primaryText && (
@@ -685,6 +730,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     </div>
                   )}
                 </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -732,26 +779,33 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             </div>
           </section>
 
-          {/* Type-specific options */}
-          {state.type === 'leather' && (
-            <section className="cover-section">
-              <h3 className="cover-section-title">Leather Color</h3>
-              <div className="cover-swatch-row">
-                {LEATHER_COLORS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
-                    style={{ background: c.hex }}
-                    title={c.label}
-                    onClick={() => update('leatherColor', c.id)}
-                  >
-                    <span className="cover-swatch-label">{c.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
+          {/* Leather / binding color picker.
+              For 'leather' covers this is the leather body itself. For
+              'acrylic' / 'photo' covers it controls the leather binding
+              strip on the spine side of the cover (~12% of the front
+              face) — same physical material, smaller surface. We reuse
+              the same `leatherColor` field for both so we don't duplicate
+              state, and so a customer who switches cover type doesn't
+              lose their color choice. */}
+          <section className="cover-section">
+            <h3 className="cover-section-title">
+              {state.type === 'leather' ? 'Leather Color' : 'Binding Color'}
+            </h3>
+            <div className="cover-swatch-row">
+              {LEATHER_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
+                  style={{ background: c.hex }}
+                  title={c.label}
+                  onClick={() => update('leatherColor', c.id)}
+                >
+                  <span className="cover-swatch-label">{c.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
           {(state.type === 'acrylic' || state.type === 'photo') && (
             <section className="cover-section">
