@@ -205,27 +205,49 @@
   pointer-events: none;
 }
 
-/* PAGE EDGES — three cream-paper slabs that fill the remaining sides
- * (right, top, bottom) of the book. Each has the same stacked-paper
- * pattern but rotated to face outward from its side. */
+/*
+ * PAGE EDGES — three slabs (right, top, bottom) that fill the remaining
+ * book faces. Each is layered:
+ *   1. Very fine paper-banding (almost imperceptible, 8% opacity warm tone)
+ *   2. A radial shadow at the cover-meeting edge (suggests pages tucked
+ *      under the cover lip)
+ *   3. A warm cream base gradient (light → slightly darker, never pure
+ *      white — real paper edges are warm ivory, not high-contrast)
+ *   4. Inset border + soft inset shadow for dimension
+ *
+ * The previous pattern was a 1px alternating high-contrast stripe that
+ * read as a barcode under heavy rotation. This pattern reads as a stack
+ * of fine cream pages.
+ */
 .cover-page-edge-right,
 .cover-page-edge-top,
 .cover-page-edge-bottom {
   position: absolute;
   pointer-events: none;
+  /* Default base for the right edge — overridden per-edge below where
+   * the gradient direction needs to change. */
   background:
     repeating-linear-gradient(
       0deg,
-      #f8f4ee 0px,
-      #f8f4ee 1px,
-      #d4cabb 1px,
-      #d4cabb 2px
-    );
+      rgba(150, 125, 90, 0) 0px,
+      rgba(150, 125, 90, 0) 0.7px,
+      rgba(150, 125, 90, 0.08) 0.7px,
+      rgba(150, 125, 90, 0.08) 1.4px
+    ),
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.32) 0%,
+      rgba(0, 0, 0, 0.08) 18%,
+      rgba(0, 0, 0, 0) 55%,
+      rgba(0, 0, 0, 0.18) 100%
+    ),
+    linear-gradient(180deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
   box-shadow:
-    inset 0 0 0 1px rgba(120, 100, 80, 0.2),
-    inset 0 0 6px rgba(0, 0, 0, 0.18);
+    inset 0 0 0 0.5px rgba(80, 65, 45, 0.22),
+    inset 0 0 5px rgba(0, 0, 0, 0.22);
 }
-/* Right edge — vertical slab on the right of the book. */
+
+/* Right edge — vertical slab on the right of the book. The shadow gradient
+ * runs left→right, darker on the LEFT (where pages tuck under the cover). */
 .cover-page-edge-right {
   top: 0;
   bottom: 0;
@@ -234,8 +256,12 @@
   transform-origin: left center;
   transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
 }
-/* Top edge — horizontal slab spanning the top thickness. Pattern rotated
- * 90° so the stacked-paper lines run perpendicular to the spine. */
+
+/* Top edge — horizontal slab spanning the top thickness. Banding rotated
+ * 90° (lines run perpendicular to the spine, like real stacked paper
+ * viewed from above). Shadow gradient runs top→bottom — darker at the
+ * cover-meeting edge (bottom of the slab in screen space when seen
+ * from above). */
 .cover-page-edge-top {
   top: 0;
   left: 0;
@@ -246,13 +272,23 @@
   background:
     repeating-linear-gradient(
       90deg,
-      #f8f4ee 0px,
-      #f8f4ee 1px,
-      #d4cabb 1px,
-      #d4cabb 2px
-    );
+      rgba(150, 125, 90, 0) 0px,
+      rgba(150, 125, 90, 0) 0.7px,
+      rgba(150, 125, 90, 0.08) 0.7px,
+      rgba(150, 125, 90, 0.08) 1.4px
+    ),
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.32) 0%,
+      rgba(0, 0, 0, 0.08) 18%,
+      rgba(0, 0, 0, 0) 55%,
+      rgba(0, 0, 0, 0.18) 100%
+    ),
+    linear-gradient(90deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
 }
-/* Bottom edge — horizontal slab spanning the bottom thickness. */
+
+/* Bottom edge — same banding direction as top, shadow gradient flipped
+ * so the cover-meeting edge (top of the slab in screen space when seen
+ * from below) is darker. */
 .cover-page-edge-bottom {
   bottom: 0;
   left: 0;
@@ -263,11 +299,18 @@
   background:
     repeating-linear-gradient(
       90deg,
-      #f8f4ee 0px,
-      #f8f4ee 1px,
-      #d4cabb 1px,
-      #d4cabb 2px
-    );
+      rgba(150, 125, 90, 0) 0px,
+      rgba(150, 125, 90, 0) 0.7px,
+      rgba(150, 125, 90, 0.08) 0.7px,
+      rgba(150, 125, 90, 0.08) 1.4px
+    ),
+    linear-gradient(0deg,
+      rgba(0, 0, 0, 0.32) 0%,
+      rgba(0, 0, 0, 0.08) 18%,
+      rgba(0, 0, 0, 0) 55%,
+      rgba(0, 0, 0, 0.18) 100%
+    ),
+    linear-gradient(90deg, #f1e9d7 0%, #ebe1cb 50%, #e3d7be 100%);
 }
 
 /* INSIDE — visible only when cover is open. Sits just behind the front
