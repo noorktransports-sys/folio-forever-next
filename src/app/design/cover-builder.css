@@ -201,6 +201,43 @@
   filter: contrast(1.05) saturate(1.05);
 }
 
+/* Woven fabric binding for the photo cover spine. Real photo covers use
+ * a linen / canvas / book-cloth strip on the spine to hold two printed
+ * photo panels together. Two perpendicular thread directions + a dark
+ * base color give a subtle woven texture. The recessed edges (left/right
+ * gradient overlay) keep the spine reading as a 3D piece, not a flat
+ * fabric color.
+ *
+ * Same .is-fabric modifier can be used on .cover-backface for the empty-
+ * back state so an unfilled back reads as fabric (matches the spine),
+ * not flat dark. */
+.cover-spine.is-fabric,
+.cover-backface.is-fabric {
+  background:
+    /* horizontal threads */
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0) 0px,
+      rgba(255, 255, 255, 0) 0.7px,
+      rgba(255, 255, 255, 0.04) 0.7px,
+      rgba(255, 255, 255, 0.04) 1.4px
+    ),
+    /* vertical threads */
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0px,
+      rgba(255, 255, 255, 0) 0.7px,
+      rgba(0, 0, 0, 0.18) 0.7px,
+      rgba(0, 0, 0, 0.18) 1.4px
+    ),
+    /* fabric base color — dark book-cloth */
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.7) 0%,
+      #2a2520 35%,
+      #332b25 65%,
+      rgba(0, 0, 0, 0.6) 100%);
+}
+
 /* Back-cover foil mark for leather covers. Same idea as the homepage
  * Album3D — small italic title in foil flanked by thin rules so the
  * leather back reads as an actual finished album, not a void. */

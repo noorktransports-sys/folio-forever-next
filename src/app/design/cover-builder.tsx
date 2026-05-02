@@ -709,14 +709,23 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                * toolbar button.
                */}
               <div
-                className="cover-backface"
+                className={
+                  'cover-backface' +
+                  // Photo cover with no back photo yet → show fabric so
+                  // the empty back reads as part of the album, not a void.
+                  (state.type === 'photo' && !state.backPhotoSrc
+                    ? ' is-fabric'
+                    : '')
+                }
                 style={{
                   background:
                     state.type === 'leather'
                       ? previewBackground
                       : state.type === 'acrylic'
                       ? bindingHex
-                      : '#0e0c09',  // photo: dark binding when no back picked
+                      : state.type === 'photo' && state.backPhotoSrc
+                      ? '#0e0c09'  // photo: dark behind the photo (fallback)
+                      : undefined,  // photo + no back: CSS .is-fabric supplies bg
                 }}
               >
                 {state.type === 'photo' && state.backPhotoSrc && (
@@ -754,12 +763,15 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                *   - leather: CSS default dark-leather gradient.
                *   - acrylic: leather-binding gradient (binding wraps from
                *     front-left strip onto the spine in the real product).
-               *   - photo: a dark neutral binding material (between two
-               *     printed photos — fabric/leatherette feel, no leather
-               *     strip wrap, no photo wrap onto the spine).
+               *   - photo: woven fabric binding (linen/canvas material that
+               *     holds two photo prints together — class is added so
+               *     CSS supplies the weave texture; inline style only
+               *     supplies the recessed-edge shadow.
                */}
               <div
-                className="cover-spine"
+                className={
+                  'cover-spine' + (state.type === 'photo' ? ' is-fabric' : '')
+                }
                 style={
                   state.type === 'acrylic'
                     ? {
@@ -768,14 +780,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                           ${bindingHex} 40%,
                           ${bindingHex} 70%,
                           rgba(0,0,0,0.55) 100%)`,
-                      }
-                    : state.type === 'photo'
-                    ? {
-                        background: `linear-gradient(90deg,
-                          rgba(0,0,0,0.85) 0%,
-                          #1a1610 40%,
-                          #1a1610 70%,
-                          rgba(0,0,0,0.75) 100%)`,
                       }
                     : undefined
                 }
@@ -1003,7 +1007,9 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           {(state.type === 'acrylic' || state.type === 'photo') && (
             <section className="cover-section">
               <h3 className="cover-section-title">
-                {state.type === 'acrylic' ? 'Photo Behind Acrylic' : 'Cover Photo'}
+                {state.type === 'acrylic'
+                  ? 'Photo Behind Acrylic'
+                  : 'Front Cover Photo'}
               </h3>
 
               {/* Upload button — always visible for these cover types. Triggers
@@ -1121,17 +1127,14 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           {/*
            * Back cover photo — photo cover only.
            *
-           * The photo cover is full-bleed photo on FRONT and BACK with no
-           * leather binding strip. Front and back are independent picks —
-           * customer typically wants two different images (a portrait on
-           * the front, a landscape on the back, or front-and-back of the
-           * same scene). Until they pick a back, the back face shows the
-           * dark binding material so it's obvious there's an unfilled slot.
-           *
-           * Only meaningful once the front photo is set — picking a back
-           * before a front would put the cart before the horse.
+           * The photo cover is full-bleed photo on FRONT and BACK with a
+           * fabric binding strip on the spine. Front and back are
+           * independent picks — customer typically wants two different
+           * images. Always shown alongside the front picker (not gated on
+           * a front photo being set) so the customer can see the choice
+           * upfront and pick in either order.
            */}
-          {state.type === 'photo' && state.photoSrc && (
+          {state.type === 'photo' && (
             <section className="cover-section">
               <h3 className="cover-section-title">Back Cover Photo</h3>
               {(() => {
@@ -1145,7 +1148,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 if (uniq.length === 0) {
                   return (
                     <p className="cover-hint">
-                      Upload another photo above to use on the back cover.
+                      Upload a photo in the front-cover section above, then
+                      pick one here for the back.
                     </p>
                   );
                 }
