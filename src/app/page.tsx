@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Album3D from './components/Album3D';
 import './homepage.css';
 
 /**
@@ -137,6 +138,22 @@ export default function HomePage() {
             than most dining tables. This is not a photo book. This is a
             statement piece.
           </p>
+
+          {/* 3D draggable album showcase — pointer-drag rotation, no autoplay.
+           * Brand-neutral leather + foil so it reads as "the product" rather
+           * than any one customer's design. Caption tells the user it moves. */}
+          <div className="album-showcase">
+            <Album3D
+              title="Forever"
+              subtitle="A monument to your day"
+              variant="leather"
+              leatherHex="#2a1c12"
+              foilHex="#d4b07a"
+              width={400}
+              caption="Drag to rotate · Inspect every angle"
+            />
+          </div>
+
           <div className="size-grid">
             <div className="size-card">
               <span className="size-dims">17 × 12&quot;</span>

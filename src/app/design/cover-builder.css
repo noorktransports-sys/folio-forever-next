@@ -84,7 +84,12 @@
   overflow: auto;
 }
 
-/* The stage: gives perspective context for the 3D children. */
+/* The stage: gives perspective context for the 3D children.
+ *
+ * --tx / --ty are absolute rotation angles written by the React drag
+ * handler (cover-builder.tsx). Default rest pose is set here so the
+ * SSR/first paint already shows the spine + page edges — the book
+ * reads as 3D before any pointer event. */
 .cover-stage {
   position: relative;
   width: 100%;
@@ -92,40 +97,35 @@
   aspect-ratio: 12 / 17;
   perspective: 1600px;
   perspective-origin: 50% 35%;
-  /* CSS variables driven by the JS mouse-tilt handler.
-   * --tx and --ty are gentle (max ±8deg) so colors stay readable. */
-  --tx: 0deg;
-  --ty: 0deg;
+  --tx: 2deg;
+  --ty: -18deg;
+  cursor: grab;
+  touch-action: none;  /* let pointer-drag take over from page scroll */
 }
+.cover-stage.is-dragging { cursor: grabbing; }
+.cover-stage.is-open { cursor: default; touch-action: auto; }
 
 /* The cover frame holds the 3D book. preserve-3d so the spine/pages
  * are positioned in the same 3D space as the cover face.
  * z-index 5 keeps the frame above .cover-inside / .cover-spine etc.
- * when closed; the inside is revealed via opacity, not stacking. */
+ * when closed; the inside is revealed via opacity, not stacking.
+ *
+ * Transition only when NOT dragging — drag should feel 1:1, no easing. */
 .cover-preview-frame {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
-  transform:
-    rotateX(calc(2deg + var(--tx)))
-    rotateY(calc(-14deg + var(--ty)));
-  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-  animation: cover-bob 7s ease-in-out infinite;
+  transform: rotateX(var(--tx)) rotateY(var(--ty));
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
   z-index: 5;
 }
+.cover-stage.is-dragging .cover-preview-frame { transition: none; }
 
 /* When user toggles the cover open, swing it on the spine hinge. */
 .cover-stage.is-open .cover-preview {
   transform:
     rotateY(-115deg)
     translateZ(2px);
-}
-
-/* Idle floating animation. translateY only — does not fight the rotate
- * transforms on .cover-preview-frame. */
-@keyframes cover-bob {
-  0%, 100% { translate: 0 0; }
-  50%      { translate: 0 -6px; }
 }
 
 /* Cover face — the thing the user designs. Hinged on the left edge so it
@@ -828,9 +828,8 @@
   .cover-step-title { font-size: 14px; letter-spacing: 2px; }
 }
 
-/* Reduce motion: kill the bob and tilt animations. */
+/* Reduce motion: kill the inertia transition; rotations still work. */
 @media (prefers-reduced-motion: reduce) {
-  .cover-preview-frame { animation: none; }
   .cover-preview-frame,
   .cover-preview { transition: none; }
 }

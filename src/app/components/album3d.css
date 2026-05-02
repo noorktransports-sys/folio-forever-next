@@ -1,0 +1,299 @@
+/*
+ * Album3D component styles.
+ *
+ * The pseudo-3D book is built from CSS transforms. The .album3d-book sits
+ * inside a perspective stage; six faces (front cover, back cover, spine,
+ * three page-edge faces) are positioned in 3D space with translateZ /
+ * rotateY so that when the user drags, the whole book rotates as one.
+ *
+ * --rx and --ry are written by the React drag handler. They're applied to
+ * .album3d-book directly so there's no extra layer between the rotation
+ * and the rendered geometry.
+ *
+ * BOOK_DEPTH below sets the half-thickness of the book in CSS px. The
+ * front cover sits at translateZ(BOOK_DEPTH); the back at -BOOK_DEPTH.
+ * Edge faces fill the gap so the book reads as a solid object from any
+ * angle within the clamped rotation range.
+ */
+
+.album3d-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The stage. Perspective is set generous enough that rotations don't
+ * distort but tight enough that depth reads. */
+.album3d-stage {
+  position: relative;
+  aspect-ratio: 17 / 12;          /* horizontal album layout */
+  perspective: 1800px;
+  perspective-origin: 50% 40%;
+  cursor: grab;
+  outline: none;
+  /* Default (rest) rotation; overridden by --rx/--ry from JS. */
+  --rx: 4deg;
+  --ry: -22deg;
+  /* Half-thickness of the book in px. ~14 reads as a substantial album
+   * without becoming a phone book. */
+  --book-depth: 14px;
+}
+.album3d-stage:focus-visible {
+  box-shadow: 0 0 0 2px rgba(184, 150, 90, 0.55);
+  border-radius: 6px;
+}
+.album3d-stage.is-dragging { cursor: grabbing; }
+
+/* The book — the rotating 3D object. preserve-3d keeps every face in
+ * world space. transition only when NOT dragging so drag feels 1:1. */
+.album3d-book {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.album3d-stage.is-dragging .album3d-book { transition: none; }
+
+/* FRONT COVER — the face the user designed. translateZ pulls it
+ * forward by BOOK_DEPTH so the spine + edge faces fill the gap behind it. */
+.album3d-cover {
+  position: absolute;
+  inset: 0;
+  border-radius: 1px 5px 5px 1px;
+  overflow: hidden;
+  transform: translateZ(var(--book-depth));
+  box-shadow:
+    0 28px 50px -8px rgba(0, 0, 0, 0.75),
+    0 12px 22px -6px rgba(0, 0, 0, 0.55),
+    inset 4px 0 7px -4px rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* BACK COVER — opposite face. Slightly darker, no detailing. */
+.album3d-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px 1px 1px 5px;
+  transform: translateZ(calc(var(--book-depth) * -1)) rotateY(180deg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+/* SPINE — the left edge. Stands perpendicular to the cover.
+ * Width matches book thickness; height matches the cover. */
+.album3d-spine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--book-depth) * 2);
+  transform-origin: right center;
+  transform: translateX(calc(var(--book-depth) * -2)) rotateY(-90deg) translateZ(var(--book-depth));
+  border-radius: 2px 0 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow:
+    inset 1px 0 2px rgba(0, 0, 0, 0.7),
+    inset -1px 0 2px rgba(0, 0, 0, 0.5);
+}
+.album3d-spine-text {
+  font-family: var(--font-display, 'Cormorant Garamond', serif);
+  font-size: 10px;
+  font-style: italic;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Rotate text to read along the spine. */
+  transform: rotate(-90deg);
+  opacity: 0.85;
+}
+
+/* PAGE EDGES — three slabs (right, top, bottom) that show the cream
+ * stacked-paper pattern. translateZ(0) keeps each at the book's center,
+ * width/height fills the rotated face. */
+.album3d-edge-right,
+.album3d-edge-top,
+.album3d-edge-bottom {
+  position: absolute;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      #f8f4ee 0px,
+      #f8f4ee 1px,
+      #d4cabb 1px,
+      #d4cabb 2px
+    );
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(120, 100, 80, 0.18),
+    inset 0 0 6px rgba(0, 0, 0, 0.18);
+}
+
+/* Right edge — vertical slab on the right side of the book. */
+.album3d-edge-right {
+  top: 1px;
+  right: 0;
+  bottom: 1px;
+  width: calc(var(--book-depth) * 2);
+  transform-origin: left center;
+  transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
+}
+
+/* Bottom edge — horizontal slab spanning the bottom thickness. */
+.album3d-edge-bottom {
+  left: 1px;
+  right: 1px;
+  bottom: 0;
+  height: calc(var(--book-depth) * 2);
+  transform-origin: center top;
+  transform: translateY(100%) rotateX(-90deg) translateZ(calc(var(--book-depth) * -1));
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #f8f4ee 0px,
+      #f8f4ee 1px,
+      #d4cabb 1px,
+      #d4cabb 2px
+    );
+}
+
+/* Top edge — horizontal slab spanning the top thickness. */
+.album3d-edge-top {
+  left: 1px;
+  right: 1px;
+  top: 0;
+  height: calc(var(--book-depth) * 2);
+  transform-origin: center bottom;
+  transform: translateY(-100%) rotateX(90deg) translateZ(calc(var(--book-depth) * -1));
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #f8f4ee 0px,
+      #f8f4ee 1px,
+      #d4cabb 1px,
+      #d4cabb 2px
+    );
+}
+
+/* COVER PHOTO — full-bleed inside the cover when variant=photo. */
+.album3d-cover-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: contrast(1.05) saturate(1.05);
+}
+
+/* Leather grain — diagonal noise + radial highlight, blended subtly. */
+.album3d-leather-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(255, 255, 255, 0.05) 0, transparent 35%),
+    radial-gradient(circle at 75% 75%, rgba(0, 0, 0, 0.18) 0, transparent 35%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(0, 0, 0, 0.04) 0px,
+      rgba(0, 0, 0, 0.04) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  mix-blend-mode: overlay;
+}
+
+/* Cover text block — sits centered on the front cover face. */
+.album3d-cover-text {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 0 12%;
+  pointer-events: none;
+}
+.album3d-title {
+  font-family: var(--font-display, 'Cormorant Garamond', serif);
+  font-style: italic;
+  font-size: clamp(28px, 8%, 56px);
+  letter-spacing: 1.5px;
+  line-height: 1.05;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.album3d-subtitle {
+  font-family: var(--font-body, 'Montserrat', sans-serif);
+  font-size: 9px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-top: 12px;
+  opacity: 0.85;
+}
+
+/* GROUND — soft elliptical shadow under the book, follows the look of
+ * a heavy object on a flat surface. */
+.album3d-ground {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  bottom: -22px;
+  height: 30px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.18) 55%,
+    rgba(0, 0, 0, 0) 80%
+  );
+  filter: blur(5px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* HINT — small "drag" cue that fades on first interaction. */
+.album3d-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(14, 12, 9, 0.72);
+  color: var(--cream, #e8d5b0);
+  border: 0.5px solid rgba(184, 150, 90, 0.45);
+  border-radius: 30px;
+  font-family: var(--font-body, 'Montserrat', sans-serif);
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0.92;
+  transition: opacity 0.45s ease;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.album3d-hint.is-hidden { opacity: 0; }
+
+/* CAPTION — small line below the book. */
+.album3d-caption {
+  font-family: var(--font-body, 'Montserrat', sans-serif);
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--muted2, #8a7a65);
+  text-align: center;
+}
+
+/* Reduce motion — kill the inertia transition; rotations still work. */
+@media (prefers-reduced-motion: reduce) {
+  .album3d-book { transition: none; }
+}

@@ -264,6 +264,15 @@ nav {
 /* SIZE SECTION */
 .size-section { background: var(--dark2); padding: 100px 5%; }
 
+/* Wrapper around the draggable 3D album. Padding-bottom is generous so the
+ * book's ground shadow doesn't get clipped by the size grid below. */
+.album-showcase {
+  display: flex;
+  justify-content: center;
+  margin: 56px auto 0;
+  padding: 20px 0 60px;
+}
+
 .size-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

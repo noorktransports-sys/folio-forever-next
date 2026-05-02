@@ -1,6 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import './cover-builder.css';
 
 /**
@@ -193,11 +202,21 @@ interface CoverBuilderProps {
 }
 
 /**
- * Mouse-tilt: clamp how far the cover rotates so colors stay readable.
- * ±8 degrees is the sweet spot — enough to feel responsive, not enough
- * to obscure leather color or photo content.
+ * Drag-to-rotate constants.
+ *
+ * Old behavior was a passive ±8° mouse-hover tilt — too subtle to read as 3D
+ * and the user couldn't *do* anything with it. New behavior: the user grabs
+ * the cover and drags. Rest pose is already turned a bit on Y so the spine
+ * + page edges are visible from the start ("see the corners" intent).
+ *
+ * The clamp around rest is wide on Y (±35°) so the user can swing the book
+ * to inspect the spine without rotating it past the edge faces.
  */
-const TILT_MAX_DEG = 8;
+const REST_ROTATE_X_DEG = 2;
+const REST_ROTATE_Y_DEG = -18;
+const ROTATE_X_RANGE_DEG = 16;
+const ROTATE_Y_RANGE_DEG = 35;
+const DRAG_SENSITIVITY = 0.45;
 
 /**
  * localStorage keys.
@@ -257,6 +276,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>(loadCoverPhotos);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Drag-to-rotate state. Rotation lives in refs (no re-render per pointermove);
+  // isDragging is state because we use it for the cursor className.
+  const [isDragging, setIsDragging] = useState(false);
+  const rotXRef = useRef<number>(REST_ROTATE_X_DEG);
+  const rotYRef = useRef<number>(REST_ROTATE_Y_DEG);
+  const dragStartRef = useRef<{ x: number; y: number; rx: number; ry: number } | null>(null);
 
   // Persist whenever cover state changes — names, fonts, position, photo
   // crop transforms, everything. localStorage write is synchronous but
@@ -482,29 +508,63 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   })();
 
   /**
-   * Mouse-tilt handler. Maps cursor position within the stage to
-   * rotateX / rotateY values written to CSS custom properties. The
-   * rotation is gentle (±TILT_MAX_DEG) and skipped while the cover is
-   * open so the user can read the inside placeholder.
+   * Drag-to-rotate.
+   *
+   * Pointer events instead of mouse events so touch + pen work too. We
+   * write rotation directly to CSS variables (--tx / --ty) on the stage
+   * — no React re-render per frame.
+   *
+   * Skipped when:
+   *   - the cover is open (so the inside spread doesn't spin under the user)
+   *   - the user grabs the cover photo (it has its own drag-to-pan crop;
+   *     letting both fire would be a tug-of-war)
    */
-  function handleMouseMove(e: MouseEvent<HTMLDivElement>) {
-    if (coverOpen) return;
+  const applyRotation = useCallback(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    const rect = stage.getBoundingClientRect();
-    const dx = (e.clientX - rect.left) / rect.width - 0.5;   // -0.5..+0.5
-    const dy = (e.clientY - rect.top) / rect.height - 0.5;
-    const ry = dx * TILT_MAX_DEG * 2;        // rotate Y from horizontal cursor pos
-    const rx = -dy * TILT_MAX_DEG * 2;       // rotate X from vertical (negate so up = up)
-    stage.style.setProperty('--tx', rx.toFixed(2) + 'deg');
-    stage.style.setProperty('--ty', ry.toFixed(2) + 'deg');
+    stage.style.setProperty('--tx', rotXRef.current.toFixed(2) + 'deg');
+    stage.style.setProperty('--ty', rotYRef.current.toFixed(2) + 'deg');
+  }, []);
+
+  const clampX = (v: number) =>
+    Math.max(REST_ROTATE_X_DEG - ROTATE_X_RANGE_DEG, Math.min(REST_ROTATE_X_DEG + ROTATE_X_RANGE_DEG, v));
+  const clampY = (v: number) =>
+    Math.max(REST_ROTATE_Y_DEG - ROTATE_Y_RANGE_DEG, Math.min(REST_ROTATE_Y_DEG + ROTATE_Y_RANGE_DEG, v));
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (coverOpen) return;
+    // Skip if the user grabbed the cover photo — that has its own pan handler.
+    const target = e.target as HTMLElement;
+    if (target?.closest?.('.cover-photo-backdrop')) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.setPointerCapture(e.pointerId);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      rx: rotXRef.current,
+      ry: rotYRef.current,
+    };
+    setIsDragging(true);
   }
 
-  function handleMouseLeave() {
+  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const start = dragStartRef.current;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    rotYRef.current = clampY(start.ry + dx * DRAG_SENSITIVITY);
+    rotXRef.current = clampX(start.rx - dy * DRAG_SENSITIVITY);
+    applyRotation();
+  }
+
+  function endDrag(e: ReactPointerEvent<HTMLDivElement>) {
     const stage = stageRef.current;
-    if (!stage) return;
-    stage.style.setProperty('--tx', '0deg');
-    stage.style.setProperty('--ty', '0deg');
+    if (stage && stage.hasPointerCapture(e.pointerId)) {
+      stage.releasePointerCapture(e.pointerId);
+    }
+    dragStartRef.current = null;
+    setIsDragging(false);
   }
 
   // Acrylic + photo preview backgrounds use the picked photo. Acrylic adds a
@@ -579,10 +639,17 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
         {/* LIVE PREVIEW (LEFT) */}
         <div className="cover-preview-panel">
           <div
-            className={'cover-stage' + (coverOpen ? ' is-open' : '') + (uploadingCover ? ' is-uploading' : '')}
+            className={
+              'cover-stage' +
+              (coverOpen ? ' is-open' : '') +
+              (uploadingCover ? ' is-uploading' : '') +
+              (isDragging ? ' is-dragging' : '')
+            }
             ref={stageRef}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
             onDragOver={handleStageDragOver}
             onDrop={handleStageDrop}
           >
