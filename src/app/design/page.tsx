@@ -1,10 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
 import CoverBuilder, { type CoverState } from './cover-builder';
 import './album-builder.css';
+
+/**
+ * URL step persistence.
+ *
+ * Without this, every refresh dumps the user back on the path-picker even
+ * though album-builder.js has already restored their photos + spreads from
+ * localStorage. We use a query param (`?step=build|cover|expert`) so the
+ * URL is bookmarkable and the back button works. window.history.replaceState
+ * is used instead of next/router so the page doesn't re-mount on transition
+ * — the legacy JS state would be wiped if it did.
+ */
+type UrlStep = 'intro' | 'build' | 'cover' | 'expert';
+
+function readUrlStep(): UrlStep {
+  if (typeof window === 'undefined') return 'intro';
+  const s = new URLSearchParams(window.location.search).get('step');
+  if (s === 'build' || s === 'cover' || s === 'expert') return s;
+  return 'intro';
+}
+
+function writeUrlStep(step: UrlStep) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (step === 'intro') {
+    url.searchParams.delete('step');
+  } else {
+    url.searchParams.set('step', step);
+  }
+  // replaceState (not pushState) so the back button doesn't trap the user
+  // inside the designer with a stack of intra-designer states.
+  window.history.replaceState(null, '', url.toString());
+}
 
 /**
  * Album Designer — ported from `folio-forever-child/page-album-designer.php`.
@@ -42,15 +74,49 @@ function fb(name: string, ...args: unknown[]) {
 type Step = 'spreads' | 'cover';
 
 export default function DesignerPage() {
-  const [step, setStep] = useState<Step>('spreads');
+  // React's `step` controls the cover-vs-spreads view. Initial value is
+  // hydrated from the URL so refresh on `?step=cover` lands on cover.
+  const [step, setStep] = useState<Step>(() => {
+    return readUrlStep() === 'cover' ? 'cover' : 'spreads';
+  });
   const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
 
   /**
-   * Pulls the photo list from the legacy JS's `window.uploadedPhotos` map
-   * and transitions to the cover step. Called from the nav "Submit Order"
-   * button now that cover is part of the flow.
+   * On mount, if the URL says we should be past the path picker, call
+   * choosePath('self') as soon as the legacy JS finishes loading. The
+   * legacy script is loaded with `afterInteractive`, so on the first React
+   * render it isn't on window yet — we poll for it.
+   *
+   * choosePath toggles intro → builder visibility via direct DOM. Calling
+   * it here keeps "refresh restores your step" working without a full
+   * rewrite of the legacy state machine.
    */
-  function goToCover() {
+  useEffect(() => {
+    const urlStep = readUrlStep();
+    if (urlStep !== 'build' && urlStep !== 'cover') return;
+    let cancelled = false;
+    let tries = 0;
+    function tryChoose() {
+      if (cancelled) return;
+      const w = window as unknown as { choosePath?: (t: string) => void };
+      if (typeof w.choosePath === 'function') {
+        w.choosePath('self');
+        // If we landed on cover, also pull the photo list now that
+        // uploadedPhotos has been rehydrated by the legacy script.
+        if (urlStep === 'cover') hydratePhotosForCover();
+        return;
+      }
+      tries++;
+      if (tries < 60) {  // up to ~6 seconds
+        setTimeout(tryChoose, 100);
+      }
+    }
+    tryChoose();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Pulls window.uploadedPhotos into React state so CoverBuilder can read it. */
+  function hydratePhotosForCover() {
     const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
     const map = w.uploadedPhotos ?? {};
     const list = Object.entries(map).map(([id, val]) => ({
@@ -58,7 +124,17 @@ export default function DesignerPage() {
       src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
     })).filter((p) => p.src);
     setPhotos(list);
+  }
+
+  /**
+   * Pulls the photo list from the legacy JS's `window.uploadedPhotos` map
+   * and transitions to the cover step. Called from the nav "Submit Order"
+   * button now that cover is part of the flow.
+   */
+  function goToCover() {
+    hydratePhotosForCover();
     setStep('cover');
+    writeUrlStep('cover');
   }
 
   /**
@@ -130,7 +206,13 @@ export default function DesignerPage() {
 
         <div className="path-choice">
           {/* SELF DESIGN */}
-          <div className="path-card" onClick={() => fb('choosePath', 'self')}>
+          <div
+            className="path-card"
+            onClick={() => {
+              fb('choosePath', 'self');
+              writeUrlStep('build');
+            }}
+          >
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="2" y="2" width="7" height="7" stroke="#b8965a" strokeWidth="0.8" />
@@ -162,7 +244,10 @@ export default function DesignerPage() {
           {/* EXPERT DESIGN */}
           <div
             className="path-card recommended"
-            onClick={() => fb('choosePath', 'expert')}
+            onClick={() => {
+              fb('choosePath', 'expert');
+              writeUrlStep('expert');
+            }}
           >
             <div className="path-badge">Recommended</div>
             <div className="path-icon">
@@ -201,7 +286,10 @@ export default function DesignerPage() {
       {step === 'cover' && (
         <CoverBuilder
           uploadedPhotos={photos}
-          onBack={() => setStep('spreads')}
+          onBack={() => {
+            setStep('spreads');
+            writeUrlStep('build');
+          }}
           onContinue={continueFromCover}
         />
       )}
