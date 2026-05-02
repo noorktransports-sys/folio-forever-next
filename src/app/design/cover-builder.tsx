@@ -284,6 +284,18 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   const rotYRef = useRef<number>(REST_ROTATE_Y_DEG);
   const dragStartRef = useRef<{ x: number; y: number; rx: number; ry: number } | null>(null);
 
+  /**
+   * Crop mode — gates whether the photo (when present) is draggable for
+   * cropping or whether the entire cover acts as a rotation handle.
+   *
+   * Default OFF: rotate-anywhere is the dominant gesture (the user's first
+   * instinct when they see a 3D book is to grab and turn it). Photo panning
+   * is opt-in via the "Adjust crop" toggle. Without this gate the photo's
+   * mousedown handler swallows the user's rotation drag and the photo
+   * "dislocates" instead of the album rotating.
+   */
+  const [cropMode, setCropMode] = useState(false);
+
   // Persist whenever cover state changes — names, fonts, position, photo
   // crop transforms, everything. localStorage write is synchronous but
   // tiny (~1 kB) so no debounce needed at this scale.
@@ -406,6 +418,9 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
    */
   function handlePhotoMouseDown(e: MouseEvent<HTMLImageElement>) {
     if (e.button !== 0) return;
+    // Photo pan only fires in crop mode. In normal mode the user expects
+    // dragging the photo to rotate the album.
+    if (!cropMode) return;
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
@@ -533,9 +548,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (coverOpen) return;
-    // Skip if the user grabbed the cover photo — that has its own pan handler.
-    const target = e.target as HTMLElement;
-    if (target?.closest?.('.cover-photo-backdrop')) return;
+    // Skip ONLY when crop mode is on AND the user grabbed the photo —
+    // then the photo's own pan handler should run instead. In normal
+    // mode the entire cover (including the photo) is a rotate handle.
+    if (cropMode) {
+      const target = e.target as HTMLElement;
+      if (target?.closest?.('.cover-photo-backdrop')) return;
+    }
     const stage = stageRef.current;
     if (!stage) return;
     stage.setPointerCapture(e.pointerId);
@@ -643,7 +662,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               'cover-stage' +
               (coverOpen ? ' is-open' : '') +
               (uploadingCover ? ' is-uploading' : '') +
-              (isDragging ? ' is-dragging' : '')
+              (isDragging ? ' is-dragging' : '') +
+              (cropMode ? ' is-crop-mode' : '')
             }
             ref={stageRef}
             onPointerDown={handlePointerDown}
@@ -653,49 +673,74 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             onDragOver={handleStageDragOver}
             onDrop={handleStageDrop}
           >
-            {/* Ground shadow — sits under the book, suggests weight. */}
+            {/* Ground shadow — sits flat under the book; outside the
+             * preview-frame so it doesn't rotate with the book. */}
             <div className="cover-ground-shadow" />
 
-            {/* Inside spread placeholder — visible when cover swings open. */}
-            <div className="cover-inside">
-              <span>Your first spread</span>
-              <div className="cover-inside-title">{state.primaryText}</div>
-              <span>Lay-flat binding</span>
-            </div>
-
-            {/* Spine — the book's left edge, rotated into 3D.
-             *
-             * Background reacts to cover type so the spine reads as part of
-             * the same product when the user rotates the book:
-             *   - leather: the CSS default dark-leather gradient (matches the
-             *     leather face).
-             *   - acrylic / photo: a gradient built on the user's chosen
-             *     binding color, since the leather binding strip wraps from
-             *     the front edge onto the spine in the real printed product.
-             *     We darken the edges so the spine still reads as recessed,
-             *     not a flat color block.
+            {/*
+             * THE BOOK — preserve-3d rotation frame containing every face
+             * (back cover, spine, three page edges, inside spread, front
+             * cover). All children rotate as one solid object when the
+             * user drags. This is the core of the "real 3D" rebuild.
              */}
-            <div
-              className="cover-spine"
-              style={
-                state.type === 'acrylic' || state.type === 'photo'
-                  ? {
-                      background: `linear-gradient(90deg,
-                        rgba(0,0,0,0.65) 0%,
-                        ${bindingHex} 40%,
-                        ${bindingHex} 70%,
-                        rgba(0,0,0,0.55) 100%)`,
-                    }
-                  : undefined
-              }
-            />
-
-            {/* Page edges — the stacked-paper look at the right & bottom. */}
-            <div className="cover-page-edge-right" />
-            <div className="cover-page-edge-bottom" />
-
-            {/* The cover itself, hinged on the left so it can swing open. */}
             <div className="cover-preview-frame">
+              {/* BACK COVER — visible when the user rotates the book past
+               * the side. For acrylic / photo covers we use the binding
+               * leather color so the back matches the spine; for leather
+               * we use the leather color directly.
+               *
+               * Class is `cover-backface` (not `cover-back`) because
+               * `.cover-back` is already used by the "Back to Spreads"
+               * toolbar button. */}
+              <div
+                className="cover-backface"
+                style={{
+                  background:
+                    state.type === 'leather'
+                      ? previewBackground
+                      : bindingHex,
+                }}
+              />
+
+              {/* SPINE — the perpendicular slab at the left.
+               *
+               * Background reacts to cover type so the spine reads as part of
+               * the same product when the user rotates the book:
+               *   - leather: the CSS default dark-leather gradient.
+               *   - acrylic / photo: a gradient built on the user's chosen
+               *     binding color, since the leather binding strip wraps
+               *     from the front edge onto the spine in the real printed
+               *     product. Edges darkened so the spine still reads as
+               *     recessed, not a flat color block.
+               */}
+              <div
+                className="cover-spine"
+                style={
+                  state.type === 'acrylic' || state.type === 'photo'
+                    ? {
+                        background: `linear-gradient(90deg,
+                          rgba(0,0,0,0.65) 0%,
+                          ${bindingHex} 40%,
+                          ${bindingHex} 70%,
+                          rgba(0,0,0,0.55) 100%)`,
+                      }
+                    : undefined
+                }
+              />
+
+              {/* Page edges — three cream-paper slabs at right, top, bottom. */}
+              <div className="cover-page-edge-right" />
+              <div className="cover-page-edge-top" />
+              <div className="cover-page-edge-bottom" />
+
+              {/* Inside spread placeholder — visible when cover swings open. */}
+              <div className="cover-inside">
+                <span>Your first spread</span>
+                <div className="cover-inside-title">{state.primaryText}</div>
+                <span>Lay-flat binding</span>
+              </div>
+
+              {/* Front cover — what the user designs. Hinged on the left. */}
               <div
                 className={'cover-preview cover-type-' + state.type}
                 style={{ background: previewBackground }}
@@ -966,9 +1011,9 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 );
               })()}
 
-              {/* Crop controls — only show once a photo is set. The user can
-                  drag the photo on the preview to pan, scroll-wheel to zoom,
-                  or use this slider for fine zoom adjustments. */}
+              {/* Crop controls — only show once a photo is set. By default
+                  drag-on-preview rotates the album; the user toggles "Adjust
+                  crop" below to put the preview into pan-and-zoom mode. */}
               {state.photoSrc && (
                 <div className="cover-crop-controls">
                   <div className="cover-crop-row">
@@ -988,6 +1033,14 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   </div>
                   <button
                     type="button"
+                    className={'cover-crop-mode' + (cropMode ? ' is-on' : '')}
+                    onClick={() => setCropMode((v) => !v)}
+                    aria-pressed={cropMode}
+                  >
+                    {cropMode ? 'Done · back to rotate' : 'Adjust crop (drag photo)'}
+                  </button>
+                  <button
+                    type="button"
                     className="cover-crop-reset"
                     onClick={resetPhotoCrop}
                     disabled={
@@ -999,7 +1052,9 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     Reset crop
                   </button>
                   <p className="cover-crop-hint">
-                    Drag the photo on the preview to reposition. Scroll to zoom.
+                    {cropMode
+                      ? 'Drag the photo to reposition. Scroll to zoom.'
+                      : 'Drag the album to rotate. Toggle “Adjust crop” to pan the photo.'}
                   </p>
                 </div>
               )}
