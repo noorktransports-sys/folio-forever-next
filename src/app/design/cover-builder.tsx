@@ -728,6 +728,24 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     draggable={false}
                   />
                 )}
+                {/* Back-cover foil mark for leather covers — small foil
+                 * title flanked by thin rules. Empty leather backs read as
+                 * unfinished; a real wedding album always has a stamp. */}
+                {state.type === 'leather' && state.primaryText && (
+                  <div className="cover-back-mark" style={{ color: textHex }}>
+                    <span className="cover-back-rule" aria-hidden="true" />
+                    <span
+                      className="cover-back-title"
+                      style={{
+                        fontFamily: font.family,
+                        fontStyle: font.style ?? 'normal',
+                      }}
+                    >
+                      {state.primaryText}
+                    </span>
+                    <span className="cover-back-rule" aria-hidden="true" />
+                  </div>
+                )}
               </div>
 
               {/* SPINE — the perpendicular slab at the left.

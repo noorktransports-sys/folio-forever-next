@@ -81,17 +81,50 @@
   justify-content: center;
 }
 
-/* BACK COVER — opposite face. Slightly darker, no detailing. */
+/* BACK COVER — opposite face. */
 .album3d-back {
   position: absolute;
   inset: 0;
   border-radius: 5px 1px 1px 5px;
+  overflow: hidden;
   transform: translateZ(calc(var(--book-depth) * -1)) rotateY(180deg);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+/* Back-cover foil mark — centered title in foil flanked by thin rules.
+ * Real leather wedding albums have *something* on the back; bare leather
+ * reads as unfinished. Sized smaller than the front title so it reads
+ * as a stamp / signature mark, not a duplicate of the front. */
+.album3d-back-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  pointer-events: none;
+  /* Centered horizontally; vertically biased a touch lower so the mark
+   * sits where a foil stamp would actually be applied. */
+  padding-top: 4%;
+}
+.album3d-back-title {
+  font-family: var(--font-display, 'Cormorant Garamond', serif);
+  font-style: italic;
+  font-size: 16px;
+  letter-spacing: 2px;
+  opacity: 0.85;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.album3d-back-rule {
+  width: 28px;
+  height: 0.5px;
+  background: currentColor;
+  opacity: 0.45;
 }
 
 /* SPINE — the left edge. Stands perpendicular to the cover.

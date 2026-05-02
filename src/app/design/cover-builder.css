@@ -201,6 +201,32 @@
   filter: contrast(1.05) saturate(1.05);
 }
 
+/* Back-cover foil mark for leather covers. Same idea as the homepage
+ * Album3D — small italic title in foil flanked by thin rules so the
+ * leather back reads as an actual finished album, not a void. */
+.cover-back-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  pointer-events: none;
+}
+.cover-back-title {
+  font-size: 18px;
+  letter-spacing: 2px;
+  opacity: 0.85;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.cover-back-rule {
+  width: 32px;
+  height: 0.5px;
+  background: currentColor;
+  opacity: 0.45;
+}
+
 /* SPINE — the perpendicular slab at the left of the book. Width =
  * 2 × depth (the full thickness). Stands up on its own right edge so
  * it spans front cover to back cover. */

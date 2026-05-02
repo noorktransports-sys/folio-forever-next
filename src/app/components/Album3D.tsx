@@ -199,11 +199,28 @@ export default function Album3D({
 
         {/* The book itself — preserve-3d so spine + page edges stay co-planar. */}
         <div className="album3d-book" aria-hidden="true">
-          {/* Back cover — gives the book real thickness on Y rotation. */}
+          {/* Back cover — gives the book real thickness on Y rotation.
+           * For leather, render a centered foil title flanked by thin
+           * foil rules — a real leather wedding album always has SOME
+           * mark on the back, never bare leather. For photo variant the
+           * back is filled by the photo (passed via photoSrc — same as
+           * front for now; the cover-builder lets users pick separately). */}
           <div
             className="album3d-back"
             style={{ background: variant === 'leather' ? leatherHex : '#1a1816' }}
-          />
+          >
+            {variant === 'leather' && (
+              <div className="album3d-back-mark" style={{ color: foilHex }}>
+                <span className="album3d-back-rule" aria-hidden="true" />
+                <span className="album3d-back-title">{title}</span>
+                <span className="album3d-back-rule" aria-hidden="true" />
+              </div>
+            )}
+            {variant === 'photo' && photoSrc && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="album3d-cover-photo" src={photoSrc} alt="" draggable={false} />
+            )}
+          </div>
 
           {/* Spine — left edge, rotated 90° into 3D space. */}
           <div
