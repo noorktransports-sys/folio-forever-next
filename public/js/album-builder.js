@@ -20,7 +20,11 @@
  * deploy.
  */
 
-  let currentSpread = 0, totalSpreads = 10, zoomLevel = 0.8;
+  // Album structure: index 0 is the TITLE SHEET (kind:'title' — first
+  // page when the album opens, with the user's name + maybe a photo).
+  // Indices 1..10 are the 10 content spreads. So totalSpreads = 11
+  // internally even though the user sees "10 spreads" in the label.
+  let currentSpread = 0, totalSpreads = 11, zoomLevel = 0.8;
   let uploadedPhotos = {}, spreadData = [], selectedLayout = 'lf_2a', draggedPhotoId = null;
   // Tracks placeholder thumbs whose upload is still in flight.
   const pendingUploads = new Set();
@@ -154,7 +158,36 @@
     });
   }
 
-  for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 'lf_2a', slots: [null, null], bg: { type: 'solid', color: '#f8f4ee' } });
+  /**
+   * Build the default spreadData. Index 0 is the title sheet — distinct
+   * `kind: 'title'` flag so the renderer + layout filter can branch on it.
+   * Default layout depends on binding:
+   *   hardcover → hc_1b (single photo on the right; left side is the
+   *               cover paste-down endpaper, locked-blank in the editor)
+   *   layflat   → lf_1a (full-spread single photo; both sides usable
+   *               since there's no cover paste-down on layflat books)
+   *
+   * Indices 1..totalSpreads-1 are regular content spreads, all defaulting
+   * to lf_2a "Side by Side" (two photos). The hardcover/layflat filter in
+   * getVisibleLayouts decides which layouts the user can actually pick;
+   * the default works for both bindings.
+   */
+  function buildDefaultTitleSheet() {
+    return {
+      kind: 'title',
+      layoutId: currentBinding === 'hardcover' ? 'hc_1b' : 'lf_1a',
+      slots: [null],
+      bg: { type: 'solid', color: '#f8f4ee' },
+    };
+  }
+  spreadData.push(buildDefaultTitleSheet());
+  for (let i = 1; i < totalSpreads; i++) {
+    spreadData.push({
+      layoutId: 'lf_2a',
+      slots: [null, null],
+      bg: { type: 'solid', color: '#f8f4ee' },
+    });
+  }
 
   // ── PERSISTENCE ──────────────────────────────────────────────
   // Survive refresh. The whole designer state is serialized to
@@ -225,7 +258,24 @@
       if (data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
         uploadedPhotos = data.uploadedPhotos;
       }
-      if (typeof data.currentSpread === 'number' && data.currentSpread >= 0) {
+
+      // ── TITLE-SHEET MIGRATION ─────────────────────────────────
+      // Drafts saved before the title-sheet feature have spreadData[0]
+      // as a regular content spread (no `kind` field). Prepend a title
+      // sheet so the user gets the new structure without losing any of
+      // the work they did on their existing pages. We also bump
+      // currentSpread by 1 so they stay on the content page they were
+      // actively editing — without this, a user mid-edit on "spread 3"
+      // would reload to find themselves on the new title sheet.
+      const hadTitleSheet =
+        spreadData.length > 0 && spreadData[0] && spreadData[0].kind === 'title';
+      if (!hadTitleSheet) {
+        spreadData.unshift(buildDefaultTitleSheet());
+        totalSpreads = spreadData.length;
+        if (typeof data.currentSpread === 'number') {
+          currentSpread = Math.min(data.currentSpread + 1, totalSpreads - 1);
+        }
+      } else if (typeof data.currentSpread === 'number' && data.currentSpread >= 0) {
         currentSpread = Math.min(data.currentSpread, totalSpreads - 1);
       }
       return true;
@@ -560,8 +610,18 @@
   function updateSpreadInfoLabel() {
     const info = document.getElementById('spreadInfo');
     if (!info) return;
+    // Index 0 is the title sheet — label distinctly so the user knows
+    // it's not just "spread 1." Subsequent spreads are 1-indexed against
+    // the CONTENT pages (excluding the title), so the label reads
+    // "Spread 1 of 10" through "Spread 10 of 10" — matching how the user
+    // thinks about the album ("10 pages, plus a title sheet").
+    if (currentSpread === 0) {
+      info.textContent = 'First Sheet';
+      return;
+    }
     const unit = sizes[currentSize].unitLabel;
-    info.textContent = unit + ' ' + (currentSpread + 1) + ' of ' + totalSpreads;
+    const contentTotal = totalSpreads - 1; // exclude title sheet
+    info.textContent = unit + ' ' + currentSpread + ' of ' + contentTotal;
   }
 
   // Render the photo-count filter tabs above the layout list. Six options
@@ -1520,9 +1580,17 @@
     strip.innerHTML = '';
     for (let i = 0; i < totalSpreads; i++) {
       const m = document.createElement('div');
-      m.className = 'page-mini' + (i === currentSpread ? ' active' : '');
+      const isTitle = i === 0;
+      m.className = 'page-mini' + (i === currentSpread ? ' active' : '') + (isTitle ? ' is-title' : '');
       m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); };
-      m.innerHTML = (i + 1) + '<span class="page-mini-num">Spread ' + (i + 1) + '</span>';
+      // Title sheet shows a star ("✦") and "First Sheet" caption; content
+      // spreads keep the 1-indexed number labeled against the 10 content
+      // pages, so the strip reads ✦ · 1 · 2 · 3 · ... · 10.
+      if (isTitle) {
+        m.innerHTML = '<span class="page-mini-glyph">✦</span><span class="page-mini-num">First Sheet</span>';
+      } else {
+        m.innerHTML = i + '<span class="page-mini-num">Spread ' + i + '</span>';
+      }
       strip.appendChild(m);
     }
     const add = document.createElement('button');
