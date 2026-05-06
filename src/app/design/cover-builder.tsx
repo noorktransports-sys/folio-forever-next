@@ -684,11 +684,11 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             <Album3D
               title={state.primaryText || 'Your Names'}
               subtitle={state.subtitleText || ''}
-              variant={state.type === 'leather' ? 'leather' : 'photo'}
+              variant={state.type as 'leather' | 'photo' | 'acrylic'}
               photoSrc={state.photoSrc || undefined}
               leatherHex={bindingHex}
               foilHex={textHex}
-              width={420}
+              width={560}
               caption=""
             />
           </div>

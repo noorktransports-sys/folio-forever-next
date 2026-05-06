@@ -5,110 +5,83 @@ import * as THREE from 'three';
 import './album3d.css';
 
 /**
- * Album3D — real WebGL 3D rendering with Three.js.
+ * Album3D — real WebGL 3D album mockup using Three.js.
  *
- * Replaces the previous CSS-3D and still-illustration approaches
- * because both failed at conveying "premium leather book." This
- * version renders an actual 3D book mesh with:
- *   - BoxGeometry meshes for cover, back, spine, page block.
- *   - MeshStandardMaterial with PBR shading — leather has roughness,
- *     metalness, and reacts to the lights properly so the back view
- *     no longer reads as a flat panel.
- *   - Three lights: a warm key from upper-left, a softer fill from
- *     the right, and a slight rim from below to lift the book off
- *     the dark background.
- *   - Pointer-drag rotation with inertia, clamped on X so the user
- *     can't flip it upside down.
- *   - Foil-stamped title rendered to a Canvas2D texture and applied
- *     to the front cover face — text stays sharp regardless of zoom.
- *
- * Cleanup is critical with raw Three.js in a React component: the
- * useEffect's return function disposes geometries, materials,
- * textures, and the renderer to avoid GPU memory leaks across route
- * changes.
+ * v4 — addresses user feedback on the cover-builder swap:
+ *   - book is thinner (BOOK_D 0.18 → 0.09 — matches real album
+ *     proportions ~8% of cover width, was reading too "novel-thick"
+ *     before),
+ *   - leather material has stronger normal-map scale and lower
+ *     roughness so the pebble grain is visibly leathery,
+ *   - 'acrylic' variant — front cover renders the photo behind a
+ *     subtle clear-acrylic sheen with a leather binding strip on the
+ *     spine side (matching the real product),
+ *   - back cover always wraps in leather with a small foil mark,
+ *     even on photo/acrylic covers, so rotating the book doesn't
+ *     reveal the photo on the back.
  */
 export interface Album3DProps {
-  /** Title shown in foil on the cover. */
   title?: string;
-  /** Optional subtitle. */
   subtitle?: string;
-  /** Cover style — leather (foil text) or photo (image on cover). */
-  variant?: 'leather' | 'photo';
-  /** Photo source for variant="photo". */
+  variant?: 'leather' | 'photo' | 'acrylic';
   photoSrc?: string;
-  /** Leather color hex. */
   leatherHex?: string;
-  /** Foil / text color hex. */
   foilHex?: string;
-  /** Display size in px (the rendered width of the canvas). */
   width?: number;
-  /** Caption shown under the album. */
   caption?: string;
-  /** Optional className passthrough. */
   className?: string;
 }
 
-// --- Book physical proportions, in scene units ---
-// Width × height matches a 12"×17" portrait album; depth is the
-// total book thickness (covers + page block).
+// --- Book proportions in scene units. BOOK_D was 0.18, now 0.09
+// (8% of width) which matches real wedding-album proportions and
+// stops the book from reading as a phone book. ---
 const BOOK_W = 1.2;
 const BOOK_H = 1.7;
-const BOOK_D = 0.18;
-// Cover board thickness (each).
-const COVER_T = 0.022;
-// Page block depth = total - 2 covers.
+const BOOK_D = 0.09;
+const COVER_T = 0.014;
 const PAGE_D = BOOK_D - COVER_T * 2;
 
-// --- Texture builders ---
-
-/**
- * Build a procedural leather normal map on a Canvas. Cheaper than
- * loading an image and gives us per-color tinting flexibility. The
- * pebbled look comes from layered noise at multiple frequencies.
- */
+// Procedural leather normal map. Tighter grain + stronger contrast
+// than v1 so the leather actually reads as pebbled leather under the
+// 3-light setup.
 function makeLeatherNormalTexture(): THREE.CanvasTexture {
   const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    return new THREE.CanvasTexture(canvas);
-  }
-  // Normal map convention: r=128 + dx, g=128 + dy, b=255 (z up).
-  // We start with neutral blue-purple and add per-pixel jitter.
+  if (!ctx) return new THREE.CanvasTexture(canvas);
   const img = ctx.createImageData(size, size);
   for (let i = 0; i < img.data.length; i += 4) {
-    const r = 128 + (Math.random() - 0.5) * 30;
-    const g = 128 + (Math.random() - 0.5) * 30;
+    // Slight per-pixel jitter on the X/Y components → bumpy surface.
+    const r = 128 + (Math.random() - 0.5) * 60;
+    const g = 128 + (Math.random() - 0.5) * 60;
     img.data[i + 0] = r;
     img.data[i + 1] = g;
     img.data[i + 2] = 255;
     img.data[i + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  // Soften with a slight blur so the grain reads as leather, not noise.
-  ctx.filter = 'blur(0.6px)';
+  // Light blur softens the noise into pebbling.
+  ctx.filter = 'blur(0.4px)';
   ctx.drawImage(canvas, 0, 0);
   ctx.filter = 'none';
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2, 3);
+  tex.repeat.set(3, 4);
   return tex;
 }
 
-/**
- * Render foil-stamped text to a transparent canvas, return a Texture
- * to be applied as a decal on the cover face.
- */
+// Foil-stamped title rendered to canvas, returned as a texture
+// applied to the leather. Used for leather variant front, all
+// variant backs (so even photo covers have a leather back stamp).
 function makeFoilTextTexture(
   title: string,
   subtitle: string,
   foilHex: string,
+  size: 'large' | 'small' = 'large',
 ): THREE.CanvasTexture {
-  // Wide canvas matches the cover's aspect ratio so text doesn't
-  // distort. Portrait album → wider than tall ratio inverted.
   const w = 1024;
   const h = 1448;
   const canvas = document.createElement('canvas');
@@ -116,39 +89,31 @@ function makeFoilTextTexture(
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) return new THREE.CanvasTexture(canvas);
-
-  // Transparent background.
   ctx.clearRect(0, 0, w, h);
-
   ctx.fillStyle = foilHex;
   ctx.strokeStyle = foilHex;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-
-  // Foil rules either side of the title.
   const cy = h / 2;
-  const ruleY = cy;
-  const ruleW = 180;
-  const ruleGap = 280;
-  ctx.lineWidth = 3;
+  const titleSize = size === 'large' ? 110 : 64;
+  const ruleW = size === 'large' ? 180 : 110;
+  const ruleGap = size === 'large' ? 280 : 180;
+  const subSize = size === 'large' ? 32 : 22;
+  const subGap = size === 'large' ? 120 : 80;
+  ctx.lineWidth = size === 'large' ? 3 : 2;
   ctx.beginPath();
-  ctx.moveTo(w / 2 - ruleGap, ruleY);
-  ctx.lineTo(w / 2 - ruleGap + ruleW, ruleY);
-  ctx.moveTo(w / 2 + ruleGap - ruleW, ruleY);
-  ctx.lineTo(w / 2 + ruleGap, ruleY);
+  ctx.moveTo(w / 2 - ruleGap, cy);
+  ctx.lineTo(w / 2 - ruleGap + ruleW, cy);
+  ctx.moveTo(w / 2 + ruleGap - ruleW, cy);
+  ctx.lineTo(w / 2 + ruleGap, cy);
   ctx.stroke();
-
-  // Title — italic serif, large.
-  ctx.font = 'italic 110px "Cormorant Garamond", "Times New Roman", serif';
+  ctx.font = `italic ${titleSize}px "Cormorant Garamond", "Times New Roman", serif`;
   ctx.fillText(title, w / 2, cy);
-
-  // Subtitle — uppercase tracked.
   if (subtitle) {
-    ctx.font = '500 32px "Montserrat", sans-serif';
+    ctx.font = `500 ${subSize}px "Montserrat", sans-serif`;
     const tracked = subtitle.toUpperCase().split('').join('  ');
-    ctx.fillText(tracked, w / 2, cy + 120);
+    ctx.fillText(tracked, w / 2, cy + subGap);
   }
-
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 8;
   return tex;
@@ -173,8 +138,7 @@ export default function Album3D({
 
     // --- SCENE / CAMERA / RENDERER ---
     const scene = new THREE.Scene();
-    scene.background = null; // CSS handles backdrop
-
+    scene.background = null;
     const aspect = BOOK_W / BOOK_H;
     const renderHeight = Math.round(width / aspect);
 
@@ -190,40 +154,41 @@ export default function Album3D({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
-    // --- LIGHTS ---
-    // Key light — warm, upper-left, the primary modeling light.
+    // --- LIGHTS — three-point setup. ---
     const key = new THREE.DirectionalLight(0xfff1d4, 1.6);
     key.position.set(-2, 3, 4);
     key.castShadow = true;
     scene.add(key);
-
-    // Fill — cool, opposite side, lifts shadows.
     const fill = new THREE.DirectionalLight(0xb8d4ff, 0.4);
     fill.position.set(3, 1, 3);
     scene.add(fill);
-
-    // Rim — from below-back, separates album from background.
     const rim = new THREE.DirectionalLight(0xffd9a0, 0.5);
     rim.position.set(0, -2, -3);
     scene.add(rim);
-
-    // Soft ambient so dark sides aren't pitch black.
     scene.add(new THREE.AmbientLight(0xffffff, 0.18));
 
     // --- MATERIALS ---
     const leatherColor = new THREE.Color(leatherHex);
     const normalTex = makeLeatherNormalTexture();
-    const foilTextTex = variant === 'leather'
-      ? makeFoilTextTexture(title, subtitle, foilHex)
+    const foilFrontTex = variant === 'leather'
+      ? makeFoilTextTexture(title, subtitle, foilHex, 'large')
+      : null;
+    // Back foil mark — smaller, always rendered (photo+acrylic backs
+    // also wrap in leather, so they get a small foil mark too — keeps
+    // the back from looking like a void or a duplicate front photo).
+    const foilBackTex = title
+      ? makeFoilTextTexture(title, '', foilHex, 'small')
       : null;
 
-    const leatherMaterial = new THREE.MeshStandardMaterial({
-      color: leatherColor,
-      roughness: 0.65,
-      metalness: 0.05,
-      normalMap: normalTex,
-      normalScale: new THREE.Vector2(0.35, 0.35),
-    });
+    const leatherMatBase = (extra: Partial<THREE.MeshStandardMaterialParameters> = {}) =>
+      new THREE.MeshStandardMaterial({
+        color: leatherColor,
+        roughness: 0.55,
+        metalness: 0.05,
+        normalMap: normalTex,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+        ...extra,
+      });
 
     const pageBlockMaterial = new THREE.MeshStandardMaterial({
       color: 0xeadbb8,
@@ -231,91 +196,142 @@ export default function Album3D({
       metalness: 0,
     });
 
-    // Front-cover material: leather with foil-text overlay.
-    // Implemented as a separate material so we can decal the text
-    // only on the front face, not the spine or back.
-    const frontMaterials: THREE.MeshStandardMaterial[] = new Array(6)
-      .fill(null)
-      .map(
-        () =>
-          new THREE.MeshStandardMaterial({
-            color: leatherColor,
-            roughness: 0.65,
-            metalness: 0.05,
-            normalMap: normalTex,
-            normalScale: new THREE.Vector2(0.35, 0.35),
-          }),
-      );
-    // BoxGeometry face order (Three.js):
-    //   0: +X right, 1: -X left, 2: +Y top, 3: -Y bottom,
-    //   4: +Z front, 5: -Z back
-    // We want the foil/photo on +Z (face 4).
-    if (variant === 'leather' && foilTextTex) {
+    // FRONT cover materials: 6-face array. +Z (face 4) gets the
+    // variant-specific overlay. Other 5 faces stay leather.
+    const frontMaterials: THREE.MeshStandardMaterial[] = [
+      leatherMatBase(), // +X right
+      leatherMatBase(), // -X left
+      leatherMatBase(), // +Y top
+      leatherMatBase(), // -Y bottom
+      leatherMatBase(), // +Z front (overridden below per variant)
+      leatherMatBase(), // -Z (inside of front cover; user only sees if open)
+    ];
+    if (variant === 'leather' && foilFrontTex) {
       frontMaterials[4] = new THREE.MeshStandardMaterial({
         color: leatherColor,
-        roughness: 0.55,
-        metalness: 0.15,
+        roughness: 0.5,
+        metalness: 0.1,
         normalMap: normalTex,
-        normalScale: new THREE.Vector2(0.35, 0.35),
-        emissiveMap: foilTextTex, // foil "glows" subtly
+        normalScale: new THREE.Vector2(0.6, 0.6),
+        emissiveMap: foilFrontTex,
         emissive: new THREE.Color(foilHex),
         emissiveIntensity: 0.4,
-        map: foilTextTex,
+        map: foilFrontTex,
       });
-    } else if (variant === 'photo' && photoSrc) {
-      // Async load photo and swap into the front-face material.
+    } else if ((variant === 'photo' || variant === 'acrylic') && photoSrc) {
+      // Async load photo → swap front face material in place.
       const loader = new THREE.TextureLoader();
       loader.crossOrigin = 'anonymous';
       loader.load(photoSrc, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        frontMaterials[4] = new THREE.MeshStandardMaterial({
+        const photoMat = new THREE.MeshStandardMaterial({
           map: tex,
-          roughness: 0.6,
-          metalness: 0.05,
+          roughness: variant === 'acrylic' ? 0.2 : 0.55,
+          metalness: variant === 'acrylic' ? 0.4 : 0.05,
         });
-        // Replace the array entry on the mesh.
-        if (cover) cover.material = frontMaterials;
+        frontMaterials[4] = photoMat;
+        cover.material = frontMaterials;
+        cover.material.forEach((m) => { m.needsUpdate = true; });
+      });
+    }
+
+    // BACK cover materials: 6-face array, leather everywhere except
+    // -Z (face 5) which is what the user sees from behind. That face
+    // gets a small foil stamp so the back never reads as bare void.
+    const backMaterials: THREE.MeshStandardMaterial[] = [
+      leatherMatBase(),
+      leatherMatBase(),
+      leatherMatBase(),
+      leatherMatBase(),
+      leatherMatBase(), // +Z (inside of back cover; faces page block)
+      leatherMatBase(), // -Z (the visible back face when rotated 180°)
+    ];
+    if (foilBackTex) {
+      backMaterials[5] = new THREE.MeshStandardMaterial({
+        color: leatherColor,
+        roughness: 0.55,
+        metalness: 0.1,
+        normalMap: normalTex,
+        normalScale: new THREE.Vector2(0.6, 0.6),
+        emissiveMap: foilBackTex,
+        emissive: new THREE.Color(foilHex),
+        emissiveIntensity: 0.3,
+        map: foilBackTex,
       });
     }
 
     // --- GEOMETRY ---
-    // Front cover (the visible face).
     const coverGeom = new THREE.BoxGeometry(BOOK_W, BOOK_H, COVER_T);
     const cover = new THREE.Mesh(coverGeom, frontMaterials);
     cover.position.z = PAGE_D / 2 + COVER_T / 2;
     cover.castShadow = true;
     cover.receiveShadow = true;
 
-    // Back cover.
     const backGeom = new THREE.BoxGeometry(BOOK_W, BOOK_H, COVER_T);
-    const back = new THREE.Mesh(backGeom, leatherMaterial);
+    const back = new THREE.Mesh(backGeom, backMaterials);
     back.position.z = -(PAGE_D / 2 + COVER_T / 2);
     back.castShadow = true;
     back.receiveShadow = true;
 
-    // Page block — slightly inset from the cover edges so the cover
-    // visibly overhangs (real albums do this; it's how leather wraps
-    // the boards).
     const pageGeom = new THREE.BoxGeometry(BOOK_W * 0.97, BOOK_H * 0.985, PAGE_D);
     const pages = new THREE.Mesh(pageGeom, pageBlockMaterial);
     pages.castShadow = true;
     pages.receiveShadow = true;
 
-    // Spine — leather wrap on the left.
-    const spineGeom = new THREE.BoxGeometry(0.06, BOOK_H, BOOK_D);
-    const spine = new THREE.Mesh(spineGeom, leatherMaterial);
-    spine.position.x = -(BOOK_W / 2 + 0.025);
+    const spineGeom = new THREE.BoxGeometry(0.04, BOOK_H, BOOK_D);
+    const spine = new THREE.Mesh(spineGeom, leatherMatBase());
+    spine.position.x = -(BOOK_W / 2 + 0.015);
     spine.castShadow = true;
     spine.receiveShadow = true;
 
-    // Group everything so we rotate as one rigid object.
     const book = new THREE.Group();
     book.add(cover, back, pages, spine);
-    book.rotation.y = -0.35; // gentle 3/4 rest pose
+
+    // ACRYLIC: add a leather binding strip on the spine side of the
+    // FRONT cover (~12% wide), and a thin clear-acrylic sheen layer
+    // in front of the photo. These are extra meshes on top of the
+    // base front cover — keeps the rest of the rendering clean.
+    if (variant === 'acrylic') {
+      // Binding strip mesh — slightly in front of the cover face.
+      const stripW = BOOK_W * 0.12;
+      const stripGeom = new THREE.BoxGeometry(stripW, BOOK_H, COVER_T * 0.5);
+      const stripMat = leatherMatBase({
+        roughness: 0.45,
+        metalness: 0.2,
+      });
+      const strip = new THREE.Mesh(stripGeom, stripMat);
+      strip.position.set(
+        -(BOOK_W / 2) + stripW / 2,
+        0,
+        PAGE_D / 2 + COVER_T + COVER_T * 0.25,
+      );
+      book.add(strip);
+
+      // Acrylic sheen — thin transparent reflective plane in front
+      // of the photo, sized to the photo area (cover minus binding).
+      const sheenW = BOOK_W - stripW;
+      const sheenGeom = new THREE.PlaneGeometry(sheenW, BOOK_H);
+      const sheenMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.10,
+        roughness: 0.05,
+        metalness: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const sheen = new THREE.Mesh(sheenGeom, sheenMat);
+      sheen.position.set(
+        stripW / 2,
+        0,
+        PAGE_D / 2 + COVER_T + COVER_T * 0.5,
+      );
+      book.add(sheen);
+    }
+
+    book.rotation.y = -0.35;
     book.rotation.x = 0.05;
     scene.add(book);
 
-    // Soft ground plane to receive shadows.
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(20, 20),
       new THREE.ShadowMaterial({ opacity: 0.45 }),
@@ -325,14 +341,14 @@ export default function Album3D({
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // --- POINTER DRAG ---
+    // --- POINTER DRAG (with X-clamp + Y-clamp so user can't see
+    // a "wrong" angle that exposes mesh seams). ---
     let isDragging = false;
     let prevX = 0;
     let prevY = 0;
     let velY = 0;
     let velX = 0;
     let lastT = performance.now();
-
     function onPointerDown(e: PointerEvent) {
       isDragging = true;
       prevX = e.clientX;
@@ -345,13 +361,8 @@ export default function Album3D({
       const dy = e.clientY - prevY;
       prevX = e.clientX;
       prevY = e.clientY;
-      // Drag-to-rotate: horizontal → Y-axis, vertical → X-axis.
-      // Clamp X so the user can't flip it upside down.
       book.rotation.y += dx * 0.008;
-      book.rotation.x = Math.max(
-        -0.6,
-        Math.min(0.6, book.rotation.x + dy * 0.005),
-      );
+      book.rotation.x = Math.max(-0.6, Math.min(0.6, book.rotation.x + dy * 0.005));
       velY = dx * 0.008;
       velX = dy * 0.005;
     }
@@ -364,19 +375,13 @@ export default function Album3D({
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('pointercancel', onPointerUp);
 
-    // --- RENDER LOOP ---
     let raf = 0;
     function animate() {
       const now = performance.now();
-      const dt = Math.min(0.05, (now - lastT) / 1000);
       lastT = now;
-      // Inertia decay when not dragging.
       if (!isDragging) {
         book.rotation.y += velY;
-        book.rotation.x = Math.max(
-          -0.6,
-          Math.min(0.6, book.rotation.x + velX),
-        );
+        book.rotation.x = Math.max(-0.6, Math.min(0.6, book.rotation.x + velX));
         velY *= 0.94;
         velX *= 0.94;
       }
@@ -385,32 +390,27 @@ export default function Album3D({
     }
     animate();
 
-    // --- CLEANUP ---
     return () => {
       cancelAnimationFrame(raf);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
-      // Dispose GPU resources.
       coverGeom.dispose();
       backGeom.dispose();
       pageGeom.dispose();
       spineGeom.dispose();
-      leatherMaterial.dispose();
       pageBlockMaterial.dispose();
       frontMaterials.forEach((m) => m.dispose());
+      backMaterials.forEach((m) => m.dispose());
       normalTex.dispose();
-      if (foilTextTex) foilTextTex.dispose();
+      if (foilFrontTex) foilFrontTex.dispose();
+      if (foilBackTex) foilBackTex.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
     };
-    // We deliberately do NOT depend on every prop — the scene is set
-    // up once on mount. Color/text changes via prop will require a
-    // re-mount. For the cover-builder, that's fine; for the homepage
-    // hero, props are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, leatherHex, foilHex, title, subtitle, variant, photoSrc]);
 
