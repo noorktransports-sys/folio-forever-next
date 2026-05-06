@@ -129,10 +129,27 @@
 
   // Returns layouts that match the current binding plus an optional
   // photoCount filter. Used by renderLayoutPanel and the filter rail.
+  //
+  // Title-page exception: hc_1a (Left Page) and hc_1b (Right Page) leave
+  // one side blank, which is wasted paper for any spread except the
+  // first — there the blank side is the cover paste-down endpaper, so
+  // the "waste" is structural, not a layout choice. So we only show
+  // those single-page hardcover layouts on currentSpread === 0.
+  //
+  // Layflat is untouched: lf_1a is a full-spread single photo (one image
+  // spanning both pages), not a single page with the other blank.
   function getVisibleLayouts() {
+    const isTitleSpread = currentSpread === 0;
     return layouts.filter(l => {
       if (l.binding !== currentBinding) return false;
       if (currentPhotoCountFilter !== null && l.photoCount !== currentPhotoCountFilter) return false;
+      if (
+        l.binding === 'hardcover' &&
+        l.photoCount === 1 &&
+        !isTitleSpread
+      ) {
+        return false;
+      }
       return true;
     });
   }
