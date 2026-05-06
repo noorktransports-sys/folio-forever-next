@@ -464,30 +464,24 @@ export default function Album3D({
         normalScale: new THREE.Vector2(0.6, 0.6),
       });
 
-    // LEATHER FRONT — leather color + foil-stamped title.
+    // LEATHER FRONT — pure leather. Color + grain only; foil text is
+    // rendered separately on the foilOverlay plane (see below).
     //
-    // CRITICAL: the foil canvas goes on emissiveMap ONLY, not map. Earlier
-    // versions set map=foilFrontTex which was a silent killer of the
-    // leather color: the canvas is mostly RGBA(0,0,0,0), and
-    // MeshStandardMaterial computes diffuse = color * map.rgb — so every
-    // non-text pixel rendered black, regardless of which leather color
-    // the user picked. (The user filed: "BROWN selected but cover shows
-    // navy / dark.") Now diffuse uses just `color` (uniform leather) and
-    // the foil text rides on emissive only.
-    //
-    // Emissive is white so the canvas's foilHex pixels pass through
-    // unchanged — emit_out = white * canvas.rgb = foilHex on text,
-    // 0 elsewhere. This also means the FOIL EMISSIVE COLOR effect can
-    // be retired: foil color flows entirely through the canvas repaint.
+    // History: earlier this material carried the foil canvas as
+    // emissiveMap. That worked for light foil on dark leather (gold on
+    // black) but broke for dark foil on light leather (black on ivory) —
+    // emissive can only ADD light, never subtract, so a black canvas
+    // pixel contributes 0 and the dark foil rendered invisibly. Moving
+    // foil to the overlay plane (transparent BasicMaterial drawn on top
+    // of the cover face) makes any foil color visible against any leather
+    // color, with a single rendering path shared across leather, photo,
+    // and acrylic variants.
     const leatherFrontMat = new THREE.MeshStandardMaterial({
       color: initialColor.clone(),
       roughness: 0.5,
       metalness: 0.1,
       normalMap: normalTex,
       normalScale: new THREE.Vector2(0.6, 0.6),
-      emissive: 0xffffff,
-      emissiveIntensity: 1,
-      emissiveMap: foilFrontTex,
     });
 
     // PHOTO FRONT — unlit emissive photo. color=black + emissiveMap=photo
@@ -819,10 +813,11 @@ export default function Album3D({
   }, [leatherHex]);
 
   // ─── FOIL CANVAS REPAINT ─────────────────────────────────────
-  // Foil color now flows ENTIRELY through the canvas repaint — the
-  // leather material's emissive stays white and acts as a passthrough
-  // for whatever color the canvas paints the title in. So we no longer
-  // need a separate effect to tint leatherFrontMat.emissive.
+  // The foil canvas drives the foilOverlay plane's texture (a transparent
+  // BasicMaterial with map=foilFrontTex). Repaint triggers on any user
+  // pick that affects the rendered title — text, font, size, position, or
+  // color. The overlay handles foil for ALL three cover variants, so this
+  // effect doesn't care which variant is active.
   // Single source of truth for the title texture. ANY user pick that
   // affects the rendered title (text, font, size, position, color) goes
   // through here. Earlier we had multiple useEffects each with partial
@@ -936,11 +931,11 @@ export default function Album3D({
     if (r.acrylicStrip) r.acrylicStrip.visible = needsAcrylic;
     if (r.acrylicSheen) r.acrylicSheen.visible = needsAcrylic;
 
-    // Foil title overlay: photo + acrylic covers ride the title on this
-    // separate plane (their front-face material slot is occupied by the
-    // photo). Leather bakes the foil into its own material directly, so
-    // the overlay would just double-print — keep it hidden there.
-    r.foilOverlay.visible = variant === 'photo' || variant === 'acrylic';
+    // Foil title overlay: visible for ALL variants. Leather no longer
+    // carries the foil on its own material (the emissive approach broke
+    // for dark foil on light leather), so the overlay is the single
+    // rendering path for foil text across leather, photo, and acrylic.
+    r.foilOverlay.visible = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant]);
 
