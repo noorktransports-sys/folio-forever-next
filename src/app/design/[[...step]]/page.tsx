@@ -8,6 +8,17 @@ import CoverBuilder, { type CoverState } from '../cover-builder';
 import '../album-builder.css';
 
 /**
+ * Cloudflare Pages requires every dynamic route to opt into the
+ * Edge Runtime. Without this, @cloudflare/next-on-pages refuses to
+ * produce a build and the deploy fails with:
+ *   "The following routes were not configured to run with the Edge
+ *    Runtime: - /design/[[...step]]"
+ * Static routes inherit a default; the catch-all is dynamic so it
+ * needs the explicit declaration.
+ */
+export const runtime = 'edge';
+
+/**
  * URL-driven step routing.
  *
  * /design               → intro (path-choice)
