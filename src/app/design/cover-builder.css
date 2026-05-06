@@ -1104,6 +1104,35 @@
   color: var(--gold);
 }
 
+/* RGB COLOR PICKER (photo + acrylic cover text) — native color input
+   styled to fit the dark theme. The native widget is platform-specific;
+   we just give it a fixed size and a gold border to match the swatch
+   row above it. */
+.cover-rgb-input {
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  border: 0.5px solid rgba(184, 150, 90, 0.4);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.cover-rgb-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+  border-radius: 4px;
+}
+.cover-rgb-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+.cover-rgb-input::-moz-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+.cover-rgb-text:focus {
+  border-color: rgba(184, 150, 90, 0.6) !important;
+}
+
 /* RESPONSIVE */
 @media (max-width: 860px) {
   .cover-grid { grid-template-columns: 1fr; }

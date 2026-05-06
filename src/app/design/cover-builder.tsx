@@ -130,7 +130,16 @@ export type CoverState = {
   fontId: string;
   fontSize: number;         // primary text size in px (24-96 range)
   foilColor: string;        // only meaningful when type === 'leather'
-  textColor: string;        // only meaningful when type === 'photo'
+  textColor: string;        // legacy: 'white' | 'black' | 'gold' — kept for backward
+                            //   compat with saved drafts. New flow uses customTextHex.
+  /**
+   * Free-form RGB hex (`#rrggbb`) used as the cover text color when the
+   * cover is photo or acrylic. Both variants print text in CMYK ink, so
+   * any RGB the user picks will print (modulo the usual gamut shift).
+   * Leather covers ignore this — they use the FOIL_COLORS palette
+   * because foil is a physical material we stock as 4 rolls.
+   */
+  customTextHex: string;
   position: Position;
 };
 
@@ -208,6 +217,7 @@ const initialState: CoverState = {
   fontSize: FONT_SIZE_DEFAULT,
   foilColor: 'gold',
   textColor: 'white',
+  customTextHex: '#ffffff',
   position: 'center',
 };
 
@@ -528,13 +538,18 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
 
   const textHex = (() => {
     if (state.type === 'leather') {
+      // Leather is foil-stamped → physical foil, palette only.
       return FOIL_COLORS.find((f) => f.id === state.foilColor)?.hex ?? '#d4b07a';
     }
-    if (state.type === 'photo') {
-      return PHOTO_TEXT_COLORS.find((c) => c.id === state.textColor)?.hex ?? '#ffffff';
+    // Photo + Acrylic both print text in CMYK ink → free RGB. Use the
+    // user's customTextHex; fall back to the legacy textColor id only if
+    // an old draft loads without customTextHex set.
+    if (/^#[0-9a-fA-F]{6}$/.test(state.customTextHex)) {
+      return state.customTextHex;
     }
-    // acrylic — use a neutral white that contrasts with the photo behind glass
-    return '#ffffff';
+    return (
+      PHOTO_TEXT_COLORS.find((c) => c.id === state.textColor)?.hex ?? '#ffffff'
+    );
   })();
 
   // CSS-positioning of the title block within the cover preview.
@@ -1453,23 +1468,91 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             </section>
           )}
 
-          {state.type === 'photo' && (
+          {(state.type === 'photo' || state.type === 'acrylic') && (
             <section className="cover-section">
               <h3 className="cover-section-title">Text Color</h3>
-              <div className="cover-swatch-row">
-                {PHOTO_TEXT_COLORS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={'cover-swatch' + (state.textColor === c.id ? ' active' : '')}
-                    style={{ background: c.hex }}
-                    title={c.label}
-                    onClick={() => update('textColor', c.id)}
-                  >
-                    <span className="cover-swatch-label">{c.label}</span>
-                  </button>
-                ))}
+              {/* Quick-pick shortcuts above the RGB picker — saves the
+                  common cases (white / black / gold) from a trip through
+                  the color wheel. Clicking a shortcut just sets
+                  customTextHex; the RGB picker stays in sync. */}
+              <div className="cover-swatch-row" style={{ marginBottom: 10 }}>
+                {PHOTO_TEXT_COLORS.map((c) => {
+                  const isActive =
+                    state.customTextHex.toLowerCase() === c.hex.toLowerCase();
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={'cover-swatch' + (isActive ? ' active' : '')}
+                      style={{ background: c.hex }}
+                      title={c.label}
+                      onClick={() => update('customTextHex', c.hex)}
+                    >
+                      <span className="cover-swatch-label">{c.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+              {/* Full RGB picker — the printer takes any color. We store
+                  customTextHex as #rrggbb and feed it into textHex which
+                  paints the title canvas. */}
+              <label
+                className="cover-rgb-row"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 0',
+                }}
+              >
+                <input
+                  type="color"
+                  value={state.customTextHex}
+                  onChange={(e) => update('customTextHex', e.target.value)}
+                  className="cover-rgb-input"
+                  aria-label="Cover text color"
+                />
+                <input
+                  type="text"
+                  value={state.customTextHex}
+                  onChange={(e) => {
+                    // Accept either '#rgb' or '#rrggbb' shorthand; normalize
+                    // before saving so textHex's regex test passes.
+                    const v = e.target.value.trim();
+                    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+                      const r = v[1], g = v[2], b = v[3];
+                      update('customTextHex', `#${r}${r}${g}${g}${b}${b}`.toLowerCase());
+                    } else if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                      update('customTextHex', v.toLowerCase());
+                    } else {
+                      // typing-in-progress — store raw, regex will reject
+                      // until valid so textHex falls back gracefully.
+                      update('customTextHex', v);
+                    }
+                  }}
+                  className="cover-rgb-text"
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    background: 'var(--dark3)',
+                    border: '0.5px solid rgba(184, 150, 90, 0.2)',
+                    borderRadius: 4,
+                    color: 'var(--cream)',
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    padding: '6px 10px',
+                    outline: 'none',
+                  }}
+                />
+              </label>
+              <p
+                className="cover-hint"
+                style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5 }}
+              >
+                Any RGB color works — text is printed in ink. Bright reds,
+                oranges, and neon greens may print slightly muted (RGB →
+                CMYK conversion).
+              </p>
             </section>
           )}
 
