@@ -289,6 +289,14 @@ nav {
 .binding-features li { font-size: 10px; color: var(--muted2); letter-spacing: 0.5px; padding: 6px 0; border-bottom: 0.5px solid rgba(184, 150, 90, 0.08); display: flex; align-items: center; gap: 10px; }
 .binding-features li::before { content: ''; width: 4px; height: 4px; background: var(--gold); border-radius: 50%; flex-shrink: 0; }
 
+/* ── SIZE THUMB (in size picker cards) ──────────────────────
+   Visually hints at the size difference: the 17×24 mockup shows
+   a smaller centered rectangle, the 20×30 shows a larger one
+   pushing toward the edges. Same chrome as binding-thumb. */
+.size-thumb-17, .size-thumb-20 { display: flex; align-items: center; justify-content: center; padding: 0; }
+.size-thumb-17 .size-thumb-inner { width: 55%; height: 60%; background: var(--cream-light); border-radius: 3px; }
+.size-thumb-20 .size-thumb-inner { width: 82%; height: 82%; background: var(--cream-light); border-radius: 3px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4); }
+
 /* ── BINDING PILL (in canvas toolbar after a binding is set) ── */
 .binding-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--dark2); border: 0.5px solid rgba(184, 150, 90, 0.25); border-radius: 30px; padding: 6px 12px; font-family: var(--font-body); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--cream); cursor: pointer; transition: border-color 0.2s; }
 .binding-pill:hover { border-color: var(--gold); }

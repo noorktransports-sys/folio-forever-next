@@ -155,7 +155,7 @@ export default function DesignerPage() {
 
   return (
     <>
-      <Script src="/js/album-builder.js?v=20260505-3" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260505-4" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -281,6 +281,73 @@ export default function DesignerPage() {
             <button type="button" className="btn-path btn-path-primary">
               Choose Expert Design
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SIZE PICKER — shown right after path-choice (Self).
+          Picking a card calls pickSize() which flips this section off
+          and the binding picker on. We chose two-step (size → binding)
+          over a single 4-card matrix so each decision stays atomic. */}
+      <div className="builder-section" id="sizeSection">
+        <div className="binding-section">
+          <span className="page-tag">Pick a size</span>
+          <h2 className="page-title">
+            How big do you<br />
+            <em>want it?</em>
+          </h2>
+          <p className="page-sub">
+            Pick the album dimensions. You&apos;ll choose lay-flat or
+            coffee-table next.
+          </p>
+          <div className="binding-choice">
+            <div
+              className="binding-card"
+              onClick={() => fb('pickSize', 'spread_17x24')}
+            >
+              <div className="binding-thumb size-thumb-17" aria-hidden="true">
+                <div className="size-thumb-inner" />
+              </div>
+              <p className="binding-name">17×24</p>
+              <span className="binding-tagline">Standard album</span>
+              <p className="binding-desc">
+                Our classic wedding album dimensions. Opens to a
+                17×12 spread with the 17×24 referring to the open
+                width.
+              </p>
+              <ul className="binding-features">
+                <li>Coffee-table from $240</li>
+                <li>Lay-flat from $275</li>
+                <li>10 spreads included</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-primary">
+                Choose 17×24
+              </button>
+            </div>
+
+            <div
+              className="binding-card"
+              onClick={() => fb('pickSize', 'page_20x30')}
+            >
+              <div className="binding-thumb size-thumb-20" aria-hidden="true">
+                <div className="size-thumb-inner" />
+              </div>
+              <p className="binding-name">20×30 Poster</p>
+              <span className="binding-tagline">Extra large · Poster Book</span>
+              <p className="binding-desc">
+                Our oversized format for couples who want their
+                photos to feel like fine-art prints on the
+                coffee table. +$100 over standard.
+              </p>
+              <ul className="binding-features">
+                <li>Coffee-table from $340</li>
+                <li>Lay-flat from $375</li>
+                <li>10 spreads included</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-secondary">
+                Choose 20×30 Poster
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -447,7 +514,7 @@ export default function DesignerPage() {
                   data-size="page_20x30"
                   onClick={() => fb('setSize', 'page_20x30')}
                 >
-                  20×30
+                  20×30 Poster
                 </button>
               </div>
 

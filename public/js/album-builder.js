@@ -189,7 +189,7 @@
 
     return {
       sizeKey: sizeKey,
-      sizeLabel: sizeKey === '17x24' ? '17×24' : '20×30',
+      sizeLabel: sizeKey === '17x24' ? '17×24' : '20×30 Poster',
       binding: currentBinding,
       bindingLabel: currentBinding === 'layflat' ? 'Lay-Flat' : 'Coffee-Table',
       base: tier.base,
@@ -250,14 +250,32 @@
     const intro = document.getElementById('introSection');
     if (intro) intro.style.display = 'none';
     if (type === 'self') {
-      // Self-design path detours through the binding picker first.
-      // selectBinding() then opens the actual builder.
-      const binding = document.getElementById('bindingSection');
-      if (binding) binding.classList.add('active');
+      // Self-design path: size first, then binding, then builder.
+      // pickSize() advances to bindingSection; selectBinding() opens
+      // the builder.
+      const size = document.getElementById('sizeSection');
+      if (size) size.classList.add('active');
     } else {
       const expert = document.getElementById('expertSection');
       if (expert) expert.classList.add('active');
     }
+  }
+
+  // Called from the size-picker cards in page.tsx. Sets currentSize,
+  // updates the toolbar size-switcher highlight, and advances to the
+  // binding picker. We don't call applySizeToCanvas() here because the
+  // canvas DOM doesn't exist yet (builder section is still hidden) —
+  // selectBinding() handles that once everything is mounted.
+  function pickSize(sizeKey) {
+    if (!sizes[sizeKey]) return;
+    currentSize = sizeKey;
+    document.querySelectorAll('.size-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.size === sizeKey);
+    });
+    const sizeSec = document.getElementById('sizeSection');
+    if (sizeSec) sizeSec.classList.remove('active');
+    const bindingSec = document.getElementById('bindingSection');
+    if (bindingSec) bindingSec.classList.add('active');
   }
 
   // Called from the binding-picker cards in page.tsx. type is
@@ -1470,6 +1488,7 @@
   // window in browser contexts, but explicit assignment guarantees the
   // contract for the React JSX onClick handlers that call these.
   window.choosePath = choosePath;
+  window.pickSize = pickSize;
   window.selectBinding = selectBinding;
   window.promptBindingChange = promptBindingChange;
   window.setSize = setSize;
