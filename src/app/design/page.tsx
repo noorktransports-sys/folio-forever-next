@@ -155,7 +155,7 @@ export default function DesignerPage() {
 
   return (
     <>
-      <Script src="/js/album-builder.js?v=20260505-4" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260505-5" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -163,9 +163,21 @@ export default function DesignerPage() {
           FOLIO &amp; FOREVER
         </Link>
         <div className="nav-right">
-          <Link href="/" className="nav-back">
+          {/* Back: if a flow section is active, navBack() hides it and
+              shows intro (returning false). Otherwise it returns true
+              and we navigate to /. Lets the customer step back through
+              the wizard with one click instead of bailing to home. */}
+          <button
+            type="button"
+            className="nav-back nav-back-btn"
+            onClick={() => {
+              const w = window as unknown as { navBack?: () => boolean };
+              const goHome = w.navBack ? w.navBack() : true;
+              if (goHome) window.location.href = '/';
+            }}
+          >
             ← Back
-          </Link>
+          </button>
           {/* Live running total — populated by renderPriceTag in
               album-builder.js. Hidden until a binding is selected so
               we don't show $275 before the customer has chosen anything. */}
@@ -285,134 +297,123 @@ export default function DesignerPage() {
         </div>
       </div>
 
-      {/* SIZE PICKER — shown right after path-choice (Self).
-          Picking a card calls pickSize() which flips this section off
-          and the binding picker on. We chose two-step (size → binding)
-          over a single 4-card matrix so each decision stays atomic. */}
-      <div className="builder-section" id="sizeSection">
-        <div className="binding-section">
-          <span className="page-tag">Pick a size</span>
+      {/* PRODUCT PICKER — single screen, all 4 SKUs visible with prices.
+          Replaces the older size→binding two-step flow because each
+          extra step was a drop-off point. Each card calls
+          selectProduct(sizeKey, bindingType) which sets both globals
+          and opens the builder. */}
+      <div className="builder-section" id="productSection">
+        <div className="binding-section product-picker">
+          <span className="page-tag">Pick your album</span>
           <h2 className="page-title">
-            How big do you<br />
-            <em>want it?</em>
+            Choose a<br />
+            <em>style &amp; size.</em>
           </h2>
           <p className="page-sub">
-            Pick the album dimensions. You&apos;ll choose lay-flat or
-            coffee-table next.
+            Both styles are hardcover. Lay-flat hides the center seam;
+            coffee-table is press-printed and slightly cheaper. You can
+            switch later.
           </p>
-          <div className="binding-choice">
-            <div
-              className="binding-card"
-              onClick={() => fb('pickSize', 'spread_17x24')}
-            >
-              <div className="binding-thumb size-thumb-17" aria-hidden="true">
-                <div className="size-thumb-inner" />
-              </div>
-              <p className="binding-name">17×24</p>
-              <span className="binding-tagline">Standard album</span>
-              <p className="binding-desc">
-                Our classic wedding album dimensions. Opens to a
-                17×12 spread with the 17×24 referring to the open
-                width.
-              </p>
-              <ul className="binding-features">
-                <li>Coffee-table from $240</li>
-                <li>Lay-flat from $275</li>
-                <li>10 spreads included</li>
-              </ul>
-              <button type="button" className="btn-path btn-path-primary">
-                Choose 17×24
-              </button>
-            </div>
 
+          <div className="product-grid">
+            {/* 17×24 Coffee-Table — cheapest, anchor price */}
             <div
-              className="binding-card"
-              onClick={() => fb('pickSize', 'page_20x30')}
-            >
-              <div className="binding-thumb size-thumb-20" aria-hidden="true">
-                <div className="size-thumb-inner" />
-              </div>
-              <p className="binding-name">20×30 Poster</p>
-              <span className="binding-tagline">Extra large · Poster Book</span>
-              <p className="binding-desc">
-                Our oversized format for couples who want their
-                photos to feel like fine-art prints on the
-                coffee table. +$100 over standard.
-              </p>
-              <ul className="binding-features">
-                <li>Coffee-table from $340</li>
-                <li>Lay-flat from $375</li>
-                <li>10 spreads included</li>
-              </ul>
-              <button type="button" className="btn-path btn-path-secondary">
-                Choose 20×30 Poster
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* BINDING PICKER — shown after path-choice (Self), before builder.
-          Picking a card calls selectBinding() in album-builder.js which
-          flips this section off and the builder on. */}
-      <div className="builder-section" id="bindingSection">
-        <div className="binding-section">
-          <span className="page-tag">Pick your album style</span>
-          <h2 className="page-title">
-            Lay-flat or<br />
-            <em>coffee-table book?</em>
-          </h2>
-          <p className="page-sub">
-            Both are hardcover — the difference is how the spreads
-            behave. You can switch later, but we&apos;ll need to reset
-            your layouts.
-          </p>
-          <div className="binding-choice">
-            <div
-              className="binding-card"
-              onClick={() => fb('selectBinding', 'layflat')}
-            >
-              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
-                <div className="binding-thumb-page" />
-              </div>
-              <p className="binding-name">Lay-Flat Album</p>
-              <span className="binding-tagline">No center seam</span>
-              <p className="binding-desc">
-                Pages lie completely flat across the spine. Photos can
-                span the entire spread without losing the middle.
-              </p>
-              <ul className="binding-features">
-                <li>Full-bleed photos across the spine</li>
-                <li>Premium hand-bound construction</li>
-                <li>Best for hero shots &amp; panoramas</li>
-              </ul>
-              <button type="button" className="btn-path btn-path-primary">
-                Choose Lay-Flat
-              </button>
-            </div>
-
-            <div
-              className="binding-card"
-              onClick={() => fb('selectBinding', 'hardcover')}
+              className="binding-card product-card"
+              onClick={() => fb('selectProduct', 'spread_17x24', 'hardcover')}
             >
               <div className="binding-thumb binding-thumb-hardcover" aria-hidden="true">
                 <div className="binding-thumb-page" />
                 <div className="binding-thumb-page" />
               </div>
-              <p className="binding-name">Coffee-Table Book</p>
+              <p className="binding-name">17×24 Coffee-Table</p>
               <span className="binding-tagline">Press-printed hardcover</span>
-              <p className="binding-desc">
-                Hardcover and casebound, with a visible spine gutter
-                between facing pages. Layouts keep photos clear of the
-                binding.
-              </p>
+              <div className="product-price">
+                <span className="product-price-amount">$240</span>
+                <span className="product-price-note">10 spreads included · $8 / extra</span>
+              </div>
               <ul className="binding-features">
-                <li>Crisp press-printed pages</li>
-                <li>More pages at a friendlier price</li>
+                <li>Visible spine gutter</li>
+                <li>Photos sit fully on each page</li>
+                <li>Friendliest price</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-secondary">
+                Choose this
+              </button>
+            </div>
+
+            {/* 17×24 Lay-Flat — premium of the standard size */}
+            <div
+              className="binding-card product-card"
+              onClick={() => fb('selectProduct', 'spread_17x24', 'layflat')}
+            >
+              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
+                <div className="binding-thumb-page" />
+              </div>
+              <p className="binding-name">17×24 Lay-Flat</p>
+              <span className="binding-tagline">No center seam</span>
+              <div className="product-price">
+                <span className="product-price-amount">$275</span>
+                <span className="product-price-delta">+$35 vs coffee-table</span>
+                <span className="product-price-note">10 spreads included · $10 / extra</span>
+              </div>
+              <ul className="binding-features">
+                <li>Full-bleed across the spine</li>
+                <li>Hand-bound construction</li>
+                <li>Best for hero shots</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-primary">
+                Choose this
+              </button>
+            </div>
+
+            {/* 20×30 Poster Coffee-Table */}
+            <div
+              className="binding-card product-card"
+              onClick={() => fb('selectProduct', 'page_20x30', 'hardcover')}
+            >
+              <div className="binding-thumb binding-thumb-hardcover" aria-hidden="true">
+                <div className="binding-thumb-page" />
+                <div className="binding-thumb-page" />
+              </div>
+              <p className="binding-name">20×30 Poster · Coffee-Table</p>
+              <span className="binding-tagline">Extra large · Press-printed</span>
+              <div className="product-price">
+                <span className="product-price-amount">$340</span>
+                <span className="product-price-delta">+$100 size upgrade</span>
+                <span className="product-price-note">10 spreads included · $12 / extra</span>
+              </div>
+              <ul className="binding-features">
+                <li>Oversized coffee-table format</li>
+                <li>Visible spine gutter</li>
                 <li>Photos sit fully on each page</li>
               </ul>
               <button type="button" className="btn-path btn-path-secondary">
-                Choose Coffee-Table
+                Choose this
+              </button>
+            </div>
+
+            {/* 20×30 Poster Lay-Flat — top of range */}
+            <div
+              className="binding-card product-card"
+              onClick={() => fb('selectProduct', 'page_20x30', 'layflat')}
+            >
+              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
+                <div className="binding-thumb-page" />
+              </div>
+              <p className="binding-name">20×30 Poster · Lay-Flat</p>
+              <span className="binding-tagline">Extra large · No center seam</span>
+              <div className="product-price">
+                <span className="product-price-amount">$375</span>
+                <span className="product-price-delta">+$135 vs base</span>
+                <span className="product-price-note">10 spreads included · $15 / extra</span>
+              </div>
+              <ul className="binding-features">
+                <li>Premium hero format</li>
+                <li>Full-bleed across the spine</li>
+                <li>Hand-bound construction</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-primary">
+                Choose this
               </button>
             </div>
           </div>

@@ -250,55 +250,46 @@
     const intro = document.getElementById('introSection');
     if (intro) intro.style.display = 'none';
     if (type === 'self') {
-      // Self-design path: size first, then binding, then builder.
-      // pickSize() advances to bindingSection; selectBinding() opens
-      // the builder.
-      const size = document.getElementById('sizeSection');
-      if (size) size.classList.add('active');
+      // Single product picker: size + binding + price all on one screen.
+      // Replaces the older two-step (size → binding) flow because each
+      // step was a drop-off point and prices only showed up at the end.
+      const product = document.getElementById('productSection');
+      if (product) product.classList.add('active');
     } else {
       const expert = document.getElementById('expertSection');
       if (expert) expert.classList.add('active');
     }
   }
 
-  // Called from the size-picker cards in page.tsx. Sets currentSize,
-  // updates the toolbar size-switcher highlight, and advances to the
-  // binding picker. We don't call applySizeToCanvas() here because the
-  // canvas DOM doesn't exist yet (builder section is still hidden) —
-  // selectBinding() handles that once everything is mounted.
-  function pickSize(sizeKey) {
+  // Called from each of the 4 product cards. sizeKey is one of the
+  // entries in `sizes`; bindingType is 'layflat' | 'hardcover'. Sets
+  // both globals atomically, seeds default layouts for the binding,
+  // hides the picker, opens the builder.
+  function selectProduct(sizeKey, bindingType) {
     if (!sizes[sizeKey]) return;
-    currentSize = sizeKey;
-    document.querySelectorAll('.size-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.size === sizeKey);
-    });
-    const sizeSec = document.getElementById('sizeSection');
-    if (sizeSec) sizeSec.classList.remove('active');
-    const bindingSec = document.getElementById('bindingSection');
-    if (bindingSec) bindingSec.classList.add('active');
-  }
+    if (bindingType !== 'layflat' && bindingType !== 'hardcover') return;
 
-  // Called from the binding-picker cards in page.tsx. type is
-  // 'layflat' | 'hardcover'. Sets the global, swaps the binding section
-  // out, opens the builder, and seeds the layout panel filtered to the
-  // chosen binding type.
-  function selectBinding(type) {
-    if (type !== 'layflat' && type !== 'hardcover') return;
-    currentBinding = type;
+    currentSize = sizeKey;
+    currentBinding = bindingType;
     bindingLocked = false;
 
-    // Reset every spread's layout to a sensible default for the new
-    // binding so we never start with lay-flat-only layouts under a
-    // hardcover binding (or vice versa).
-    const defaultId = type === 'layflat' ? 'lf_2a' : 'hc_2a';
+    // Seed every spread with the default layout for the chosen binding
+    // so we never start with lay-flat-only layouts under hardcover (or
+    // vice versa).
+    const defaultId = bindingType === 'layflat' ? 'lf_2a' : 'hc_2a';
     selectedLayout = defaultId;
     spreadData.forEach(s => {
       s.layoutId = defaultId;
       s.slots = new Array(findLayout(defaultId).slots).fill(null);
     });
 
-    const binding = document.getElementById('bindingSection');
-    if (binding) binding.classList.remove('active');
+    // Sync the toolbar size-switcher highlight to match.
+    document.querySelectorAll('.size-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.size === sizeKey);
+    });
+
+    const product = document.getElementById('productSection');
+    if (product) product.classList.remove('active');
     const builder = document.getElementById('builderSection');
     if (builder) builder.classList.add('active');
     const submitBtn = document.getElementById('navSubmitBtn');
@@ -318,34 +309,73 @@
     renderPriceTag();
   }
 
-  // The "Change binding" button calls this. If photos are already placed
-  // we warn loudly — switching can change slot geometry and may force
-  // photos to relayout into different positions. Cancellable.
+  // The "Change product" pill in the toolbar calls this. If photos are
+  // already placed we warn loudly — switching binding/size changes slot
+  // geometry and may unplace photos. Cancellable.
   function promptBindingChange() {
     const placedCount = spreadData.reduce(
       (n, s) => n + s.slots.filter(Boolean).length, 0
     );
     if (placedCount > 0) {
       const ok = confirm(
-        'Switching binding will reset all spread layouts and may unplace photos near the spine.\n\n' +
+        'Switching album style will reset all spread layouts and may unplace photos near the spine.\n\n' +
         'Your uploads stay in the photo grid. Continue?'
       );
       if (!ok) return;
     }
-    // Send the user back to the binding picker. selectBinding() will
+    // Send the user back to the product picker. selectProduct() will
     // re-seed everything once they pick.
     const builder = document.getElementById('builderSection');
     if (builder) builder.classList.remove('active');
-    const binding = document.getElementById('bindingSection');
-    if (binding) binding.classList.add('active');
+    const product = document.getElementById('productSection');
+    if (product) product.classList.add('active');
   }
 
   function syncBindingLabel() {
     const label = document.getElementById('currentBindingLabel');
     if (!label) return;
-    // Both products are hardcover — the user-facing label distinguishes
-    // by binding behaviour, not by cover type.
-    label.textContent = currentBinding === 'layflat' ? 'Lay-Flat' : 'Coffee-Table';
+    // Show both binding + size so the customer sees their full SKU at a
+    // glance. e.g. "Lay-Flat 17×24" or "Coffee-Table 20×30 Poster".
+    const sizeShort = currentSize === 'spread_17x24' ? '17×24' : '20×30 Poster';
+    const bindShort = currentBinding === 'layflat' ? 'Lay-Flat' : 'Coffee-Table';
+    label.textContent = bindShort + ' ' + sizeShort;
+  }
+
+  // Called by the navbar Back button. Reverses one step: if the user is
+  // inside any flow section (product picker, builder, expert form),
+  // hides it and shows the intro. Otherwise leaves the page entirely
+  // (caller handles the actual navigation since this is invoked from a
+  // <button>, not a <Link>).
+  function navBack() {
+    const intro = document.getElementById('introSection');
+    const product = document.getElementById('productSection');
+    const builder = document.getElementById('builderSection');
+    const expert = document.getElementById('expertSection');
+
+    const anyFlowActive =
+      (product && product.classList.contains('active')) ||
+      (builder && builder.classList.contains('active')) ||
+      (expert && expert.classList.contains('active'));
+
+    if (anyFlowActive) {
+      product && product.classList.remove('active');
+      builder && builder.classList.remove('active');
+      expert && expert.classList.remove('active');
+      if (intro) intro.style.display = '';
+      // Hide the bits of the navbar that only make sense inside the
+      // builder. Otherwise the user lands back on the path-choice
+      // screen with a Save button + price tag still showing.
+      const submitBtn = document.getElementById('navSubmitBtn');
+      if (submitBtn) submitBtn.style.display = 'none';
+      const saveBtn = document.getElementById('navSaveBtn');
+      if (saveBtn) saveBtn.style.display = 'none';
+      const changeBtn = document.getElementById('changeBindingBtn');
+      if (changeBtn) changeBtn.style.display = 'none';
+      const priceTag = document.getElementById('priceTag');
+      if (priceTag) priceTag.style.display = 'none';
+      return false; // consumed — don't navigate
+    }
+    return true; // nothing to undo — caller should navigate to /
   }
 
   // Marks the binding as locked once the customer commits a photo. The
@@ -1488,9 +1518,9 @@
   // window in browser contexts, but explicit assignment guarantees the
   // contract for the React JSX onClick handlers that call these.
   window.choosePath = choosePath;
-  window.pickSize = pickSize;
-  window.selectBinding = selectBinding;
+  window.selectProduct = selectProduct;
   window.promptBindingChange = promptBindingChange;
+  window.navBack = navBack;
   window.setSize = setSize;
   window.prevSpread = prevSpread;
   window.nextSpread = nextSpread;
