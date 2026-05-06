@@ -37,10 +37,12 @@
   /* Default (rest) rotation; overridden by --rx/--ry from JS. */
   --rx: 4deg;
   --ry: -16deg;
-  /* Half-thickness of the book in px. 7 reads as a slim premium album
-   * on the dark homepage; 14 made the page-edge slab dominate the
-   * rotated view and look cheap. */
-  --book-depth: 7px;
+  /* Half-thickness of the book in px. 7 was too slim — back-view
+   * read as a flat panel because the page block didn't show. 12
+   * gives real visible thickness without the page-edge slab
+   * dominating. Paired with brighter cream edges below so the
+   * paper contrasts against leather. */
+  --book-depth: 12px;
 }
 .album3d-stage:focus-visible {
   box-shadow: 0 0 0 2px rgba(184, 150, 90, 0.55);
@@ -180,7 +182,15 @@
 }
 
 /* Right edge — vertical slab. Inset top/bottom by book-depth so the
- * top/bottom edge slabs cleanly fill the corners without overlap. */
+ * top/bottom edge slabs cleanly fill the corners without overlap.
+ *
+ * Color stack (back to front): a bright cream base reads as actual
+ * paper (the previous warm-tan gradient blended into the leather and
+ * made the page block disappear). On top sits visible page banding
+ * (40+ thin horizontal lines suggesting individual pages), then a
+ * lighting gradient that darkens the leather-side and side facing
+ * away from the camera. Result: the page block reads as a stack of
+ * cream paper sandwiched between the covers. */
 .album3d-edge-right {
   top: var(--book-depth);
   right: 0;
@@ -189,20 +199,23 @@
   transform-origin: left center;
   transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
   background:
+    /* page banding — fine horizontal lines, every 1px */
     repeating-linear-gradient(
       0deg,
-      rgba(60, 45, 25, 0) 0px,
-      rgba(60, 45, 25, 0) 0.6px,
-      rgba(60, 45, 25, 0.18) 0.6px,
-      rgba(60, 45, 25, 0.18) 1.2px
+      rgba(80, 60, 35, 0) 0px,
+      rgba(80, 60, 35, 0) 0.5px,
+      rgba(140, 115, 80, 0.35) 0.5px,
+      rgba(140, 115, 80, 0.35) 1px
     ),
+    /* lighting gradient — darker at leather side, highlight in the middle */
     linear-gradient(90deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0.10) 30%,
+      rgba(255, 255, 255, 0.10) 65%,
       rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(180deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
+    /* cream paper base — bright enough to contrast leather */
+    linear-gradient(180deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
 }
 
 /* Bottom edge — horizontal slab. Spans the full book width since the
@@ -217,18 +230,18 @@
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(60, 45, 25, 0) 0px,
-      rgba(60, 45, 25, 0) 0.6px,
-      rgba(60, 45, 25, 0.18) 0.6px,
-      rgba(60, 45, 25, 0.18) 1.2px
+      rgba(80, 60, 35, 0) 0px,
+      rgba(80, 60, 35, 0) 0.5px,
+      rgba(140, 115, 80, 0.32) 0.5px,
+      rgba(140, 115, 80, 0.32) 1px
     ),
     linear-gradient(0deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0.10) 30%,
+      rgba(255, 255, 255, 0.10) 65%,
       rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(90deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
+    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
 }
 
 /* Top edge — horizontal slab, mirror of bottom. */
@@ -242,18 +255,18 @@
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(60, 45, 25, 0) 0px,
-      rgba(60, 45, 25, 0) 0.6px,
-      rgba(60, 45, 25, 0.18) 0.6px,
-      rgba(60, 45, 25, 0.18) 1.2px
+      rgba(80, 60, 35, 0) 0px,
+      rgba(80, 60, 35, 0) 0.5px,
+      rgba(140, 115, 80, 0.32) 0.5px,
+      rgba(140, 115, 80, 0.32) 1px
     ),
     linear-gradient(180deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
+      rgba(0, 0, 0, 0.55) 0%,
+      rgba(0, 0, 0, 0.10) 30%,
+      rgba(255, 255, 255, 0.10) 65%,
       rgba(0, 0, 0, 0.35) 100%
     ),
-    linear-gradient(90deg, #b8a47e 0%, #998468 50%, #7d6c52 100%);
+    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
 }
 
 /* COVER PHOTO — full-bleed inside the cover when variant=photo. */
