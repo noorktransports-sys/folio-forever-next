@@ -699,6 +699,14 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               photoY={state.photoY}
               leatherHex={bindingHex}
               foilHex={textHex}
+              /* Drive the foil canvas from the user's font/size/position
+                 picks. Earlier these props didn't exist on Album3D and
+                 the canvas hardcoded Cormorant + 110px + center, which
+                 made all three controls dead. Fixed now. */
+              fontFamily={font.family}
+              fontStyle={font.style ?? 'normal'}
+              fontSizePx={state.fontSize}
+              position={state.position}
               width={560}
               caption=""
               /* Crop mode — when on, the WebGL canvas treats pointer drag

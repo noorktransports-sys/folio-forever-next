@@ -39,6 +39,22 @@ export interface Album3DProps {
   photoY?: number;
   leatherHex?: string;
   foilHex?: string;
+  /**
+   * CSS font-family stack for the cover title (e.g.
+   * `'"Cormorant Garamond", serif'`). Drives the canvas-rendered foil
+   * text — must match a font loaded in the document so canvas can
+   * actually render it. The cover-builder loads all 10 picker fonts
+   * via Google Fonts in src/app/layout.tsx.
+   */
+  fontFamily?: string;
+  fontStyle?: 'normal' | 'italic';
+  /**
+   * Title size in CSS pixels (24..96 range from the slider). Scaled
+   * internally to canvas pixels.
+   */
+  fontSizePx?: number;
+  /** Vertical anchor for the title block on the cover. */
+  position?: 'top' | 'center' | 'lower';
   width?: number;
   caption?: string;
   className?: string;
@@ -167,14 +183,36 @@ function makeLeatherNormalTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-// Render foil text to a canvas. Returns a CanvasTexture that can be
-// disposed and re-created when title/subtitle changes.
+/**
+ * Render foil text to a canvas.
+ *
+ * Honors EVERY user pick from the cover-builder controls — fontFamily,
+ * fontStyle, fontSizePx, position, foilHex, title, subtitle. Earlier
+ * versions hardcoded Cormorant Garamond / 110px / center, which made the
+ * font picker, size slider, and position picker decorative. This is the
+ * regression the user filed: "font selection is not working ... font
+ * location is not working."
+ *
+ * Sizing math: the cover-builder shows the album at ~560 CSS-px wide
+ * (Album3D's `width` prop). The canvas we paint here is 1024 px wide, so
+ * 1 CSS px ≈ canvas.width / 560 ≈ 1.83 canvas px. Scaling the user's
+ * fontSizePx by this factor keeps the on-screen size honest.
+ *
+ * Decorative rules (the small foil dashes flanking the title) and the
+ * subtitle scale relative to the title size, so picking a 90 px title
+ * keeps the layout proportionate instead of swimming in whitespace.
+ */
+const FOIL_CANVAS_REF_PX = 560; // matches Album3D's `width` prop in cover-builder
+
 function paintFoilCanvas(
   canvas: HTMLCanvasElement,
   title: string,
   subtitle: string,
   foilHex: string,
-  size: 'large' | 'small' = 'large',
+  fontFamily = '"Cormorant Garamond", serif',
+  fontStyle: 'normal' | 'italic' = 'italic',
+  fontSizePx = 52,
+  position: 'top' | 'center' | 'lower' = 'center',
 ) {
   const w = canvas.width;
   const h = canvas.height;
@@ -185,22 +223,55 @@ function paintFoilCanvas(
   ctx.strokeStyle = foilHex;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const cy = h / 2;
-  const titleSize = size === 'large' ? 110 : 64;
-  const ruleW = size === 'large' ? 180 : 110;
-  const ruleGap = size === 'large' ? 280 : 180;
-  const subSize = size === 'large' ? 32 : 22;
-  const subGap = size === 'large' ? 120 : 80;
-  ctx.lineWidth = size === 'large' ? 3 : 2;
-  ctx.beginPath();
-  ctx.moveTo(w / 2 - ruleGap, cy);
-  ctx.lineTo(w / 2 - ruleGap + ruleW, cy);
-  ctx.moveTo(w / 2 + ruleGap - ruleW, cy);
-  ctx.lineTo(w / 2 + ruleGap, cy);
-  ctx.stroke();
-  ctx.font = `italic ${titleSize}px "Cormorant Garamond", "Times New Roman", serif`;
+
+  // Convert CSS px → canvas px so the rendered size matches what the
+  // user expects from the slider's px label.
+  const scale = w / FOIL_CANVAS_REF_PX;
+  const titleSize = fontSizePx * scale;
+  const subSize = Math.max(14, Math.round(titleSize * 0.30));
+  // Decorative rule width + spacing scale with the title so the layout
+  // stays balanced across the 24..96px range.
+  const ruleW = titleSize * 1.65;
+  const ruleGap = titleSize * 2.55;
+  const subGap = titleSize * 1.15;
+
+  // Vertical anchor based on the user's position choice. 18%/50%/82% of
+  // canvas height — matches the 'top' / 'center' / 'lower' offsets that
+  // the cover-builder previously used for its CSS-3D preview.
+  let cy: number;
+  switch (position) {
+    case 'top':   cy = h * 0.18; break;
+    case 'lower': cy = h * 0.82; break;
+    case 'center':
+    default:      cy = h * 0.5;
+  }
+
+  // Decorative dashes flanking the title — gets the look of a foil-
+  // stamped wedding album. Skip on cursive fonts where the dashes fight
+  // the script, and on Bebas (a tall sans where they look like underlines).
+  const skipRules = /great vibes|allura|italianno|dancing script|bebas/i.test(fontFamily);
+  if (!skipRules && title) {
+    ctx.lineWidth = Math.max(1.5, titleSize * 0.025);
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - ruleGap, cy);
+    ctx.lineTo(w / 2 - ruleGap + ruleW, cy);
+    ctx.moveTo(w / 2 + ruleGap - ruleW, cy);
+    ctx.lineTo(w / 2 + ruleGap, cy);
+    ctx.stroke();
+  }
+
+  // Title — uses the user-picked font + style.
+  // Note: the font must be loaded in the document for canvas to render
+  // it (we load all 10 via Google Fonts in src/app/layout.tsx). If the
+  // font hasn't loaded yet on the very first paint, canvas falls back
+  // to the next family in the stack — usually fine, and fixed on the
+  // next repaint after fonts.ready.
+  ctx.font = `${fontStyle} ${titleSize}px ${fontFamily}`;
   ctx.fillText(title, w / 2, cy);
+
   if (subtitle) {
+    // Subtitle uses Montserrat with letter-spaced caps for the classic
+    // wedding-album look, regardless of title font choice.
     ctx.font = `500 ${subSize}px "Montserrat", sans-serif`;
     const tracked = subtitle.toUpperCase().split('').join('  ');
     ctx.fillText(tracked, w / 2, cy + subGap);
@@ -293,6 +364,10 @@ export default function Album3D({
   photoY = 0,
   leatherHex = '#3a2618',
   foilHex = '#d4b07a',
+  fontFamily = '"Cormorant Garamond", serif',
+  fontStyle = 'italic',
+  fontSizePx = 52,
+  position = 'center',
   width = 360,
   caption = 'Drag to rotate · Real 3D leather',
   className = '',
@@ -399,14 +474,15 @@ export default function Album3D({
     // PHOTO FRONT — unlit emissive photo. color=black + emissiveMap=photo
     // means the photo prints at its true colors regardless of how the
     // book is rotated. Used by both photo and acrylic variants. The
-    // photoSrc useEffect sets the texture; setup just creates the slot.
+    // photoSrc useEffect sets the texture and bumps emissiveIntensity to 1;
+    // until then it's 0 so the empty material doesn't render as solid
+    // white (emissive*null === pure white when no map masks the emit).
     const photoFrontMat = new THREE.MeshStandardMaterial({
       color: 0x000000,
       roughness: 1,
       metalness: 0,
       emissive: 0xffffff,
-      emissiveIntensity: 1,
-      // map / emissiveMap populated when photoSrc loads
+      emissiveIntensity: 0,
     });
 
     // LEATHER BACK — plain leather panel. NO foil text (per the bug the
@@ -423,13 +499,15 @@ export default function Album3D({
 
     // PHOTO BACK — unlit emissive, same treatment as photoFrontMat. Bound
     // to the back's -Z slot only when variant === 'photo' AND backPhotoSrc
-    // is set. Otherwise leatherBackMat takes the slot.
+    // is set. Otherwise leatherBackMat takes the slot. emissiveIntensity
+    // starts at 0 to avoid the "all-white empty material" bug; the back-
+    // photo useEffect raises it to 1 on texture load.
     const photoBackMat = new THREE.MeshStandardMaterial({
       color: 0x000000,
       roughness: 1,
       metalness: 0,
       emissive: 0xffffff,
-      emissiveIntensity: 1,
+      emissiveIntensity: 0,
     });
 
     // SPINE material — leather by default, swapped to fabric for
@@ -716,33 +794,39 @@ export default function Album3D({
     }
   }, [leatherHex]);
 
-  // ─── REACT TO FOIL COLOR ─────────────────────────────────────
-  // Foil only matters on leather covers — repaint the foil canvas (which
-  // the leatherFrontMat reads through map+emissiveMap) and update its
-  // emissive tint. Photo materials are left alone.
+  // ─── FOIL EMISSIVE COLOR (leather material only) ─────────────
+  // The leather front material's emissive tint follows foilHex so the
+  // stamped text catches a hint of glow under lighting. Photo / acrylic
+  // materials don't read this — they have their own emissive (white) for
+  // the unlit photo treatment.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
-    const c = new THREE.Color(foilHex);
-    r.leatherFrontMat.emissive.copy(c);
-    paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
-    r.foilFrontTex.needsUpdate = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    r.leatherFrontMat.emissive.set(foilHex);
   }, [foilHex]);
 
-  // ─── REACT TO TITLE / SUBTITLE ───────────────────────────────
-  // Back cover is INTENTIONALLY blank — earlier builds painted the title in
-  // small foil on the back too, but that read as "duplicated branding" once
-  // the user rotated the book. Cleaner result: leather back with the foil
-  // *color* but no text (real photo books often emboss only the spine
-  // and back-bottom corner; we leave it minimal).
+  // ─── FOIL CANVAS REPAINT ─────────────────────────────────────
+  // Single source of truth for the title texture. ANY user pick that
+  // affects the rendered title (text, font, size, position, color) goes
+  // through here. Earlier we had multiple useEffects each with partial
+  // deps, which is how the font/size/position pickers ended up dead —
+  // their deps weren't listed anywhere, so canvas never got repainted
+  // when they changed. Consolidating prevents that whole class of bug.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
-    paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
+    paintFoilCanvas(
+      r.foilFrontCanvas,
+      title,
+      subtitle,
+      foilHex,
+      fontFamily,
+      fontStyle,
+      fontSizePx,
+      position,
+    );
     r.foilFrontTex.needsUpdate = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, subtitle]);
+  }, [title, subtitle, foilHex, fontFamily, fontStyle, fontSizePx, position]);
 
   // ─── REACT TO VARIANT ────────────────────────────────────────
   // Variant effect ONLY swaps which material is bound to the visible
@@ -857,6 +941,9 @@ export default function Album3D({
       }
       r.photoFrontMat.map = null;
       r.photoFrontMat.emissiveMap = null;
+      // Drop intensity to 0 so the empty material renders as black,
+      // not solid white. (See photoFrontMat construction comment.)
+      r.photoFrontMat.emissiveIntensity = 0;
       r.photoFrontMat.needsUpdate = true;
       return;
     }
@@ -874,6 +961,7 @@ export default function Album3D({
         r.photoTex = tex;
         r.photoFrontMat.map = null;
         r.photoFrontMat.emissiveMap = tex;
+        r.photoFrontMat.emissiveIntensity = 1;
         r.photoFrontMat.needsUpdate = true;
       },
       undefined,
@@ -903,6 +991,7 @@ export default function Album3D({
       }
       r.photoBackMat.map = null;
       r.photoBackMat.emissiveMap = null;
+      r.photoBackMat.emissiveIntensity = 0;
       r.photoBackMat.needsUpdate = true;
       backMats[5] = r.leatherBackMat;
       return;
@@ -922,6 +1011,7 @@ export default function Album3D({
         r.backPhotoTex = tex;
         r.photoBackMat.map = null;
         r.photoBackMat.emissiveMap = tex;
+        r.photoBackMat.emissiveIntensity = 1;
         r.photoBackMat.needsUpdate = true;
         // Bind photoBackMat into the back face slot.
         backMats[5] = r.photoBackMat;
@@ -941,20 +1031,9 @@ export default function Album3D({
     applyPhotoTransform(r.photoTex, photoScale, photoX, photoY);
   }, [photoScale, photoX, photoY]);
 
-  // Initial render: paint the foil canvas with the title so the first
-  // frame isn't blank. The leather front material reads foilFrontTex
-  // directly (set in setup), so just marking the texture as needing
-  // update gets the title onto leather covers immediately.
-  //
-  // No back-face wiring needed here — leatherBackMat is plain leather by
-  // construction, and photoBackMat has no texture until backPhotoSrc loads.
-  useEffect(() => {
-    const r = refs.current;
-    if (!r) return;
-    paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
-    r.foilFrontTex.needsUpdate = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [width]); // re-init on full rebuild only
+  // Initial render is handled by the consolidated FOIL CANVAS REPAINT
+  // effect above — every dep is fresh on mount, so it paints the foil
+  // canvas exactly once before the first render commits.
 
   const stageStyle: CSSProperties = { width };
 
