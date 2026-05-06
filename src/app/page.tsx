@@ -139,9 +139,11 @@ export default function HomePage() {
             statement piece.
           </p>
 
-          {/* 3D draggable album showcase — pointer-drag rotation, no autoplay.
-           * Brand-neutral leather + foil so it reads as "the product" rather
-           * than any one customer's design. Caption tells the user it moves. */}
+          {/* Still-illustration album hero — single editorial pose, no
+           * rotation. Replaces the older drag-to-rotate CSS 3D mockup
+           * which exposed its flat-math nature on the back view.
+           * Brand-neutral leather + foil so it reads as "the product"
+           * rather than any one customer's design. */}
           <div className="album-showcase">
             <Album3D
               title="Forever"
@@ -150,7 +152,7 @@ export default function HomePage() {
               leatherHex="#2a1c12"
               foilHex="#d4b07a"
               width={320}
-              caption="Drag to rotate · Inspect every angle"
+              caption="Hand-bound · Heirloom-grade leather"
             />
           </div>
 

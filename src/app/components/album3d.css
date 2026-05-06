@@ -1,467 +1,185 @@
 /*
- * Album3D component styles.
+ * Album3D component styles — v3, still composition.
  *
- * The pseudo-3D book is built from CSS transforms. The .album3d-book sits
- * inside a perspective stage; six faces (front cover, back cover, spine,
- * three page-edge faces) are positioned in 3D space with translateZ /
- * rotateY so that when the user drags, the whole book rotates as one.
+ * Previous versions used CSS 3D transforms to render a draggable
+ * leather book with six painted faces. The math was flat (no real
+ * lighting, no real materials) and exposed itself when rotated to
+ * the back view, so it kept reading as a hollow shoebox no matter
+ * how many gradients we layered.
  *
- * --rx and --ry are written by the React drag handler. They're applied to
- * .album3d-book directly so there's no extra layer between the rotation
- * and the rendered geometry.
+ * v3 abandons the rotation entirely. The album is now a single
+ * fixed-pose composition — front cover only, painted with a quiet
+ * studio-light gradient, with foil-stamped text or a photo overlay.
+ * No SVG noise (was eating mobile GPU). No preserve-3d. No drag
+ * handlers. Just one beautiful still, the way Apple and Hermès
+ * product pages do it.
  *
- * BOOK_DEPTH below sets the half-thickness of the book in CSS px. The
- * front cover sits at translateZ(BOOK_DEPTH); the back at -BOOK_DEPTH.
- * Edge faces fill the gap so the book reads as a solid object from any
- * angle within the clamped rotation range.
+ * --album-leather and --album-foil are written by React props on
+ * the wrapper element so leather color / foil color flow in.
  */
 
-.album3d-wrap {
+.album-still-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
+  gap: 30px;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* The stage. Perspective is set generous enough that rotations don't
- * distort but tight enough that depth reads. */
-.album3d-stage {
+.album-still {
   position: relative;
-  aspect-ratio: 12 / 17;          /* portrait album — taller than wide */
-  perspective: 1800px;
-  perspective-origin: 50% 40%;
-  cursor: grab;
-  outline: none;
-  /* Default (rest) rotation; overridden by --rx/--ry from JS. */
-  --rx: 4deg;
-  --ry: -16deg;
-  /* Half-thickness of the book in px. 7 was too slim — back-view
-   * read as a flat panel because the page block didn't show. 12
-   * gives real visible thickness without the page-edge slab
-   * dominating. Paired with brighter cream edges below so the
-   * paper contrasts against leather. */
-  --book-depth: 12px;
-}
-.album3d-stage:focus-visible {
-  box-shadow: 0 0 0 2px rgba(184, 150, 90, 0.55);
-  border-radius: 6px;
-}
-.album3d-stage.is-dragging { cursor: grabbing; }
-
-/* The book — the rotating 3D object. preserve-3d keeps every face in
- * world space. transition only when NOT dragging so drag feels 1:1. */
-.album3d-book {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  transform: rotateX(var(--rx)) rotateY(var(--ry));
-  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.album3d-stage.is-dragging .album3d-book { transition: none; }
-
-/* FRONT COVER — the face the user designed. translateZ pulls it
- * forward by BOOK_DEPTH so the spine + edge faces fill the gap behind it. */
-.album3d-cover {
-  position: absolute;
-  inset: 0;
-  border-radius: 1px 5px 5px 1px;
-  overflow: hidden;
-  transform: translateZ(var(--book-depth));
-  /* Hide front face when rotated past 90° — otherwise you'd see a
-   * mirrored cover stacked behind the back. */
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  box-shadow:
-    0 28px 50px -8px rgba(0, 0, 0, 0.75),
-    0 12px 22px -6px rgba(0, 0, 0, 0.55),
-    inset 4px 0 7px -4px rgba(0, 0, 0, 0.65),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Portrait album proportion (12 wide × 17 tall). Width is set by
+     the React prop; aspect-ratio holds the height. */
+  aspect-ratio: 12 / 17;
 }
 
-/* BACK COVER — opposite face. */
-.album3d-back {
-  position: absolute;
-  inset: 0;
-  border-radius: 5px 1px 1px 5px;
-  overflow: hidden;
-  transform: translateZ(calc(var(--book-depth) * -1)) rotateY(180deg);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    inset 0 0 30px rgba(0, 0, 0, 0.6);
-}
-
-/* Back-cover foil mark — centered title in foil flanked by thin rules.
- * Real leather wedding albums have *something* on the back; bare leather
- * reads as unfinished. Sized smaller than the front title so it reads
- * as a stamp / signature mark, not a duplicate of the front. */
-.album3d-back-mark {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  pointer-events: none;
-  /* Centered horizontally; vertically biased a touch lower so the mark
-   * sits where a foil stamp would actually be applied. */
-  padding-top: 4%;
-}
-.album3d-back-title {
-  font-family: var(--font-display, 'Cormorant Garamond', serif);
-  font-style: italic;
-  font-size: 16px;
-  letter-spacing: 2px;
-  opacity: 0.85;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-  white-space: nowrap;
-}
-.album3d-back-rule {
-  width: 28px;
-  height: 0.5px;
-  background: currentColor;
-  opacity: 0.45;
-}
-
-/* SPINE — the left edge. Stands perpendicular to the cover.
- * Width matches book thickness; height matches the cover. */
-.album3d-spine {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: calc(var(--book-depth) * 2);
-  transform-origin: right center;
-  transform: translateX(calc(var(--book-depth) * -2)) rotateY(-90deg) translateZ(var(--book-depth));
-  border-radius: 2px 0 0 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  box-shadow:
-    inset 1px 0 2px rgba(0, 0, 0, 0.7),
-    inset -1px 0 2px rgba(0, 0, 0, 0.5);
-}
-.album3d-spine-text {
-  font-family: var(--font-display, 'Cormorant Garamond', serif);
-  font-size: 10px;
-  font-style: italic;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  white-space: nowrap;
-  /* Rotate text to read along the spine. */
-  transform: rotate(-90deg);
-  opacity: 0.85;
-}
-
-/*
- * PAGE EDGES — three slabs (right, top, bottom).
+/* THE COVER — the only visible face. A clean rectangle with painted
+ * studio lighting and a soft outer drop shadow.
  *
- * Tuned for the dark homepage: muted warm-paper tones (no bright cream),
- * subtle banding at low opacity, no visible outline, and the slabs are
- * inset by `--book-depth` at the corners so the right edge and top/
- * bottom edges don't overlap and create those little white triangles.
- *
- * Color palette: muted warm paper #b8a47e → #998468 → #7d6c52 — sits
- * close in luminance to the leather-on-dark, so edges read as "hint of
- * pages" instead of "white slab".
+ * Background stack:
+ *   1. Top-left highlight (white, ~12% alpha) — the studio light
+ *   2. Bottom-right shadow (black, ~30% alpha) — fall-off
+ *   3. Vertical sheen near the spine — leather catching light along
+ *      the binding edge
+ *   4. Solid leather color underneath
  */
-.album3d-edge-right,
-.album3d-edge-top,
-.album3d-edge-bottom {
+.album-still-cover {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background:
+    /* 1 — studio top-light */
+    radial-gradient(ellipse at 22% 12%, rgba(255, 255, 255, 0.14) 0%, transparent 52%),
+    /* 2 — bottom-right shadow */
+    radial-gradient(ellipse at 86% 92%, rgba(0, 0, 0, 0.34) 0%, transparent 60%),
+    /* 3 — spine-side sheen */
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, transparent 14%),
+    /* 4 — leather color */
+    var(--album-leather, #3a2618);
+  border-radius: 2px 5px 5px 2px;
+  box-shadow:
+    /* outer drop shadow, ground contact */
+    0 36px 64px -12px rgba(0, 0, 0, 0.75),
+    0 14px 28px -6px rgba(0, 0, 0, 0.45),
+    /* inset spine shadow, soft */
+    inset 5px 0 9px -5px rgba(0, 0, 0, 0.55),
+    /* inset top highlight — leather catching light at the top edge */
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Spine hint: a 2px-wide darker stripe at the very left edge,
+ * suggesting the bind without rendering a real spine. Subtle. */
+.album-still-spine-hint {
   position: absolute;
-  pointer-events: none;
-  /* No inset border — that 0.5px outline was popping against the dark bg. */
-  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.35);
-}
-
-/* Right edge — vertical slab. Inset top/bottom by book-depth so the
- * top/bottom edge slabs cleanly fill the corners without overlap.
- *
- * NEW visual: leather-paper-leather sandwich along the depth axis.
- * On a real bound album the leather wraps over the front and back
- * boards; cream paper only shows in the middle band where the page
- * block actually sits. The previous all-cream slab made the album
- * look like an open shoebox.
- *
- * 90deg gradient = along the slab's width = depth direction (front
- * cover → page block → back cover). 0–14% & 86–100% are leather
- * (the cover board thicknesses); the middle 70% is cream paper
- * with banding overlaid. */
-.album3d-edge-right {
-  top: var(--book-depth);
-  right: 0;
-  bottom: var(--book-depth);
-  width: calc(var(--book-depth) * 2);
-  transform-origin: left center;
-  transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
-  background:
-    /* page banding — fine horizontal lines, every 1px. Renders
-       across the whole slab; on the leather portions it blends to
-       near-invisible (low alpha against dark brown), on the cream
-       portion it reads as page edges. */
-    repeating-linear-gradient(
-      0deg,
-      rgba(80, 60, 35, 0) 0px,
-      rgba(80, 60, 35, 0) 0.5px,
-      rgba(140, 115, 80, 0.35) 0.5px,
-      rgba(140, 115, 80, 0.35) 1px
-    ),
-    /* lighting — slight shadow at top + bottom of the slab (vertical
-       edges of the book), highlight in the middle. */
-    linear-gradient(180deg,
-      rgba(0, 0, 0, 0.30) 0%,
-      rgba(0, 0, 0, 0.06) 12%,
-      rgba(0, 0, 0, 0.04) 88%,
-      rgba(0, 0, 0, 0.30) 100%
-    ),
-    /* leather wrap → page block → leather wrap, along the depth */
-    linear-gradient(90deg,
-      var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 32%,
-      rgba(184, 150, 90, 0.55) 33%,
-      #f0e3c5 36%,
-      #e0d2b0 50%,
-      #c8b890 64%,
-      rgba(184, 150, 90, 0.55) 67%,
-      var(--leather-color, #3a2618) 68%,
-      var(--leather-color, #3a2618) 100%
-    );
-}
-
-/* Bottom edge — horizontal slab. Spans the full book width since the
- * right edge has been trimmed at the corners.
- *
- * For top/bottom slabs the depth axis is the slab's HEIGHT (before
- * rotation), so the leather-paper-leather sandwich uses 180deg. */
-.album3d-edge-bottom {
   left: 0;
-  right: 0;
-  bottom: 0;
-  height: calc(var(--book-depth) * 2);
-  transform-origin: center top;
-  transform: translateY(100%) rotateX(-90deg) translateZ(calc(var(--book-depth) * -1));
-  background:
-    /* page banding — perpendicular to the spine, so 90deg lines */
-    repeating-linear-gradient(
-      90deg,
-      rgba(80, 60, 35, 0) 0px,
-      rgba(80, 60, 35, 0) 0.5px,
-      rgba(140, 115, 80, 0.32) 0.5px,
-      rgba(140, 115, 80, 0.32) 1px
-    ),
-    /* lighting along the book width — darker near spine */
-    linear-gradient(90deg,
-      rgba(0, 0, 0, 0.30) 0%,
-      rgba(0, 0, 0, 0.04) 30%,
-      rgba(0, 0, 0, 0.04) 100%
-    ),
-    /* depth: leather wrap (front cover) → pages → leather wrap (back) */
-    linear-gradient(180deg,
-      var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 32%,
-      rgba(184, 150, 90, 0.55) 33%,
-      #f0e3c5 36%,
-      #e0d2b0 50%,
-      #c8b890 64%,
-      rgba(184, 150, 90, 0.55) 67%,
-      var(--leather-color, #3a2618) 68%,
-      var(--leather-color, #3a2618) 100%
-    );
-}
-
-/* Top edge — horizontal slab, mirror of bottom. */
-.album3d-edge-top {
-  left: 0;
-  right: 0;
   top: 0;
-  height: calc(var(--book-depth) * 2);
-  transform-origin: center bottom;
-  transform: translateY(-100%) rotateX(90deg) translateZ(calc(var(--book-depth) * -1));
-  background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(80, 60, 35, 0) 0px,
-      rgba(80, 60, 35, 0) 0.5px,
-      rgba(140, 115, 80, 0.32) 0.5px,
-      rgba(140, 115, 80, 0.32) 1px
-    ),
-    linear-gradient(90deg,
-      rgba(0, 0, 0, 0.30) 0%,
-      rgba(0, 0, 0, 0.04) 30%,
-      rgba(0, 0, 0, 0.04) 100%
-    ),
-    linear-gradient(180deg,
-      var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 32%,
-      rgba(184, 150, 90, 0.55) 33%,
-      #f0e3c5 36%,
-      #e0d2b0 50%,
-      #c8b890 64%,
-      rgba(184, 150, 90, 0.55) 67%,
-      var(--leather-color, #3a2618) 68%,
-      var(--leather-color, #3a2618) 100%
-    );
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.65) 50%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+  pointer-events: none;
 }
 
-/* COVER PHOTO — full-bleed inside the cover when variant=photo. */
-.album3d-cover-photo {
+/* Deboss line: a thin inset rectangle just inside the perimeter,
+ * the way real leather albums have a debossed border where the
+ * leather wraps the boards. Drawn with box-shadow so it doesn't
+ * affect layout. */
+.album-still-deboss {
+  position: absolute;
+  inset: 12px 12px 12px 18px;
+  border-radius: 1px;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(0, 0, 0, 0.30),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+/* PHOTO COVER — full-bleed image inside the cover. */
+.album-still-photo {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: contrast(1.05) saturate(1.05);
+  filter: contrast(1.04) saturate(1.04);
+  z-index: 1;
 }
 
-/* Leather grain — proper fake-leather treatment.
- *
- * v1 used mix-blend-mode: overlay over dark brown — overlay barely
- * shifts pixels near black, so the back cover read as a flat paper
- * panel. v2 (this version) layers:
- *   1. SVG fractal-noise grain (data URI) — actual pebble texture
- *      that multiplies with the leather color underneath.
- *   2. Studio top-light sheen — visible white highlight upper-left.
- *   3. Deep corner shadow — bottom-right vignette.
- *   4. Cross-hatch lines — secondary directional grain.
- * No mix-blend-mode on the layer itself; the SVG noise carries its
- * own multiply (encoded in alpha). Result: visibly leathery, not the
- * flat brown rectangle you'd see in a Word doc table cell. */
-.album3d-leather-grain {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    /* studio top-light sheen */
-    radial-gradient(ellipse at 25% 15%, rgba(255, 255, 255, 0.22) 0%, transparent 48%),
-    /* deep bottom-right corner shadow */
-    radial-gradient(ellipse at 82% 88%, rgba(0, 0, 0, 0.45) 0%, transparent 58%),
-    /* secondary diagonal hatching */
-    repeating-linear-gradient(
-      35deg,
-      rgba(0, 0, 0, 0.10) 0px,
-      rgba(0, 0, 0, 0.10) 1px,
-      transparent 1px,
-      transparent 3px
-    ),
-    repeating-linear-gradient(
-      125deg,
-      rgba(255, 255, 255, 0.05) 0px,
-      rgba(255, 255, 255, 0.05) 1px,
-      transparent 1px,
-      transparent 4px
-    ),
-    /* SVG fractal noise — actual leather pebbling. baseFrequency
-       controls grain density; numOctaves layers small + medium
-       grain together. Opacity 0.45 keeps it subtle but visible. */
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
-  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 140px 140px;
-  background-repeat: no-repeat, no-repeat, repeat, repeat, repeat;
-}
-
-/* Leather edge-wrap — half-pixel highlight inside the perimeter,
- * paired with a soft inset shadow. Together they read as the leather
- * folding over the board's edge: the highlight is the slight lift
- * along the wrap; the shadow is the recess where leather settles. */
-.album3d-cover::after,
-.album3d-back::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
-    inset 0 0 14px rgba(0, 0, 0, 0.30);
-}
-
-/* Cover text block — sits centered on the front cover face. */
-.album3d-cover-text {
+/* FOIL STAMP — title flanked by thin foil rules. Kept compact and
+ * centered; uses currentColor so the rule lines match the title. */
+.album-still-foil-block {
   position: relative;
   z-index: 1;
-  text-align: center;
-  padding: 0 12%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 18%;
+  color: var(--album-foil, #d4b07a);
   pointer-events: none;
+  flex-wrap: wrap;
 }
-.album3d-title {
+.album-still-rule {
+  width: 28px;
+  height: 0.5px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.album-still-title {
   font-family: var(--font-display, 'Cormorant Garamond', serif);
   font-style: italic;
-  font-size: clamp(28px, 8%, 56px);
+  font-size: clamp(28px, 8.5%, 54px);
   letter-spacing: 1.5px;
-  line-height: 1.05;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
 }
-.album3d-subtitle {
+.album-still-subtitle {
+  flex-basis: 100%;
+  text-align: center;
   font-family: var(--font-body, 'Montserrat', sans-serif);
   font-size: 9px;
   letter-spacing: 4px;
   text-transform: uppercase;
-  margin-top: 12px;
+  color: currentColor;
   opacity: 0.85;
+  margin-top: 14px;
 }
 
-/* GROUND — soft elliptical shadow under the book, follows the look of
- * a heavy object on a flat surface. */
-.album3d-ground {
+/* GROUND SHADOW — soft elliptical shadow under the album. Sits
+ * behind the cover via z-index: -1. Filter blur softens it. */
+.album-still-shadow {
   position: absolute;
   left: 4%;
   right: 4%;
-  bottom: -22px;
-  height: 30px;
+  bottom: -28px;
+  height: 36px;
   background: radial-gradient(
     ellipse at center,
-    rgba(0, 0, 0, 0.55) 0%,
-    rgba(0, 0, 0, 0.18) 55%,
+    rgba(0, 0, 0, 0.6) 0%,
+    rgba(0, 0, 0, 0.22) 50%,
     rgba(0, 0, 0, 0) 80%
   );
-  filter: blur(5px);
+  filter: blur(8px);
   pointer-events: none;
   z-index: -1;
 }
 
-/* HINT — small "drag" cue that fades on first interaction. */
-.album3d-hint {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: rgba(14, 12, 9, 0.72);
-  color: var(--cream, #e8d5b0);
-  border: 0.5px solid rgba(184, 150, 90, 0.45);
-  border-radius: 30px;
-  font-family: var(--font-body, 'Montserrat', sans-serif);
-  font-size: 9px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  pointer-events: none;
-  opacity: 0.92;
-  transition: opacity 0.45s ease;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-.album3d-hint.is-hidden { opacity: 0; }
-
-/* CAPTION — small line below the book. */
-.album3d-caption {
+/* CAPTION — small line below the album. */
+.album-still-caption {
   font-family: var(--font-body, 'Montserrat', sans-serif);
   font-size: 10px;
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--muted2, #8a7a65);
   text-align: center;
-}
-
-/* Reduce motion — kill the inertia transition; rotations still work. */
-@media (prefers-reduced-motion: reduce) {
-  .album3d-book { transition: none; }
 }
