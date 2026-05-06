@@ -238,6 +238,13 @@ function makeFabricTexture(): THREE.CanvasTexture {
 
 // All the persistent things stored in a ref so subsequent useEffects
 // can mutate them without rebuilding the scene.
+//
+// Materials are split by VARIANT, not by face. Each variant owns its own
+// front + back material with its own complete config. The variant effect
+// swaps which material is bound to the cover/back's +Z / -Z slot. Each
+// prop effect (leatherHex, foilHex, photoSrc, backPhotoSrc) only mutates
+// the material set it's responsible for, so e.g. changing foilHex while a
+// photo cover is active no longer silently re-colors the photo material.
 type SceneRefs = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
@@ -247,11 +254,13 @@ type SceneRefs = {
   back: THREE.Mesh;
   spine: THREE.Mesh;
   pages: THREE.Mesh;
-  // Material refs
-  frontFaceMat: THREE.MeshStandardMaterial; // +Z of cover
-  backFaceMat: THREE.MeshStandardMaterial;  // -Z of back (the visible back face)
+  // Material refs — one per variant per face.
+  leatherFrontMat: THREE.MeshStandardMaterial; // +Z of cover, leather variant
+  photoFrontMat: THREE.MeshStandardMaterial;   // +Z of cover, photo + acrylic variants
+  leatherBackMat: THREE.MeshStandardMaterial;  // -Z of back, leather + acrylic variants
+  photoBackMat: THREE.MeshStandardMaterial;    // -Z of back, photo variant when backPhotoSrc set
   spineMat: THREE.MeshStandardMaterial;
-  sideLeatherMats: THREE.MeshStandardMaterial[]; // sides of cover + back that share leather
+  sideLeatherMats: THREE.MeshStandardMaterial[]; // shared edge leather (color follows leatherHex)
   // Texture refs
   normalTex: THREE.CanvasTexture;
   fabricTex: THREE.CanvasTexture;
@@ -372,8 +381,10 @@ export default function Album3D({
         normalScale: new THREE.Vector2(0.6, 0.6),
       });
 
-    // FRONT cover face material — gets photo OR foil text overlay.
-    const frontFaceMat = new THREE.MeshStandardMaterial({
+    // LEATHER FRONT — leather color + foil-stamped title (foil texture in
+    // map + emissiveMap so the text catches light). This material is bound
+    // to the cover's +Z slot only when variant === 'leather'.
+    const leatherFrontMat = new THREE.MeshStandardMaterial({
       color: initialColor.clone(),
       roughness: 0.5,
       metalness: 0.1,
@@ -381,18 +392,44 @@ export default function Album3D({
       normalScale: new THREE.Vector2(0.6, 0.6),
       emissive: initialFoil.clone(),
       emissiveIntensity: 0.4,
-      // map and emissiveMap set per-variant by reactive useEffects
+      map: foilFrontTex,
+      emissiveMap: foilFrontTex,
     });
 
-    // BACK -Z face material — gets back-photo OR foil mark.
-    const backFaceMat = new THREE.MeshStandardMaterial({
+    // PHOTO FRONT — unlit emissive photo. color=black + emissiveMap=photo
+    // means the photo prints at its true colors regardless of how the
+    // book is rotated. Used by both photo and acrylic variants. The
+    // photoSrc useEffect sets the texture; setup just creates the slot.
+    const photoFrontMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      roughness: 1,
+      metalness: 0,
+      emissive: 0xffffff,
+      emissiveIntensity: 1,
+      // map / emissiveMap populated when photoSrc loads
+    });
+
+    // LEATHER BACK — plain leather panel. NO foil text (per the bug the
+    // user filed earlier: "back side shows name need to remove"). Used by
+    // leather + acrylic variants, and by photo variant when no
+    // backPhotoSrc is set.
+    const leatherBackMat = new THREE.MeshStandardMaterial({
       color: initialColor.clone(),
       roughness: 0.55,
       metalness: 0.1,
       normalMap: normalTex,
       normalScale: new THREE.Vector2(0.6, 0.6),
-      emissive: initialFoil.clone(),
-      emissiveIntensity: 0.3,
+    });
+
+    // PHOTO BACK — unlit emissive, same treatment as photoFrontMat. Bound
+    // to the back's -Z slot only when variant === 'photo' AND backPhotoSrc
+    // is set. Otherwise leatherBackMat takes the slot.
+    const photoBackMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      roughness: 1,
+      metalness: 0,
+      emissive: 0xffffff,
+      emissiveIntensity: 1,
     });
 
     // SPINE material — leather by default, swapped to fabric for
@@ -408,24 +445,27 @@ export default function Album3D({
       return m;
     };
 
-    // FRONT cover — 6-face material array.
+    // FRONT cover — 6-face material array. Slot 4 (+Z) is the visible
+    // front. We start with leatherFrontMat there; the variant useEffect
+    // swaps it to photoFrontMat for photo/acrylic. We never *mutate*
+    // the material at this slot — only swap references.
     const frontMaterials = [
-      mkSide(),  // 0 +X
-      mkSide(),  // 1 -X
-      mkSide(),  // 2 +Y
-      mkSide(),  // 3 -Y
-      frontFaceMat,  // 4 +Z (visible front)
-      mkSide(),  // 5 -Z (inner face)
+      mkSide(),         // 0 +X
+      mkSide(),         // 1 -X
+      mkSide(),         // 2 +Y
+      mkSide(),         // 3 -Y
+      leatherFrontMat,  // 4 +Z (visible front) — swapped per variant
+      mkSide(),         // 5 -Z (inner face)
     ];
 
-    // BACK cover — 6-face material array.
+    // BACK cover — same pattern, slot 5 (-Z) is the visible back.
     const backMaterials = [
-      mkSide(),  // 0 +X
-      mkSide(),  // 1 -X
-      mkSide(),  // 2 +Y
-      mkSide(),  // 3 -Y
-      mkSide(),  // 4 +Z (inner face)
-      backFaceMat,  // 5 -Z (visible back)
+      mkSide(),        // 0 +X
+      mkSide(),        // 1 -X
+      mkSide(),        // 2 +Y
+      mkSide(),        // 3 -Y
+      mkSide(),        // 4 +Z (inner face)
+      leatherBackMat,  // 5 -Z (visible back) — swapped per variant
     ];
 
     // Geometry
@@ -596,8 +636,10 @@ export default function Album3D({
       foilOverlayGeom.dispose();
       foilOverlayMat.dispose();
       pageMat.dispose();
-      frontFaceMat.dispose();
-      backFaceMat.dispose();
+      leatherFrontMat.dispose();
+      photoFrontMat.dispose();
+      leatherBackMat.dispose();
+      photoBackMat.dispose();
       spineMat.dispose();
       sideMats.forEach((m) => m.dispose());
       normalTex.dispose();
@@ -629,8 +671,10 @@ export default function Album3D({
       back,
       spine,
       pages,
-      frontFaceMat,
-      backFaceMat,
+      leatherFrontMat,
+      photoFrontMat,
+      leatherBackMat,
+      photoBackMat,
       spineMat,
       sideLeatherMats: sideMats,
       normalTex,
@@ -657,12 +701,14 @@ export default function Album3D({
   }, [width]);
 
   // ─── REACT TO LEATHER COLOR ──────────────────────────────────
+  // Touches every leather-bearing material, but NEVER the photo materials
+  // — those have their own color (black) that mustn't be tinted.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     const c = new THREE.Color(leatherHex);
-    r.frontFaceMat.color.copy(c);
-    r.backFaceMat.color.copy(c);
+    r.leatherFrontMat.color.copy(c);
+    r.leatherBackMat.color.copy(c);
     r.spineMat.color.copy(c);
     r.sideLeatherMats.forEach((m) => m.color.copy(c));
     if (r.acrylicStrip) {
@@ -671,13 +717,14 @@ export default function Album3D({
   }, [leatherHex]);
 
   // ─── REACT TO FOIL COLOR ─────────────────────────────────────
+  // Foil only matters on leather covers — repaint the foil canvas (which
+  // the leatherFrontMat reads through map+emissiveMap) and update its
+  // emissive tint. Photo materials are left alone.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     const c = new THREE.Color(foilHex);
-    r.frontFaceMat.emissive.copy(c);
-    r.backFaceMat.emissive.copy(c);
-    // Repaint front foil only. Back stays clean — see TITLE/SUBTITLE effect.
+    r.leatherFrontMat.emissive.copy(c);
     paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
     r.foilFrontTex.needsUpdate = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -698,42 +745,41 @@ export default function Album3D({
   }, [title, subtitle]);
 
   // ─── REACT TO VARIANT ────────────────────────────────────────
-  // - leather: front face has foil texture (no photo).
-  // - photo: front face has photo, spine wraps in fabric.
-  // - acrylic: front face has photo with acrylic sheen + binding strip.
+  // Variant effect ONLY swaps which material is bound to the visible
+  // slot. It does NOT mutate the materials themselves — that's owned by
+  // each prop effect. Net result: switching from photo → leather no
+  // longer "carries over" black base color or null normal-map state.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
+    const coverMats = r.cover.material as THREE.Material[];
+    const backMats = r.back.material as THREE.Material[];
 
     if (variant === 'leather') {
-      // Foil text on front face, no photo.
-      r.frontFaceMat.map = r.foilFrontTex;
-      r.frontFaceMat.emissiveMap = r.foilFrontTex;
-      r.frontFaceMat.needsUpdate = true;
-      // Spine = leather.
-      r.spine.material = r.spineMat;
+      coverMats[4] = r.leatherFrontMat;
+      backMats[5] = r.leatherBackMat;
+      // Spine = leather (color/normal already set by leatherHex effect).
       r.spineMat.map = null;
       r.spineMat.normalMap = r.normalTex;
+      r.spineMat.color.set(leatherHex);
+      r.spineMat.needsUpdate = true;
+    } else if (variant === 'photo') {
+      coverMats[4] = r.photoFrontMat;
+      // Back: photo if user uploaded one, else leather.
+      backMats[5] = r.backPhotoTex ? r.photoBackMat : r.leatherBackMat;
+      // Spine = linen fabric (photo books typically have a fabric spine).
+      r.spineMat.map = r.fabricTex;
+      r.spineMat.normalMap = null;
+      r.spineMat.color.set(0x2a2520);
       r.spineMat.needsUpdate = true;
     } else {
-      // photo / acrylic — front face uses photo (loaded in separate
-      // useEffect). Don't blow away the foil texture if photo isn't
-      // loaded yet — show foil as a placeholder until photo lands.
-      if (!r.photoTex) {
-        r.frontFaceMat.map = r.foilFrontTex;
-        r.frontFaceMat.emissiveMap = r.foilFrontTex;
-      }
-      r.frontFaceMat.needsUpdate = true;
-      // Spine: photo cover uses linen fabric, acrylic stays leather.
-      if (variant === 'photo') {
-        r.spineMat.map = r.fabricTex;
-        r.spineMat.normalMap = null;
-        r.spineMat.color.set(0x2a2520);
-      } else {
-        r.spineMat.map = null;
-        r.spineMat.normalMap = r.normalTex;
-        r.spineMat.color.set(leatherHex);
-      }
+      // acrylic
+      coverMats[4] = r.photoFrontMat;
+      backMats[5] = r.leatherBackMat;
+      // Spine = leather (acrylic books have a leather binding panel).
+      r.spineMat.map = null;
+      r.spineMat.normalMap = r.normalTex;
+      r.spineMat.color.set(leatherHex);
       r.spineMat.needsUpdate = true;
     }
 
@@ -798,28 +844,20 @@ export default function Album3D({
   }, [variant]);
 
   // ─── REACT TO PHOTO SRC ──────────────────────────────────────
+  // Only touches photoFrontMat. When photoSrc is cleared, we drop the
+  // texture from photoFrontMat — but leatherFrontMat is untouched, so
+  // switching back to the leather variant Just Works.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     if (!photoSrc || variant === 'leather') {
-      // Strip the photo, fall back to foil. Restore every material
-      // property we mutated on photo-load (normal map, leather color,
-      // roughness, metalness, emissive color) so leather renders
-      // correctly. Easy to forget the emissive *color* — photo path sets
-      // it to white, leather wants the foil hex.
       if (r.photoTex) {
         r.photoTex.dispose();
         r.photoTex = null;
       }
-      r.frontFaceMat.map = r.foilFrontTex;
-      r.frontFaceMat.emissiveMap = r.foilFrontTex;
-      r.frontFaceMat.emissive.set(foilHex);
-      r.frontFaceMat.emissiveIntensity = 0.4;
-      r.frontFaceMat.normalMap = r.normalTex;
-      r.frontFaceMat.color.set(leatherHex);
-      r.frontFaceMat.roughness = 0.5;
-      r.frontFaceMat.metalness = 0.1;
-      r.frontFaceMat.needsUpdate = true;
+      r.photoFrontMat.map = null;
+      r.photoFrontMat.emissiveMap = null;
+      r.photoFrontMat.needsUpdate = true;
       return;
     }
     const loader = new THREE.TextureLoader();
@@ -831,33 +869,18 @@ export default function Album3D({
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.anisotropy = 8;
-        // Object-fit:cover + zoom + pan, all in one place.
         applyPhotoTransform(tex, photoScale, photoX, photoY);
         if (r.photoTex) r.photoTex.dispose();
         r.photoTex = tex;
-        // Render as UNLIT emissive: the photo is its own light source so
-        // it prints at true colors regardless of how the user has rotated
-        // the book. The previous "diffuse map under directional lighting"
-        // setup made the photo go ~50-70% dark whenever the cover face
-        // turned away from the key light — that's the "faded" symptom
-        // the user reported. Set base color black + map=null so nothing
-        // tints the emissive output.
-        r.frontFaceMat.map = null;
-        r.frontFaceMat.emissiveMap = tex;
-        r.frontFaceMat.emissive.set(0xffffff);
-        r.frontFaceMat.emissiveIntensity = 1;
-        r.frontFaceMat.color.set(0x000000);
-        r.frontFaceMat.normalMap = null;
-        r.frontFaceMat.roughness = 1;
-        r.frontFaceMat.metalness = 0;
-        r.frontFaceMat.needsUpdate = true;
+        r.photoFrontMat.map = null;
+        r.photoFrontMat.emissiveMap = tex;
+        r.photoFrontMat.needsUpdate = true;
       },
       undefined,
       (err) => {
-        // Texture load failed — surface to console so the dev can see the
-        // photo never made it. Common cause: the image URL 404s, or CORS
-        // headers are missing on the proxy (try `/api/photo/...` from a
-        // browser tab to verify it returns 200 + image bytes).
+        // Texture load failed — surface to console so the dev can see
+        // the photo never made it. Common cause: the image URL 404s, or
+        // CORS headers are missing on the /api/photo proxy.
         console.warn('Album3D: failed to load cover photo', photoSrc, err);
       },
     );
@@ -868,24 +891,20 @@ export default function Album3D({
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
+    const backMats = r.back.material as THREE.Material[];
+
     if (!backPhotoSrc || variant === 'leather' || variant === 'acrylic') {
-      // Restore plain leather on the back — no foil text, no photo.
-      // We may be coming from a back-photo state where the material was
-      // mutated to unlit (color=black, normalMap=null, roughness=1).
-      // Restore the leather params so the leather color + grain renders
-      // again.
+      // Drop the back photo texture; bind the leather back material.
+      // photoBackMat retains its (now unused) settings — no mutation of
+      // leatherBackMat needed.
       if (r.backPhotoTex) {
         r.backPhotoTex.dispose();
         r.backPhotoTex = null;
       }
-      r.backFaceMat.map = null;
-      r.backFaceMat.emissiveMap = null;
-      r.backFaceMat.emissiveIntensity = 0;
-      r.backFaceMat.color.set(leatherHex);
-      r.backFaceMat.normalMap = r.normalTex;
-      r.backFaceMat.roughness = 0.55;
-      r.backFaceMat.metalness = 0.1;
-      r.backFaceMat.needsUpdate = true;
+      r.photoBackMat.map = null;
+      r.photoBackMat.emissiveMap = null;
+      r.photoBackMat.needsUpdate = true;
+      backMats[5] = r.leatherBackMat;
       return;
     }
     const loader = new THREE.TextureLoader();
@@ -897,25 +916,15 @@ export default function Album3D({
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.anisotropy = 8;
-        // Object-fit:cover so a landscape photo on the portrait back
-        // doesn't squash. The back has no zoom/pan in the UI yet, so we
-        // pass scale=1, pan=0 — pure aspect correction.
+        // Aspect-correct (no zoom/pan UI for back yet).
         applyPhotoTransform(tex, 1, 0, 0);
         if (r.backPhotoTex) r.backPhotoTex.dispose();
         r.backPhotoTex = tex;
-        // Same unlit emissive treatment as the front. Without it, the
-        // back photo washed out whenever the book rotated away from the
-        // back-side rim light (which is most of the time, since rest
-        // pose has the front facing the camera).
-        r.backFaceMat.map = null;
-        r.backFaceMat.emissiveMap = tex;
-        r.backFaceMat.emissive.set(0xffffff);
-        r.backFaceMat.emissiveIntensity = 1;
-        r.backFaceMat.color.set(0x000000);
-        r.backFaceMat.normalMap = null;
-        r.backFaceMat.roughness = 1;
-        r.backFaceMat.metalness = 0;
-        r.backFaceMat.needsUpdate = true;
+        r.photoBackMat.map = null;
+        r.photoBackMat.emissiveMap = tex;
+        r.photoBackMat.needsUpdate = true;
+        // Bind photoBackMat into the back face slot.
+        backMats[5] = r.photoBackMat;
       },
       undefined,
       (err) => {
@@ -932,25 +941,18 @@ export default function Album3D({
     applyPhotoTransform(r.photoTex, photoScale, photoX, photoY);
   }, [photoScale, photoX, photoY]);
 
-  // Initial render: setup the foil texture with current title/foil so the
-  // first frame isn't blank. Done in a final useEffect that runs after the
-  // setup useEffect has populated refs.current.
+  // Initial render: paint the foil canvas with the title so the first
+  // frame isn't blank. The leather front material reads foilFrontTex
+  // directly (set in setup), so just marking the texture as needing
+  // update gets the title onto leather covers immediately.
+  //
+  // No back-face wiring needed here — leatherBackMat is plain leather by
+  // construction, and photoBackMat has no texture until backPhotoSrc loads.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
     r.foilFrontTex.needsUpdate = true;
-    // Make sure variant materials are wired on first paint.
-    if (variant === 'leather') {
-      r.frontFaceMat.map = r.foilFrontTex;
-      r.frontFaceMat.emissiveMap = r.foilFrontTex;
-      r.frontFaceMat.needsUpdate = true;
-    }
-    // Back face: plain leather, no foil/title.
-    r.backFaceMat.map = null;
-    r.backFaceMat.emissiveMap = null;
-    r.backFaceMat.emissiveIntensity = 0;
-    r.backFaceMat.needsUpdate = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width]); // re-init on full rebuild only
 
