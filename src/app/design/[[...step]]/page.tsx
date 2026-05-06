@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
-import { useParams, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import CoverBuilder, { type CoverState } from '../cover-builder';
 import '../album-builder.css';
 
@@ -42,8 +42,18 @@ export const runtime = 'edge';
  */
 type RouteStep = 'intro' | 'product' | 'build' | 'cover' | 'expert';
 
-function deriveStep(stepArr?: string[]): RouteStep {
-  const s = (stepArr?.[0] ?? '').toLowerCase();
+/**
+ * Derive the step from the pathname directly. We use usePathname
+ * instead of useParams because the static /design/page.tsx + catch-all
+ * re-export pattern was confusing Next.js's params resolution — the
+ * URL would change to /design/product but useParams kept returning
+ * empty, leaving currentStep stuck at 'intro'. usePathname returns
+ * the raw URL string and updates reliably across navigations.
+ */
+function deriveStepFromPath(pathname: string): RouteStep {
+  // pathname examples: '/design', '/design/product', '/design/build'
+  const segs = pathname.split('/').filter(Boolean);
+  const s = (segs[1] ?? '').toLowerCase();
   if (s === 'product') return 'product';
   if (s === 'build') return 'build';
   if (s === 'cover') return 'cover';
@@ -113,8 +123,8 @@ function fb(name: string, ...args: unknown[]) {
 
 export default function DesignerPage() {
   const router = useRouter();
-  const params = useParams<{ step?: string[] }>();
-  const currentStep: RouteStep = deriveStep(params?.step);
+  const pathname = usePathname();
+  const currentStep: RouteStep = deriveStepFromPath(pathname || '/design');
 
   const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
 
