@@ -155,7 +155,7 @@ export default function DesignerPage() {
 
   return (
     <>
-      <Script src="/js/album-builder.js?v=20260505-1" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260505-3" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -166,6 +166,15 @@ export default function DesignerPage() {
           <Link href="/" className="nav-back">
             ← Back
           </Link>
+          {/* Live running total — populated by renderPriceTag in
+              album-builder.js. Hidden until a binding is selected so
+              we don't show $275 before the customer has chosen anything. */}
+          <span
+            id="priceTag"
+            className="price-tag"
+            title="Total"
+            style={{ display: 'none' }}
+          />
           <button
             type="button"
             className="nav-submit"
@@ -284,11 +293,12 @@ export default function DesignerPage() {
           <span className="page-tag">Pick your album style</span>
           <h2 className="page-title">
             Lay-flat or<br />
-            <em>hardcover photo book?</em>
+            <em>coffee-table book?</em>
           </h2>
           <p className="page-sub">
-            This sets how your spreads behave. You can switch later, but
-            we&apos;ll need to reset your layouts.
+            Both are hardcover — the difference is how the spreads
+            behave. You can switch later, but we&apos;ll need to reset
+            your layouts.
           </p>
           <div className="binding-choice">
             <div
@@ -322,11 +332,12 @@ export default function DesignerPage() {
                 <div className="binding-thumb-page" />
                 <div className="binding-thumb-page" />
               </div>
-              <p className="binding-name">Hardcover Photo Book</p>
-              <span className="binding-tagline">Coffee-table style</span>
+              <p className="binding-name">Coffee-Table Book</p>
+              <span className="binding-tagline">Press-printed hardcover</span>
               <p className="binding-desc">
-                Press-printed and casebound, with a visible spine
-                gutter. Layouts keep photos clear of the binding.
+                Hardcover and casebound, with a visible spine gutter
+                between facing pages. Layouts keep photos clear of the
+                binding.
               </p>
               <ul className="binding-features">
                 <li>Crisp press-printed pages</li>
@@ -334,7 +345,7 @@ export default function DesignerPage() {
                 <li>Photos sit fully on each page</li>
               </ul>
               <button type="button" className="btn-path btn-path-secondary">
-                Choose Hardcover
+                Choose Coffee-Table
               </button>
             </div>
           </div>
@@ -428,7 +439,7 @@ export default function DesignerPage() {
                   data-size="spread_17x24"
                   onClick={() => fb('setSize', 'spread_17x24')}
                 >
-                  17×24 Spread
+                  17×24
                 </button>
                 <button
                   type="button"
@@ -436,7 +447,7 @@ export default function DesignerPage() {
                   data-size="page_20x30"
                   onClick={() => fb('setSize', 'page_20x30')}
                 >
-                  20×30 Page
+                  20×30
                 </button>
               </div>
 
@@ -964,6 +975,10 @@ export default function DesignerPage() {
             Your layout is ready. Enter your details and we&apos;ll confirm
             your order and send an invoice.
           </p>
+          {/* Line-item breakdown: base + extras + cover surcharge.
+              Populated by renderPriceBreakdown in album-builder.js when
+              the modal opens, so the cover step's choices are picked up. */}
+          <div className="price-breakdown" id="priceBreakdown" />
           <div className="modal-row">
             <div className="modal-field">
               <label className="modal-label">First name</label>

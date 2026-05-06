@@ -139,6 +139,113 @@
 
   for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 'lf_2a', slots: [null, null], bg: { type: 'solid', color: '#f8f4ee' } });
 
+  // ── PRICING ──────────────────────────────────────────────────
+  // All prices in USD. "Included" is the spread count baked into the
+  // base price; anything beyond costs `perExtra` per spread. Edit this
+  // block to change rates — the runtime reads it on every recompute, so
+  // no other code needs to change.
+  //
+  // Cover materials:
+  //   leather → included
+  //   photo   → included
+  //   acrylic → adds the size-specific surcharge below
+  //
+  // Note: the 20×30 size is a single-page mode in the builder, but per
+  // Jayvee's spec the same lay-flat / hardcover binding choice applies
+  // and changes the per-sheet price. If 20×30 lay-flat ever turns out
+  // to be a non-product, drop the layflat row from PRICING['20x30'].
+  const PRICING = {
+    '17x24': {
+      layflat:   { base: 275, included: 10, perExtra: 10 },
+      hardcover: { base: 240, included: 10, perExtra: 8 }
+    },
+    '20x30': {
+      layflat:   { base: 375, included: 10, perExtra: 15 },
+      hardcover: { base: 340, included: 10, perExtra: 12 }
+    },
+    acrylicCover: {
+      '17x24': 40,
+      '20x30': 65
+    }
+  };
+
+  function _sizeShortKey() {
+    return currentSize === 'spread_17x24' ? '17x24' : '20x30';
+  }
+
+  // Returns a structured breakdown so both the toolbar tag and the modal
+  // can render the same numbers.
+  function computePrice() {
+    const sizeKey = _sizeShortKey();
+    const tier = (PRICING[sizeKey] && PRICING[sizeKey][currentBinding]) || PRICING['17x24'].layflat;
+    const extras = Math.max(0, totalSpreads - tier.included);
+    const extrasCost = extras * tier.perExtra;
+    const spreadCost = tier.base + extrasCost;
+
+    // Cover state is owned by the React cover-builder; it mirrors itself
+    // onto window.__coverState. Default to leather (free) until set.
+    const cover = (window.__coverState && window.__coverState.type) || 'leather';
+    const acrylicAdd = cover === 'acrylic' ? (PRICING.acrylicCover[sizeKey] || 0) : 0;
+
+    return {
+      sizeKey: sizeKey,
+      sizeLabel: sizeKey === '17x24' ? '17×24' : '20×30',
+      binding: currentBinding,
+      bindingLabel: currentBinding === 'layflat' ? 'Lay-Flat' : 'Coffee-Table',
+      base: tier.base,
+      included: tier.included,
+      totalSpreads: totalSpreads,
+      extras: extras,
+      perExtra: tier.perExtra,
+      extrasCost: extrasCost,
+      spreadCost: spreadCost,
+      cover: cover,
+      acrylicAdd: acrylicAdd,
+      total: spreadCost + acrylicAdd,
+      currency: 'USD'
+    };
+  }
+
+  // Drops the running total into the navbar pill. The full breakdown
+  // (with each line item) is rendered into the modal in renderPriceBreakdown.
+  function renderPriceTag() {
+    const el = document.getElementById('priceTag');
+    if (!el) return;
+    // Stays hidden until a binding is selected so we don't flash $275
+    // on the path-choice page before the customer has decided.
+    el.style.display = 'inline-flex';
+    const p = computePrice();
+    el.textContent = '$' + p.total + ' ' + p.currency;
+    // Native tooltip — instant explanation if customer hovers.
+    el.title =
+      p.bindingLabel + ' ' + p.sizeLabel + ' base: $' + p.base + '\n' +
+      (p.extras > 0
+        ? '+ ' + p.extras + ' extra spread' + (p.extras === 1 ? '' : 's') + ' × $' + p.perExtra + ' = $' + p.extrasCost + '\n'
+        : '') +
+      (p.acrylicAdd > 0 ? '+ Acrylic cover: $' + p.acrylicAdd + '\n' : '') +
+      'Total: $' + p.total + ' ' + p.currency;
+  }
+
+  // Renders the line-item breakdown into the submit modal. Called when
+  // the modal opens so we always pick up the latest cover state.
+  function renderPriceBreakdown() {
+    const el = document.getElementById('priceBreakdown');
+    if (!el) return;
+    const p = computePrice();
+    const lines = [];
+    lines.push('<div class="pb-row"><span>' + p.bindingLabel + ' ' + p.sizeLabel + ' (' + p.included + ' spreads)</span><span>$' + p.base + '</span></div>');
+    if (p.extras > 0) {
+      lines.push('<div class="pb-row"><span>' + p.extras + ' extra spread' + (p.extras === 1 ? '' : 's') + ' × $' + p.perExtra + '</span><span>$' + p.extrasCost + '</span></div>');
+    }
+    if (p.cover === 'acrylic') {
+      lines.push('<div class="pb-row"><span>Acrylic cover</span><span>$' + p.acrylicAdd + '</span></div>');
+    } else {
+      lines.push('<div class="pb-row pb-row-muted"><span>' + (p.cover === 'leather' ? 'Leather' : 'Photo') + ' cover</span><span>Included</span></div>');
+    }
+    lines.push('<div class="pb-row pb-total"><span>Total</span><span>$' + p.total + ' ' + p.currency + '</span></div>');
+    el.innerHTML = lines.join('');
+  }
+
   function choosePath(type) {
     const intro = document.getElementById('introSection');
     if (intro) intro.style.display = 'none';
@@ -190,6 +297,7 @@
     renderPageStrip();
     renderCanvas();
     updateSpreadInfoLabel();
+    renderPriceTag();
   }
 
   // The "Change binding" button calls this. If photos are already placed
@@ -217,7 +325,9 @@
   function syncBindingLabel() {
     const label = document.getElementById('currentBindingLabel');
     if (!label) return;
-    label.textContent = currentBinding === 'layflat' ? 'Lay-Flat' : 'Hardcover';
+    // Both products are hardcover — the user-facing label distinguishes
+    // by binding behaviour, not by cover type.
+    label.textContent = currentBinding === 'layflat' ? 'Lay-Flat' : 'Coffee-Table';
   }
 
   // Marks the binding as locked once the customer commits a photo. The
@@ -236,6 +346,9 @@
       b.classList.toggle('active', b.dataset.size === sizeKey);
     });
     updateSpreadInfoLabel();
+    // Size change flips the per-spread rate AND can flip the acrylic
+    // surcharge ($40 → $65), so the price tag has to refresh.
+    renderPriceTag();
   }
 
   function applySizeToCanvas(sizeKey) {
@@ -1222,6 +1335,9 @@
       renderPageStrip();
       currentSpread = totalSpreads - 1;
       renderCanvas();
+      // Adding a spread past the included count bumps the price by
+      // perExtra, so we refresh the toolbar tag immediately.
+      renderPriceTag();
     };
     strip.appendChild(add);
   }
@@ -1256,6 +1372,11 @@
   function openModal() {
     const m = document.getElementById('modalOverlay');
     if (m) m.classList.add('open');
+    // Cover state may have changed since the toolbar tag was last
+    // updated (acrylic adds $40 / $65). Recompute on open so the
+    // breakdown matches what the customer is about to commit to.
+    renderPriceBreakdown();
+    renderPriceTag();
   }
   function closeModal() {
     const m = document.getElementById('modalOverlay');
@@ -1380,3 +1501,6 @@
   window.ftbRotate = ftbRotate;
   window.ftbReset = ftbReset;
   window.ftbDelete = ftbDelete;
+  window.computePrice = computePrice;
+  window.renderPriceTag = renderPriceTag;
+  window.renderPriceBreakdown = renderPriceBreakdown;
