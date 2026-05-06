@@ -224,11 +224,13 @@
     /* leather wrap → page block → leather wrap, along the depth */
     linear-gradient(90deg,
       var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 14%,
-      #f0e3c5 17%,
+      var(--leather-color, #3a2618) 32%,
+      rgba(184, 150, 90, 0.55) 33%,
+      #f0e3c5 36%,
       #e0d2b0 50%,
-      #c8b890 83%,
-      var(--leather-color, #3a2618) 86%,
+      #c8b890 64%,
+      rgba(184, 150, 90, 0.55) 67%,
+      var(--leather-color, #3a2618) 68%,
       var(--leather-color, #3a2618) 100%
     );
 }
@@ -263,11 +265,13 @@
     /* depth: leather wrap (front cover) → pages → leather wrap (back) */
     linear-gradient(180deg,
       var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 14%,
-      #f0e3c5 17%,
+      var(--leather-color, #3a2618) 32%,
+      rgba(184, 150, 90, 0.55) 33%,
+      #f0e3c5 36%,
       #e0d2b0 50%,
-      #c8b890 83%,
-      var(--leather-color, #3a2618) 86%,
+      #c8b890 64%,
+      rgba(184, 150, 90, 0.55) 67%,
+      var(--leather-color, #3a2618) 68%,
       var(--leather-color, #3a2618) 100%
     );
 }
@@ -295,11 +299,13 @@
     ),
     linear-gradient(180deg,
       var(--leather-color, #3a2618) 0%,
-      var(--leather-color, #3a2618) 14%,
-      #f0e3c5 17%,
+      var(--leather-color, #3a2618) 32%,
+      rgba(184, 150, 90, 0.55) 33%,
+      #f0e3c5 36%,
       #e0d2b0 50%,
-      #c8b890 83%,
-      var(--leather-color, #3a2618) 86%,
+      #c8b890 64%,
+      rgba(184, 150, 90, 0.55) 67%,
+      var(--leather-color, #3a2618) 68%,
       var(--leather-color, #3a2618) 100%
     );
 }
