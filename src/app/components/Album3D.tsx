@@ -264,6 +264,10 @@ type SceneRefs = {
   // Acrylic-specific meshes (created lazily, toggled visible)
   acrylicStrip: THREE.Mesh | null;
   acrylicSheen: THREE.Mesh | null;
+  // Foil text overlay — sits just in front of the cover face. Used to
+  // render the title/subtitle on top of photo + acrylic covers (leather
+  // bakes the foil into the cover material directly so doesn't need this).
+  foilOverlay: THREE.Mesh;
   // Animation
   raf: number;
   cleanupHandlers: () => void;
@@ -453,8 +457,33 @@ export default function Album3D({
     spine.castShadow = true;
     spine.receiveShadow = true;
 
+    // Foil-text overlay plane — sits just in front of the cover face and
+    // carries the same foilFrontTex used for leather covers. For photo /
+    // acrylic covers we can't bake the foil into the cover material
+    // (those slots hold the user's photo), so the title rides on this
+    // plane instead. Material is BasicMaterial: tone-mapped off so the
+    // foil stays its true color and unlit so rotation doesn't dim the
+    // text. depthWrite:false prevents the transparent quad from
+    // occluding the acrylic sheen behind it.
+    const foilOverlayGeom = new THREE.PlaneGeometry(BOOK_W, BOOK_H);
+    const foilOverlayMat = new THREE.MeshBasicMaterial({
+      map: foilFrontTex,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.FrontSide,
+    });
+    const foilOverlay = new THREE.Mesh(foilOverlayGeom, foilOverlayMat);
+    // Z position: cover front face is at PAGE_D/2 + COVER_T (= ~0.045).
+    // Sit a hair in front of it. Acrylic sheen lives at +0.007 further
+    // out so the title shows *between* photo and glass, which matches
+    // real "photo behind acrylic" production.
+    foilOverlay.position.set(0, 0, PAGE_D / 2 + COVER_T + 0.001);
+    // Hidden by default; the variant useEffect toggles it.
+    foilOverlay.visible = false;
+
     const book = new THREE.Group();
-    book.add(cover, back, pages, spine);
+    book.add(cover, back, pages, spine, foilOverlay);
     book.rotation.y = -0.35;
     book.rotation.x = 0.05;
     scene.add(book);
@@ -564,6 +593,8 @@ export default function Album3D({
       backGeom.dispose();
       pageGeom.dispose();
       spineGeom.dispose();
+      foilOverlayGeom.dispose();
+      foilOverlayMat.dispose();
       pageMat.dispose();
       frontFaceMat.dispose();
       backFaceMat.dispose();
@@ -612,6 +643,7 @@ export default function Album3D({
       backPhotoTex: null,
       acrylicStrip: null,
       acrylicSheen: null,
+      foilOverlay,
       raf,
       cleanupHandlers: cleanup,
     };
@@ -756,6 +788,12 @@ export default function Album3D({
     }
     if (r.acrylicStrip) r.acrylicStrip.visible = needsAcrylic;
     if (r.acrylicSheen) r.acrylicSheen.visible = needsAcrylic;
+
+    // Foil title overlay: photo + acrylic covers ride the title on this
+    // separate plane (their front-face material slot is occupied by the
+    // photo). Leather bakes the foil into its own material directly, so
+    // the overlay would just double-print — keep it hidden there.
+    r.foilOverlay.visible = variant === 'photo' || variant === 'acrylic';
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant]);
 
