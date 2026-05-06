@@ -175,8 +175,12 @@ export default function Album3D({
   );
 
   // Aspect ratio: 17×12 → 0.7059 height per width. Keep the ratio in CSS.
+  // --leather-color flows into the edge slabs so the leather wraps
+  // visibly over the cover-thickness portions of the top/bottom/right
+  // faces (paper only shows in the middle band, like a real album).
   const stageStyle: CSSProperties = {
     width,
+    ...({ '--leather-color': leatherHex } as Record<string, string>),
   };
 
   return (

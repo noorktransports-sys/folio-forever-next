@@ -675,6 +675,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               (cropMode ? ' is-crop-mode' : '')
             }
             ref={stageRef}
+            // --leather-color flows into the edge slabs so leather
+            // wraps over the cover-thickness portions of the top /
+            // bottom / right edges. previewBackground is the user's
+            // chosen leather hex (or fabric/photo bg base color).
+            style={{
+              ...({ '--leather-color': bindingHex } as Record<string, string>),
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={endDrag}

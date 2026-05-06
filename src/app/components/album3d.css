@@ -184,13 +184,16 @@
 /* Right edge — vertical slab. Inset top/bottom by book-depth so the
  * top/bottom edge slabs cleanly fill the corners without overlap.
  *
- * Color stack (back to front): a bright cream base reads as actual
- * paper (the previous warm-tan gradient blended into the leather and
- * made the page block disappear). On top sits visible page banding
- * (40+ thin horizontal lines suggesting individual pages), then a
- * lighting gradient that darkens the leather-side and side facing
- * away from the camera. Result: the page block reads as a stack of
- * cream paper sandwiched between the covers. */
+ * NEW visual: leather-paper-leather sandwich along the depth axis.
+ * On a real bound album the leather wraps over the front and back
+ * boards; cream paper only shows in the middle band where the page
+ * block actually sits. The previous all-cream slab made the album
+ * look like an open shoebox.
+ *
+ * 90deg gradient = along the slab's width = depth direction (front
+ * cover → page block → back cover). 0–14% & 86–100% are leather
+ * (the cover board thicknesses); the middle 70% is cream paper
+ * with banding overlaid. */
 .album3d-edge-right {
   top: var(--book-depth);
   right: 0;
@@ -199,7 +202,10 @@
   transform-origin: left center;
   transform: translateX(100%) rotateY(90deg) translateZ(calc(var(--book-depth) * -1));
   background:
-    /* page banding — fine horizontal lines, every 1px */
+    /* page banding — fine horizontal lines, every 1px. Renders
+       across the whole slab; on the leather portions it blends to
+       near-invisible (low alpha against dark brown), on the cream
+       portion it reads as page edges. */
     repeating-linear-gradient(
       0deg,
       rgba(80, 60, 35, 0) 0px,
@@ -207,19 +213,31 @@
       rgba(140, 115, 80, 0.35) 0.5px,
       rgba(140, 115, 80, 0.35) 1px
     ),
-    /* lighting gradient — darker at leather side, highlight in the middle */
-    linear-gradient(90deg,
-      rgba(0, 0, 0, 0.55) 0%,
-      rgba(0, 0, 0, 0.10) 30%,
-      rgba(255, 255, 255, 0.10) 65%,
-      rgba(0, 0, 0, 0.35) 100%
+    /* lighting — slight shadow at top + bottom of the slab (vertical
+       edges of the book), highlight in the middle. */
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.06) 12%,
+      rgba(0, 0, 0, 0.04) 88%,
+      rgba(0, 0, 0, 0.30) 100%
     ),
-    /* cream paper base — bright enough to contrast leather */
-    linear-gradient(180deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    /* leather wrap → page block → leather wrap, along the depth */
+    linear-gradient(90deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
 /* Bottom edge — horizontal slab. Spans the full book width since the
- * right edge has been trimmed at the corners. */
+ * right edge has been trimmed at the corners.
+ *
+ * For top/bottom slabs the depth axis is the slab's HEIGHT (before
+ * rotation), so the leather-paper-leather sandwich uses 180deg. */
 .album3d-edge-bottom {
   left: 0;
   right: 0;
@@ -228,6 +246,7 @@
   transform-origin: center top;
   transform: translateY(100%) rotateX(-90deg) translateZ(calc(var(--book-depth) * -1));
   background:
+    /* page banding — perpendicular to the spine, so 90deg lines */
     repeating-linear-gradient(
       90deg,
       rgba(80, 60, 35, 0) 0px,
@@ -235,13 +254,22 @@
       rgba(140, 115, 80, 0.32) 0.5px,
       rgba(140, 115, 80, 0.32) 1px
     ),
-    linear-gradient(0deg,
-      rgba(0, 0, 0, 0.55) 0%,
-      rgba(0, 0, 0, 0.10) 30%,
-      rgba(255, 255, 255, 0.10) 65%,
-      rgba(0, 0, 0, 0.35) 100%
+    /* lighting along the book width — darker near spine */
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.04) 30%,
+      rgba(0, 0, 0, 0.04) 100%
     ),
-    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    /* depth: leather wrap (front cover) → pages → leather wrap (back) */
+    linear-gradient(180deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
 /* Top edge — horizontal slab, mirror of bottom. */
@@ -260,13 +288,20 @@
       rgba(140, 115, 80, 0.32) 0.5px,
       rgba(140, 115, 80, 0.32) 1px
     ),
-    linear-gradient(180deg,
-      rgba(0, 0, 0, 0.55) 0%,
-      rgba(0, 0, 0, 0.10) 30%,
-      rgba(255, 255, 255, 0.10) 65%,
-      rgba(0, 0, 0, 0.35) 100%
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.04) 30%,
+      rgba(0, 0, 0, 0.04) 100%
     ),
-    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    linear-gradient(180deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
 /* COVER PHOTO — full-bleed inside the cover when variant=photo. */

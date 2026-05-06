@@ -309,7 +309,13 @@
 }
 
 /* Right edge — vertical slab. Inset top/bottom by book-depth so the
- * top/bottom slabs cleanly fill the corners without overlap artifacts. */
+ * top/bottom slabs cleanly fill the corners without overlap artifacts.
+ *
+ * Leather-paper-leather sandwich along the depth axis. On a real
+ * bound album, leather wraps over the front + back boards; cream
+ * paper only shows in the middle band where the page block sits.
+ * --leather-color is set inline on .cover-stage from the user's
+ * chosen leather hex, so the wrap matches the front cover. */
 .cover-page-edge-right {
   top: var(--book-depth);
   right: 0;
@@ -325,17 +331,24 @@
       rgba(140, 115, 80, 0.35) 0.5px,
       rgba(140, 115, 80, 0.35) 1px
     ),
-    linear-gradient(90deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
-      rgba(0, 0, 0, 0.35) 100%
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.06) 12%,
+      rgba(0, 0, 0, 0.04) 88%,
+      rgba(0, 0, 0, 0.30) 100%
     ),
-    linear-gradient(180deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    linear-gradient(90deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
-/* Top edge — horizontal slab, full width. Banding rotated 90° (lines
- * perpendicular to the spine). Shadow at the cover-meeting edge. */
+/* Top edge — horizontal slab, full width. */
 .cover-page-edge-top {
   top: 0;
   left: 0;
@@ -351,13 +364,20 @@
       rgba(140, 115, 80, 0.32) 0.5px,
       rgba(140, 115, 80, 0.32) 1px
     ),
-    linear-gradient(180deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
-      rgba(0, 0, 0, 0.35) 100%
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.04) 30%,
+      rgba(0, 0, 0, 0.04) 100%
     ),
-    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    linear-gradient(180deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
 /* Bottom edge — mirror of top. */
@@ -376,13 +396,20 @@
       rgba(140, 115, 80, 0.32) 0.5px,
       rgba(140, 115, 80, 0.32) 1px
     ),
-    linear-gradient(0deg,
-      rgba(0, 0, 0, 0.5) 0%,
-      rgba(0, 0, 0, 0.15) 25%,
-      rgba(0, 0, 0, 0.05) 60%,
-      rgba(0, 0, 0, 0.35) 100%
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.04) 30%,
+      rgba(0, 0, 0, 0.04) 100%
     ),
-    linear-gradient(90deg, #f2e7cc 0%, #e0d2b0 50%, #c4b48f 100%);
+    linear-gradient(180deg,
+      var(--leather-color, #3a2618) 0%,
+      var(--leather-color, #3a2618) 14%,
+      #f0e3c5 17%,
+      #e0d2b0 50%,
+      #c8b890 83%,
+      var(--leather-color, #3a2618) 86%,
+      var(--leather-color, #3a2618) 100%
+    );
 }
 
 /* INSIDE — visible only when cover is open. Sits just behind the front
