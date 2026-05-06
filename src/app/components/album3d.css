@@ -266,36 +266,49 @@
   filter: contrast(1.05) saturate(1.05);
 }
 
-/* Leather grain — pebble texture + studio sheen + corner shadow.
- * Stronger than v1: the previous treatment was so subtle the back
- * cover read as a flat paper panel. Real leather wedding albums show
- * a visible top-light highlight, fine pebbling, and darker corners. */
+/* Leather grain — proper fake-leather treatment.
+ *
+ * v1 used mix-blend-mode: overlay over dark brown — overlay barely
+ * shifts pixels near black, so the back cover read as a flat paper
+ * panel. v2 (this version) layers:
+ *   1. SVG fractal-noise grain (data URI) — actual pebble texture
+ *      that multiplies with the leather color underneath.
+ *   2. Studio top-light sheen — visible white highlight upper-left.
+ *   3. Deep corner shadow — bottom-right vignette.
+ *   4. Cross-hatch lines — secondary directional grain.
+ * No mix-blend-mode on the layer itself; the SVG noise carries its
+ * own multiply (encoded in alpha). Result: visibly leathery, not the
+ * flat brown rectangle you'd see in a Word doc table cell. */
 .album3d-leather-grain {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
+  background-image:
     /* studio top-light sheen */
-    radial-gradient(ellipse at 28% 18%, rgba(255, 255, 255, 0.14) 0%, transparent 48%),
-    /* darker bottom-right corner */
-    radial-gradient(ellipse at 82% 88%, rgba(0, 0, 0, 0.32) 0%, transparent 55%),
-    /* primary pebble grain — diagonal */
+    radial-gradient(ellipse at 25% 15%, rgba(255, 255, 255, 0.22) 0%, transparent 48%),
+    /* deep bottom-right corner shadow */
+    radial-gradient(ellipse at 82% 88%, rgba(0, 0, 0, 0.45) 0%, transparent 58%),
+    /* secondary diagonal hatching */
     repeating-linear-gradient(
       35deg,
-      rgba(0, 0, 0, 0.07) 0px,
-      rgba(0, 0, 0, 0.07) 1px,
+      rgba(0, 0, 0, 0.10) 0px,
+      rgba(0, 0, 0, 0.10) 1px,
       transparent 1px,
       transparent 3px
     ),
-    /* secondary cross-hatch grain */
     repeating-linear-gradient(
       125deg,
-      rgba(255, 255, 255, 0.04) 0px,
-      rgba(255, 255, 255, 0.04) 1px,
+      rgba(255, 255, 255, 0.05) 0px,
+      rgba(255, 255, 255, 0.05) 1px,
       transparent 1px,
       transparent 4px
-    );
-  mix-blend-mode: overlay;
+    ),
+    /* SVG fractal noise — actual leather pebbling. baseFrequency
+       controls grain density; numOctaves layers small + medium
+       grain together. Opacity 0.45 keeps it subtle but visible. */
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 140px 140px;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, repeat;
 }
 
 /* Leather edge-wrap — half-pixel highlight inside the perimeter,
