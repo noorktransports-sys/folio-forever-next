@@ -145,6 +145,51 @@ nav {
 /* Lay-flat overrides the spread gutter — pages lie flat across the
    spine, so we hide the center seam that hardcover spreads show. */
 .spread-canvas.is-spread.is-layflat::after { display: none; }
+
+/* OPEN-BOOK FOLD — coffee-table only.
+ * A real open hardcover has a darker recess where the pages disappear
+ * into the binding (the "gutter valley") plus a slight darkening at the
+ * outer page edges as the paper curls down away from the spine. This
+ * pseudo-element paints both signals as a single background gradient
+ * stack so the customer sees at a glance: this is a book with a fold,
+ * not a flat lay-flat panel. Pure visual — no transform, so photo
+ * placement coordinates are unaffected. */
+.spread-canvas.is-spread.is-hardcover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    /* Gutter valley — darker stripe centered on the spine */
+    linear-gradient(90deg,
+      transparent 43%,
+      rgba(0, 0, 0, 0.06) 46%,
+      rgba(0, 0, 0, 0.14) 49.5%,
+      rgba(0, 0, 0, 0.20) 50%,
+      rgba(0, 0, 0, 0.14) 50.5%,
+      rgba(0, 0, 0, 0.06) 54%,
+      transparent 57%
+    ),
+    /* Outer-edge page curl — slightly darker as pages tip down at the
+       far edges of an open hardcover. */
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.06) 0%,
+      transparent 8%,
+      transparent 92%,
+      rgba(0, 0, 0, 0.06) 100%
+    );
+}
+
+/* Beef up the gutter line itself on coffee-table — the 1px hairline
+   was too subtle once the valley shadow was added. 2px wide with a
+   touch of soft blur reads as a real binding crease. */
+.spread-canvas.is-spread.is-hardcover::after {
+  width: 2px;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.18);
+  z-index: 3;
+}
 .layout-slots { position: absolute; inset: 4px; display: grid; gap: 3px; }
 .photo-slot { background: rgba(184, 150, 90, 0.07); border: 1.5px dashed rgba(184, 150, 90, 0.28); border-radius: 2px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: border-color 0.2s; position: relative; overflow: hidden; }
 .photo-slot:hover { border-color: rgba(184, 150, 90, 0.5); }
