@@ -183,9 +183,16 @@ const FONT_SIZE_DEFAULT = 52;
 // Anything below would shrink the photo inside the wrapper and reveal the
 // dark cover background at the edges — looks like an unintentional border
 // on the printed acrylic / photo cover. So scale is clamped to ≥ 1.
-// Customers can still zoom IN to crop tighter (up to PHOTO_SCALE_MAX).
+//
+// MAX is capped at 2 (200%). Past that, print resolution noticeably
+// degrades on the 8×11 / 11×14 cover sizes — most uploads are 4500×3000
+// after client-side optimization, so 200% means ~2250×1500 worth of
+// pixels covering an 11×14 face, which is the floor for crisp print.
 const PHOTO_SCALE_MIN = 1;
-const PHOTO_SCALE_MAX = 3;
+const PHOTO_SCALE_MAX = 2;
+// Reference cover render width in CSS px — must match Album3D's
+// CSS_COVER_REF_PX. Used to clamp pan within the photo's edge.
+const COVER_REF_PX = 480;
 
 const initialState: CoverState = {
   type: 'leather',
@@ -704,17 +711,33 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                 !!state.photoSrc
               }
               onPhotoPan={(x, y) => {
-                setState((prev) => ({ ...prev, photoX: x, photoY: y }));
+                // Pan range at zoom Z: ±COVER_REF_PX*(Z-1)/2. At Z=1 the
+                // clamp is 0 — no panning when fully zoomed out (any pan
+                // would expose the cover's edge). Tightens as zoom drops.
+                setState((prev) => {
+                  const max = (COVER_REF_PX * (prev.photoScale - 1)) / 2;
+                  return {
+                    ...prev,
+                    photoX: Math.max(-max, Math.min(max, x)),
+                    photoY: Math.max(-max, Math.min(max, y)),
+                  };
+                });
               }}
               onPhotoZoom={(direction) => {
                 setState((prev) => {
                   const next = prev.photoScale + direction * 0.05;
+                  const nextScale = Math.max(
+                    PHOTO_SCALE_MIN,
+                    Math.min(PHOTO_SCALE_MAX, next),
+                  );
+                  // Re-clamp pan against the new zoom so zooming out
+                  // doesn't leave the photo panned past its edge.
+                  const max = (COVER_REF_PX * (nextScale - 1)) / 2;
                   return {
                     ...prev,
-                    photoScale: Math.max(
-                      PHOTO_SCALE_MIN,
-                      Math.min(PHOTO_SCALE_MAX, next),
-                    ),
+                    photoScale: nextScale,
+                    photoX: Math.max(-max, Math.min(max, prev.photoX)),
+                    photoY: Math.max(-max, Math.min(max, prev.photoY)),
                   };
                 });
               }}
@@ -1197,7 +1220,22 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                       max={PHOTO_SCALE_MAX}
                       step={0.01}
                       value={state.photoScale}
-                      onChange={(e) => update('photoScale', Number(e.target.value))}
+                      onChange={(e) => {
+                        const z = Number(e.target.value);
+                        // Re-clamp pan against the new zoom — same logic as
+                        // the wheel handler. Without this, zooming the
+                        // slider down can leave the photo panned outside
+                        // its allowable range, exposing cover edges.
+                        setState((prev) => {
+                          const max = (COVER_REF_PX * (z - 1)) / 2;
+                          return {
+                            ...prev,
+                            photoScale: z,
+                            photoX: Math.max(-max, Math.min(max, prev.photoX)),
+                            photoY: Math.max(-max, Math.min(max, prev.photoY)),
+                          };
+                        });
+                      }}
                     />
                     <span className="cover-crop-val">
                       {Math.round(state.photoScale * 100)}%

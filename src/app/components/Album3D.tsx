@@ -72,9 +72,75 @@ const BOOK_H = 1.7;
 const BOOK_D = 0.09;
 const COVER_T = 0.014;
 const PAGE_D = BOOK_D - COVER_T * 2;
+const FACE_ASPECT = BOOK_W / BOOK_H; // ≈ 0.706 (portrait cover)
 // Approximate cover render size in CSS px — used to convert
 // photoX/photoY from pixel space to UV offset (0..1).
 const CSS_COVER_REF_PX = 480;
+
+/**
+ * Apply object-fit:cover semantics to a Three.js texture, optionally
+ * combined with a user-driven zoom + pan (front cover only). Without
+ * this, BoxGeometry stretches the photo to the face's UV (1.2 × 1.7
+ * portrait), which squashes any non-portrait photo. With this, the
+ * photo fills the face proportionally and the excess is cropped on the
+ * dominant axis (matching how `object-fit: cover` works in CSS).
+ *
+ * Pan is scaled-corrected: at 2× zoom, the visible window is half-width,
+ * so a 1-screen-pixel drag must produce a UV shift half as large to feel
+ * 1:1. The earlier formula didn't divide by zoom — that's why panning at
+ * higher zoom felt like the photo "jumped one way."
+ *
+ * Pan clamping is the parent's job (cover-builder.tsx) so this stays
+ * pure and reusable for back-cover + future spread tiles.
+ */
+function applyPhotoTransform(
+  tex: THREE.Texture,
+  photoScale = 1,
+  photoX = 0,
+  photoY = 0,
+) {
+  const img = tex.image as { width?: number; height?: number } | null;
+  if (!img || !img.width || !img.height) return;
+
+  const photoAspect = img.width / img.height;
+
+  // Object-fit:cover base mapping. We compute the visible UV window
+  // size that, when stretched onto the face's 1×1 UVs, preserves the
+  // photo's aspect.
+  let baseRepX: number;
+  let baseRepY: number;
+  let baseOffX: number;
+  let baseOffY: number;
+  if (photoAspect > FACE_ASPECT) {
+    // Photo is wider than face — fit height, crop sides.
+    baseRepX = FACE_ASPECT / photoAspect;
+    baseRepY = 1;
+    baseOffX = (1 - baseRepX) / 2;
+    baseOffY = 0;
+  } else {
+    // Photo is taller than face — fit width, crop top/bottom.
+    baseRepX = 1;
+    baseRepY = photoAspect / FACE_ASPECT;
+    baseOffX = 0;
+    baseOffY = (1 - baseRepY) / 2;
+  }
+
+  const repX = baseRepX / photoScale;
+  const repY = baseRepY / photoScale;
+
+  // Pan in UV space — divide by photoScale so screen-px feel is 1:1
+  // at any zoom level. baseRep* multiplier keeps pan proportional to
+  // the cropped axis (no over-pan when one axis is letterboxed).
+  const panUVX = (photoX / CSS_COVER_REF_PX) * baseRepX / photoScale;
+  const panUVY = (photoY / CSS_COVER_REF_PX) * baseRepY / photoScale;
+
+  tex.repeat.set(repX, repY);
+  tex.offset.set(
+    baseOffX + (baseRepX - repX) / 2 - panUVX,
+    baseOffY + (baseRepY - repY) / 2 + panUVY,
+  );
+  tex.needsUpdate = true;
+}
 
 function makeLeatherNormalTexture(): THREE.CanvasTexture {
   const size = 512;
@@ -698,15 +764,18 @@ export default function Album3D({
     const r = refs.current;
     if (!r) return;
     if (!photoSrc || variant === 'leather') {
-      // Strip the photo, fall back to foil. Restore the leather material
-      // properties we mutated on photo-load (normal map, leather color,
-      // roughness, metalness) so leather renders correctly again.
+      // Strip the photo, fall back to foil. Restore every material
+      // property we mutated on photo-load (normal map, leather color,
+      // roughness, metalness, emissive color) so leather renders
+      // correctly. Easy to forget the emissive *color* — photo path sets
+      // it to white, leather wants the foil hex.
       if (r.photoTex) {
         r.photoTex.dispose();
         r.photoTex = null;
       }
       r.frontFaceMat.map = r.foilFrontTex;
       r.frontFaceMat.emissiveMap = r.foilFrontTex;
+      r.frontFaceMat.emissive.set(foilHex);
       r.frontFaceMat.emissiveIntensity = 0.4;
       r.frontFaceMat.normalMap = r.normalTex;
       r.frontFaceMat.color.set(leatherHex);
@@ -721,31 +790,27 @@ export default function Album3D({
       photoSrc,
       (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        tex.center.set(0.5, 0.5);
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
         tex.anisotropy = 8;
-        // Apply current zoom + pan immediately on load.
-        tex.repeat.set(1 / photoScale, 1 / photoScale);
-        tex.offset.set(
-          0.5 - 0.5 / photoScale - photoX / CSS_COVER_REF_PX,
-          0.5 - 0.5 / photoScale + photoY / CSS_COVER_REF_PX,
-        );
-        tex.needsUpdate = true;
+        // Object-fit:cover + zoom + pan, all in one place.
+        applyPhotoTransform(tex, photoScale, photoX, photoY);
         if (r.photoTex) r.photoTex.dispose();
         r.photoTex = tex;
-        // Strip leather normal + emissive so the photo prints flat. Keeping
-        // them on caused the photo to render as a leather-grained,
-        // foil-tinted brown wash — which is what the user sees in the
-        // "photo not visible" screenshot. Acrylic is glass-over-photo;
-        // there should be no leather texture between photo and viewer.
-        r.frontFaceMat.map = tex;
-        r.frontFaceMat.emissiveMap = null;
-        r.frontFaceMat.emissiveIntensity = 0;
+        // Render as UNLIT emissive: the photo is its own light source so
+        // it prints at true colors regardless of how the user has rotated
+        // the book. The previous "diffuse map under directional lighting"
+        // setup made the photo go ~50-70% dark whenever the cover face
+        // turned away from the key light — that's the "faded" symptom
+        // the user reported. Set base color black + map=null so nothing
+        // tints the emissive output.
+        r.frontFaceMat.map = null;
+        r.frontFaceMat.emissiveMap = tex;
+        r.frontFaceMat.emissive.set(0xffffff);
+        r.frontFaceMat.emissiveIntensity = 1;
+        r.frontFaceMat.color.set(0x000000);
         r.frontFaceMat.normalMap = null;
-        r.frontFaceMat.color.set(0xffffff); // white base so the photo's own
-                                            // colors aren't tinted by leather hex
-        r.frontFaceMat.roughness = 0.35;    // smoother than leather (more like glossy print)
+        r.frontFaceMat.roughness = 1;
         r.frontFaceMat.metalness = 0;
         r.frontFaceMat.needsUpdate = true;
       },
@@ -766,11 +831,11 @@ export default function Album3D({
     const r = refs.current;
     if (!r) return;
     if (!backPhotoSrc || variant === 'leather' || variant === 'acrylic') {
-      // Restore plain leather on the back — no foil text. Earlier versions
-      // mapped foilBackTex here which painted the title onto the back of
-      // the book ("back side shows name" bug). Strip both diffuse and
-      // emissive maps so the back is pure leather color + normal-mapped
-      // grain.
+      // Restore plain leather on the back — no foil text, no photo.
+      // We may be coming from a back-photo state where the material was
+      // mutated to unlit (color=black, normalMap=null, roughness=1).
+      // Restore the leather params so the leather color + grain renders
+      // again.
       if (r.backPhotoTex) {
         r.backPhotoTex.dispose();
         r.backPhotoTex = null;
@@ -778,20 +843,47 @@ export default function Album3D({
       r.backFaceMat.map = null;
       r.backFaceMat.emissiveMap = null;
       r.backFaceMat.emissiveIntensity = 0;
+      r.backFaceMat.color.set(leatherHex);
+      r.backFaceMat.normalMap = r.normalTex;
+      r.backFaceMat.roughness = 0.55;
+      r.backFaceMat.metalness = 0.1;
       r.backFaceMat.needsUpdate = true;
       return;
     }
     const loader = new THREE.TextureLoader();
     loader.crossOrigin = 'anonymous';
-    loader.load(backPhotoSrc, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      if (r.backPhotoTex) r.backPhotoTex.dispose();
-      r.backPhotoTex = tex;
-      r.backFaceMat.map = tex;
-      r.backFaceMat.emissiveMap = null;
-      r.backFaceMat.emissiveIntensity = 0;
-      r.backFaceMat.needsUpdate = true;
-    });
+    loader.load(
+      backPhotoSrc,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.anisotropy = 8;
+        // Object-fit:cover so a landscape photo on the portrait back
+        // doesn't squash. The back has no zoom/pan in the UI yet, so we
+        // pass scale=1, pan=0 — pure aspect correction.
+        applyPhotoTransform(tex, 1, 0, 0);
+        if (r.backPhotoTex) r.backPhotoTex.dispose();
+        r.backPhotoTex = tex;
+        // Same unlit emissive treatment as the front. Without it, the
+        // back photo washed out whenever the book rotated away from the
+        // back-side rim light (which is most of the time, since rest
+        // pose has the front facing the camera).
+        r.backFaceMat.map = null;
+        r.backFaceMat.emissiveMap = tex;
+        r.backFaceMat.emissive.set(0xffffff);
+        r.backFaceMat.emissiveIntensity = 1;
+        r.backFaceMat.color.set(0x000000);
+        r.backFaceMat.normalMap = null;
+        r.backFaceMat.roughness = 1;
+        r.backFaceMat.metalness = 0;
+        r.backFaceMat.needsUpdate = true;
+      },
+      undefined,
+      (err) => {
+        console.warn('Album3D: failed to load back-cover photo', backPhotoSrc, err);
+      },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backPhotoSrc, variant]);
 
@@ -799,13 +891,7 @@ export default function Album3D({
   useEffect(() => {
     const r = refs.current;
     if (!r?.photoTex) return;
-    const tex = r.photoTex;
-    tex.repeat.set(1 / photoScale, 1 / photoScale);
-    tex.offset.set(
-      0.5 - 0.5 / photoScale - photoX / CSS_COVER_REF_PX,
-      0.5 - 0.5 / photoScale + photoY / CSS_COVER_REF_PX,
-    );
-    tex.needsUpdate = true;
+    applyPhotoTransform(r.photoTex, photoScale, photoX, photoY);
   }, [photoScale, photoX, photoY]);
 
   // Initial render: setup the foil texture with current title/foil so the
