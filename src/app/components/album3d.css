@@ -1,185 +1,54 @@
 /*
- * Album3D component styles — v3, still composition.
+ * Album3D component styles — v4, real WebGL.
  *
- * Previous versions used CSS 3D transforms to render a draggable
- * leather book with six painted faces. The math was flat (no real
- * lighting, no real materials) and exposed itself when rotated to
- * the back view, so it kept reading as a hollow shoebox no matter
- * how many gradients we layered.
- *
- * v3 abandons the rotation entirely. The album is now a single
- * fixed-pose composition — front cover only, painted with a quiet
- * studio-light gradient, with foil-stamped text or a photo overlay.
- * No SVG noise (was eating mobile GPU). No preserve-3d. No drag
- * handlers. Just one beautiful still, the way Apple and Hermès
- * product pages do it.
- *
- * --album-leather and --album-foil are written by React props on
- * the wrapper element so leather color / foil color flow in.
+ * v1 was CSS 3D. v2 was beefier CSS 3D with leather grain. v3 was a
+ * still illustration. v4 ditches the fakery entirely and uses
+ * Three.js inside a <canvas>. CSS here is just the wrapper, caption,
+ * and grab cursor — Three.js handles every pixel of the album itself.
  */
 
-.album-still-wrap {
+.album-three-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 30px;
+  gap: 26px;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.album-still {
+.album-three-stage {
   position: relative;
-  /* Portrait album proportion (12 wide × 17 tall). Width is set by
-     the React prop; aspect-ratio holds the height. */
-  aspect-ratio: 12 / 17;
+  /* Three.js renderer fills this box; aspect is matched in component. */
+  cursor: grab;
+  /* Subtle ground glow under the album for atmospheric ambience. */
+  filter: drop-shadow(0 30px 50px rgba(0, 0, 0, 0.55));
+}
+.album-three-stage:active {
+  cursor: grabbing;
 }
 
-/* THE COVER — the only visible face. A clean rectangle with painted
- * studio lighting and a soft outer drop shadow.
- *
- * Background stack:
- *   1. Top-left highlight (white, ~12% alpha) — the studio light
- *   2. Bottom-right shadow (black, ~30% alpha) — fall-off
- *   3. Vertical sheen near the spine — leather catching light along
- *      the binding edge
- *   4. Solid leather color underneath
- */
-.album-still-cover {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  background:
-    /* 1 — studio top-light */
-    radial-gradient(ellipse at 22% 12%, rgba(255, 255, 255, 0.14) 0%, transparent 52%),
-    /* 2 — bottom-right shadow */
-    radial-gradient(ellipse at 86% 92%, rgba(0, 0, 0, 0.34) 0%, transparent 60%),
-    /* 3 — spine-side sheen */
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0%, transparent 14%),
-    /* 4 — leather color */
-    var(--album-leather, #3a2618);
-  border-radius: 2px 5px 5px 2px;
-  box-shadow:
-    /* outer drop shadow, ground contact */
-    0 36px 64px -12px rgba(0, 0, 0, 0.75),
-    0 14px 28px -6px rgba(0, 0, 0, 0.45),
-    /* inset spine shadow, soft */
-    inset 5px 0 9px -5px rgba(0, 0, 0, 0.55),
-    /* inset top highlight — leather catching light at the top edge */
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Three.js writes a <canvas> into the stage. Make sure it's block-
+ * level and consumes the full container — no inline-element gaps. */
+.album-three-stage canvas {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+  outline: none;
+  touch-action: none;
 }
 
-/* Spine hint: a 2px-wide darker stripe at the very left edge,
- * suggesting the bind without rendering a real spine. Subtle. */
-.album-still-spine-hint {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.45) 0%,
-    rgba(0, 0, 0, 0.65) 50%,
-    rgba(0, 0, 0, 0.45) 100%
-  );
-  pointer-events: none;
-}
-
-/* Deboss line: a thin inset rectangle just inside the perimeter,
- * the way real leather albums have a debossed border where the
- * leather wraps the boards. Drawn with box-shadow so it doesn't
- * affect layout. */
-.album-still-deboss {
-  position: absolute;
-  inset: 12px 12px 12px 18px;
-  border-radius: 1px;
-  pointer-events: none;
-  box-shadow:
-    inset 0 0 0 0.5px rgba(0, 0, 0, 0.30),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-}
-
-/* PHOTO COVER — full-bleed image inside the cover. */
-.album-still-photo {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: contrast(1.04) saturate(1.04);
-  z-index: 1;
-}
-
-/* FOIL STAMP — title flanked by thin foil rules. Kept compact and
- * centered; uses currentColor so the rule lines match the title. */
-.album-still-foil-block {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 0 18%;
-  color: var(--album-foil, #d4b07a);
-  pointer-events: none;
-  flex-wrap: wrap;
-}
-.album-still-rule {
-  width: 28px;
-  height: 0.5px;
-  background: currentColor;
-  opacity: 0.55;
-}
-.album-still-title {
-  font-family: var(--font-display, 'Cormorant Garamond', serif);
-  font-style: italic;
-  font-size: clamp(28px, 8.5%, 54px);
-  letter-spacing: 1.5px;
-  line-height: 1;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-  white-space: nowrap;
-}
-.album-still-subtitle {
-  flex-basis: 100%;
-  text-align: center;
-  font-family: var(--font-body, 'Montserrat', sans-serif);
-  font-size: 9px;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: currentColor;
-  opacity: 0.85;
-  margin-top: 14px;
-}
-
-/* GROUND SHADOW — soft elliptical shadow under the album. Sits
- * behind the cover via z-index: -1. Filter blur softens it. */
-.album-still-shadow {
-  position: absolute;
-  left: 4%;
-  right: 4%;
-  bottom: -28px;
-  height: 36px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(0, 0, 0, 0.6) 0%,
-    rgba(0, 0, 0, 0.22) 50%,
-    rgba(0, 0, 0, 0) 80%
-  );
-  filter: blur(8px);
-  pointer-events: none;
-  z-index: -1;
-}
-
-/* CAPTION — small line below the album. */
-.album-still-caption {
+.album-three-caption {
   font-family: var(--font-body, 'Montserrat', sans-serif);
   font-size: 10px;
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--muted2, #8a7a65);
   text-align: center;
+}
+
+/* Backwards-compat hooks: pages might still reference old class
+ * names. These no-op them safely. */
+.album-still-wrap,
+.album3d-wrap {
+  display: contents;
 }

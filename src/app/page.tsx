@@ -139,11 +139,10 @@ export default function HomePage() {
             statement piece.
           </p>
 
-          {/* Still-illustration album hero — single editorial pose, no
-           * rotation. Replaces the older drag-to-rotate CSS 3D mockup
-           * which exposed its flat-math nature on the back view.
-           * Brand-neutral leather + foil so it reads as "the product"
-           * rather than any one customer's design. */}
+          {/* Real WebGL Album3D hero — Three.js with PBR materials,
+           * three-light setup, and inertial drag-to-rotate. Replaces
+           * every prior CSS approach because none of them solved the
+           * back-view fakeness. */}
           <div className="album-showcase">
             <Album3D
               title="Forever"
@@ -152,7 +151,7 @@ export default function HomePage() {
               leatherHex="#2a1c12"
               foilHex="#d4b07a"
               width={320}
-              caption="Hand-bound · Heirloom-grade leather"
+              caption="Drag to rotate · Real 3D leather"
             />
           </div>
 
