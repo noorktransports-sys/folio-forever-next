@@ -11,9 +11,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 26px;
+  gap: 18px;
   user-select: none;
   -webkit-user-select: none;
+  max-height: 100%;
+  min-height: 0;
 }
 
 .album-three-stage {
@@ -22,16 +24,27 @@
   cursor: grab;
   /* Subtle ground glow under the album for atmospheric ambience. */
   filter: drop-shadow(0 30px 50px rgba(0, 0, 0, 0.55));
+  /* Box never grows beyond its parent — the canvas scales down if the
+   * preview panel is shorter than the canvas's natural height. */
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .album-three-stage:active {
   cursor: grabbing;
 }
 
 /* Three.js writes a <canvas> into the stage. Make sure it's block-
- * level and consumes the full container — no inline-element gaps. */
+ * level and consumes the full container — no inline-element gaps.
+ * max-height keeps the aspect-locked canvas from overflowing tall
+ * narrow viewports. */
 .album-three-stage canvas {
   display: block;
-  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
   height: auto !important;
   outline: none;
   touch-action: none;

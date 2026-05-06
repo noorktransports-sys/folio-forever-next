@@ -12,11 +12,19 @@
 
 .cover-builder-wrap {
   position: relative;
-  min-height: calc(100vh - 70px);
+  /* Lock to the viewport (minus the global 70px header). Was min-height,
+   * which let the wrap grow taller than the viewport whenever the right
+   * controls panel had lots of content (10-font picker, etc). When the
+   * wrap grew, the *page* scrolled instead of the inner panel — so
+   * mouse-wheel inside the right panel moved everything, including the
+   * preview. Fixed height + overflow:hidden traps scroll inside the
+   * panel where it belongs. */
+  height: calc(100vh - 70px);
   margin-top: 70px;
   background: var(--dark);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* TOOLBAR */
@@ -79,9 +87,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  padding: 24px 32px;
   background: linear-gradient(180deg, var(--dark) 0%, var(--dark2) 100%);
-  overflow: auto;
+  /* hidden (not auto): the preview is a 3D scene, never wants its own
+   * scrollbar. The canvas inside scales via width:100% to stay within
+   * bounds. Auto here used to let the preview overflow into a scroll
+   * track when min-height ate too much room. */
+  overflow: hidden;
+  min-height: 0;
 }
 
 /* The stage: gives perspective context for the 3D children.
@@ -496,13 +509,20 @@
 /* THREE.JS LIVE PREVIEW WRAPPER — replaces the old CSS-3D cover-stage.
    Centers the WebGL canvas in the preview panel and gives it room
    to breathe. The Three.js scene handles every visual aspect; this
-   wrapper is just layout. */
+   wrapper is just layout.
+   flex:1 + width:100% makes it absorb whatever vertical space the
+   preview panel has and centers the canvas inside. We dropped the
+   old min-height:820px because it forced the layout taller than the
+   viewport on smaller screens, which pushed the album below the fold
+   and broke the right-panel scroll containment. */
 .cover-three-mount {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 30px 16px;
-  min-height: 820px;
+  padding: 24px 16px;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
 }
 
 .cover-three-add-photo {
