@@ -10,6 +10,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import Album3D from '../components/Album3D';
 import './cover-builder.css';
 
 /**
@@ -672,8 +673,51 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       </div>
 
       <div className="cover-grid">
-        {/* LIVE PREVIEW (LEFT) */}
+        {/* LIVE PREVIEW (LEFT) — real WebGL via Three.js Album3D.
+            Replaces the old CSS-3D cover-stage that exposed flat-math
+            on rotation. v1 of this swap: title/leather-color/foil-
+            color/photo update reactively. Niceties left out for now:
+            "Open the Album" reveal animation, drag-to-position title,
+            photo crop mode. To rebuild in v2 if needed. */}
         <div className="cover-preview-panel">
+          <div className="cover-three-mount">
+            <Album3D
+              title={state.primaryText || 'Your Names'}
+              subtitle={state.subtitleText || ''}
+              variant={state.type === 'leather' ? 'leather' : 'photo'}
+              photoSrc={state.photoSrc || undefined}
+              leatherHex={bindingHex}
+              foilHex={textHex}
+              width={420}
+              caption=""
+            />
+          </div>
+
+          {/* Add-photo button — only when no photo set and the cover
+              actually uses a photo (acrylic / photo, not leather). */}
+          {(state.type === 'acrylic' || state.type === 'photo') &&
+            !state.photoSrc && (
+              <button
+                type="button"
+                className="cover-three-add-photo"
+                onClick={openCoverPicker}
+                disabled={uploadingCover}
+              >
+                {uploadingCover ? 'Uploading…' : '+ Add cover photo'}
+              </button>
+            )}
+
+          <p className="cover-preview-caption">
+            Live preview · {state.type === 'leather' && 'Leather + foil stamp'}
+            {state.type === 'acrylic' && 'Clear acrylic with photo inside'}
+            {state.type === 'photo' && 'Full-bleed photo with 3D tactile finish'}
+          </p>
+        </div>
+
+        {/* === STALE BLOCK BELOW — kept temporarily so any references
+              elsewhere don't break, but unreachable. Will be deleted
+              in a follow-up cleanup pass. === */}
+        <div style={{ display: 'none' }}>
           <div
             className={
               'cover-stage' +
