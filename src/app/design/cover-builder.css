@@ -493,6 +493,37 @@
   transform: translateY(-1px);
 }
 
+/* THREE.JS LIVE PREVIEW WRAPPER — replaces the old CSS-3D cover-stage.
+   Centers the WebGL canvas in the preview panel and gives it room
+   to breathe. The Three.js scene handles every visual aspect; this
+   wrapper is just layout. */
+.cover-three-mount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 24px;
+  min-height: 600px;
+}
+
+.cover-three-add-photo {
+  display: block;
+  margin: 16px auto 0;
+  background: var(--gold);
+  color: var(--dark);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 12px 28px;
+  border-radius: 30px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+.cover-three-add-photo:hover { background: var(--gold-light); }
+.cover-three-add-photo:disabled { opacity: 0.5; cursor: wait; }
+
 /* Type-specific surface treatments — leather grain.
  *
  * v2: drops mix-blend-mode (which barely shifted dark-brown pixels)
