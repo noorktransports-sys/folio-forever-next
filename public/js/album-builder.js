@@ -21,9 +21,24 @@
  */
 
   let currentSpread = 0, totalSpreads = 10, zoomLevel = 0.8;
-  let uploadedPhotos = {}, spreadData = [], selectedLayout = 1, draggedPhotoId = null;
+  let uploadedPhotos = {}, spreadData = [], selectedLayout = 'lf_2a', draggedPhotoId = null;
   // Tracks placeholder thumbs whose upload is still in flight.
   const pendingUploads = new Set();
+
+  // ── BINDING / STYLE ─────────────────────────────────────────
+  // 'layflat'  → no center gutter, photos can span the spine cleanly.
+  // 'hardcover'→ press-printed photo book; visible 50% gutter, layouts
+  //              must respect it (no slot crosses the center line).
+  // Default is 'layflat' so existing serialized designs that predate this
+  // field render with the cleaner option.
+  let currentBinding = 'layflat';
+  // Lock flips to true the moment the user drops or uploads a photo into
+  // any slot. After that, switching binding requires explicit confirmation
+  // via promptBindingChange() because slot geometry changes.
+  let bindingLocked = false;
+  // Photo-count filter for the layout rail. null = "Any". When set to
+  // 1..6, the rail shows only layouts whose photoCount matches.
+  let currentPhotoCountFilter = null;
 
   // ── SIZE CONFIG ─────────────────────────────────────────────
   const sizes = {
@@ -46,124 +61,171 @@
   };
   let currentSize = 'spread_17x24';
 
+  // ── LAYOUT LIBRARY ──────────────────────────────────────────
+  // Every layout is tagged with photoCount + binding so the right-rail
+  // can filter to exactly what the customer needs.
+  //
+  //   binding: 'layflat'  → free to span the spine
+  //   binding: 'hardcover'→ all slot edges must align with the 50% gutter
+  //
+  // slotAreas (optional) lets a slot span multiple grid cells via
+  // grid-row-start/col-start/row-end/col-end. When omitted, slots flow
+  // through grid cells in document order (CSS default).
   const layouts = [
-    { id: 0, name: 'Full Spread',    cols: '1fr',         rows: '1fr',     slots: 1 },
-    { id: 1, name: 'Side by Side',   cols: '1fr 1fr',     rows: '1fr',     slots: 2 },
-    { id: 2, name: 'Feature Left',   cols: '2fr 1fr',     rows: '1fr',     slots: 2 },
-    { id: 3, name: 'Feature Right',  cols: '1fr 2fr',     rows: '1fr',     slots: 2 },
-    { id: 4, name: 'Triptych',       cols: '1fr 1fr 1fr', rows: '1fr',     slots: 3 },
-    { id: 5, name: 'Top Feature',    cols: '1fr 1fr',     rows: '2fr 1fr', slots: 3 },
-    { id: 6, name: 'Bottom Feature', cols: '1fr 1fr',     rows: '1fr 2fr', slots: 3 },
-    { id: 7, name: 'Four Square',    cols: '1fr 1fr',     rows: '1fr 1fr', slots: 4 },
-    { id: 8, name: 'Five Panel',     cols: '1fr 1fr 1fr', rows: '1fr 1fr', slots: 5 },
-    { id: 9, name: 'Magazine',       cols: '3fr 2fr',     rows: '1fr 1fr', slots: 3 }
+    // ── LAYFLAT (no gutter) ──────────────────────────────────
+    { id: 'lf_1a', name: 'Full Spread',    cols: '1fr',           rows: '1fr',           slots: 1, photoCount: 1, binding: 'layflat' },
+
+    { id: 'lf_2a', name: 'Side by Side',   cols: '1fr 1fr',       rows: '1fr',           slots: 2, photoCount: 2, binding: 'layflat' },
+    { id: 'lf_2b', name: 'Feature Left',   cols: '2fr 1fr',       rows: '1fr',           slots: 2, photoCount: 2, binding: 'layflat' },
+    { id: 'lf_2c', name: 'Feature Right',  cols: '1fr 2fr',       rows: '1fr',           slots: 2, photoCount: 2, binding: 'layflat' },
+
+    { id: 'lf_3a', name: 'Triptych',       cols: '1fr 1fr 1fr',   rows: '1fr',           slots: 3, photoCount: 3, binding: 'layflat' },
+    { id: 'lf_3b', name: 'Top Feature',    cols: '1fr 1fr',       rows: '2fr 1fr',       slots: 3, photoCount: 3, binding: 'layflat',
+      slotAreas: ['1 / 1 / 2 / 3', '2 / 1 / 3 / 2', '2 / 2 / 3 / 3'] },
+    { id: 'lf_3c', name: 'Bottom Feature', cols: '1fr 1fr',       rows: '1fr 2fr',       slots: 3, photoCount: 3, binding: 'layflat',
+      slotAreas: ['1 / 1 / 2 / 2', '1 / 2 / 2 / 3', '2 / 1 / 3 / 3'] },
+
+    { id: 'lf_4a', name: 'Quad Grid',      cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 4, photoCount: 4, binding: 'layflat' },
+    { id: 'lf_4b', name: 'Wide Strip',     cols: 'repeat(4, 1fr)', rows: '1fr',          slots: 4, photoCount: 4, binding: 'layflat' },
+    { id: 'lf_4c', name: 'Feature + 3',    cols: '2fr 1fr',       rows: 'repeat(3, 1fr)', slots: 4, photoCount: 4, binding: 'layflat',
+      slotAreas: ['1 / 1 / 4 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '3 / 2 / 4 / 3'] },
+
+    { id: 'lf_5a', name: 'Feature + Quad', cols: '2fr 1fr 1fr',   rows: '1fr 1fr',       slots: 5, photoCount: 5, binding: 'layflat',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '1 / 3 / 2 / 4', '2 / 2 / 3 / 3', '2 / 3 / 3 / 4'] },
+    { id: 'lf_5b', name: 'Five Panel',     cols: '1fr 1fr 1fr',   rows: '1fr 1fr',       slots: 5, photoCount: 5, binding: 'layflat',
+      slotAreas: ['1 / 1 / 2 / 3', '1 / 3 / 2 / 4', '2 / 1 / 3 / 2', '2 / 2 / 3 / 3', '2 / 3 / 3 / 4'] },
+
+    { id: 'lf_6a', name: 'Six Grid',       cols: '1fr 1fr 1fr',   rows: '1fr 1fr',       slots: 6, photoCount: 6, binding: 'layflat' },
+    { id: 'lf_6b', name: 'Two by Three',   cols: '1fr 1fr',       rows: 'repeat(3, 1fr)', slots: 6, photoCount: 6, binding: 'layflat' },
+
+    // ── HARDCOVER (gutter respected — every slot edge falls on 50%) ──
+    { id: 'hc_1a', name: 'Left Page',      cols: '1fr 1fr',       rows: '1fr',           slots: 1, photoCount: 1, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 2 / 2'] },
+    { id: 'hc_1b', name: 'Right Page',     cols: '1fr 1fr',       rows: '1fr',           slots: 1, photoCount: 1, binding: 'hardcover',
+      slotAreas: ['1 / 2 / 2 / 3'] },
+
+    { id: 'hc_2a', name: 'One Per Page',   cols: '1fr 1fr',       rows: '1fr',           slots: 2, photoCount: 2, binding: 'hardcover' },
+    { id: 'hc_2b', name: 'Stacked Left',   cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 2, photoCount: 2, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 2 / 2', '2 / 1 / 3 / 2'] },
+    { id: 'hc_2c', name: 'Stacked Right',  cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 2, photoCount: 2, binding: 'hardcover',
+      slotAreas: ['1 / 2 / 2 / 3', '2 / 2 / 3 / 3'] },
+
+    { id: 'hc_3a', name: '1 Left · 2 Right', cols: '1fr 1fr',     rows: '1fr 1fr',       slots: 3, photoCount: 3, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3'] },
+    { id: 'hc_3b', name: '2 Left · 1 Right', cols: '1fr 1fr',     rows: '1fr 1fr',       slots: 3, photoCount: 3, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 2 / 2', '2 / 1 / 3 / 2', '1 / 2 / 3 / 3'] },
+
+    { id: 'hc_4a', name: '2×2 Grid',       cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 4, photoCount: 4, binding: 'hardcover' },
+    { id: 'hc_4b', name: 'Wide Strip',     cols: 'repeat(4, 1fr)', rows: '1fr',          slots: 4, photoCount: 4, binding: 'hardcover' },
+
+    { id: 'hc_6a', name: '3 Per Page',     cols: 'repeat(4, 1fr)', rows: '1fr 1fr',      slots: 6, photoCount: 6, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 2 / 4', '2 / 3 / 3 / 4', '1 / 4 / 3 / 5'] }
   ];
 
-  for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 1, slots: [null, null] });
-
-  /**
-   * localStorage persistence — keeps the design alive across refreshes.
-   *
-   * Why: photos are already safely uploaded to R2; what disappears on refresh
-   * is the *map* of which photos belong to this design and which slot they
-   * sit in. We persist the small metadata (URLs + slot transforms), not the
-   * actual image bytes. ~10 kB per design, well under the 5 MB cap.
-   *
-   * Schema versioning (v: 1) lets us bump and ignore stale state if we ever
-   * change the shape. Failures (storage disabled, quota full, JSON parse) are
-   * logged and swallowed — the builder keeps working from defaults.
-   *
-   * The "right" answer is server-side persistence in D1 with a cookie-based
-   * design id, which we'll add when login lands. Until then, localStorage
-   * covers ~99% of the "I came back to my design" use case (same browser,
-   * same device).
-   */
-  const LS_KEY = 'folio-design-v1';
-
-  function saveLocalState() {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify({
-        v: 1,
-        uploadedPhotos,
-        spreadData,
-        currentSpread,
-        totalSpreads,
-        currentSize,
-        selectedLayout,
-        savedAt: new Date().toISOString(),
-      }));
-    } catch (e) {
-      // Quota or disabled-storage. Don't crash the app over a save failure.
-      console.warn('Folio: cannot persist design state', e);
-    }
+  // Quick lookup by id — replaces the old integer-index access pattern.
+  function findLayout(id) {
+    return layouts.find(l => l.id === id) || layouts[0];
   }
 
-  function loadLocalState() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return false;
-      const data = JSON.parse(raw);
-      if (!data || data.v !== 1) return false;
-      if (data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
-        uploadedPhotos = data.uploadedPhotos;
-      }
-      if (Array.isArray(data.spreadData) && data.spreadData.length > 0) {
-        spreadData = data.spreadData;
-        totalSpreads = data.spreadData.length;
-      }
-      if (typeof data.currentSpread === 'number') {
-        currentSpread = Math.max(0, Math.min(totalSpreads - 1, data.currentSpread));
-      }
-      if (typeof data.currentSize === 'string' && sizes[data.currentSize]) {
-        currentSize = data.currentSize;
-      }
-      if (typeof data.selectedLayout === 'number') {
-        selectedLayout = Math.max(0, Math.min(layouts.length - 1, data.selectedLayout));
-      }
+  // Returns layouts that match the current binding plus an optional
+  // photoCount filter. Used by renderLayoutPanel and the filter rail.
+  function getVisibleLayouts() {
+    return layouts.filter(l => {
+      if (l.binding !== currentBinding) return false;
+      if (currentPhotoCountFilter !== null && l.photoCount !== currentPhotoCountFilter) return false;
       return true;
-    } catch (e) {
-      console.warn('Folio: cannot restore design state', e);
-      return false;
-    }
-  }
-
-  function rebuildPhotoGrid() {
-    const grid = document.getElementById('photoGrid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    Object.entries(uploadedPhotos).forEach(([id, raw]) => {
-      const src = typeof raw === 'string' ? raw : raw && raw.src;
-      if (src) addThumb(id, src);
     });
-    updatePhotoCount();
   }
 
-  // Restore on script init. Render is deferred — the spread builder isn't
-  // mounted until the user picks "I'll design it", at which point choosePath
-  // calls renderCanvas + rebuildPhotoGrid against the already-restored state.
-  loadLocalState();
+  for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 'lf_2a', slots: [null, null], bg: { type: 'solid', color: '#f8f4ee' } });
 
   function choosePath(type) {
     const intro = document.getElementById('introSection');
     if (intro) intro.style.display = 'none';
     if (type === 'self') {
-      const builder = document.getElementById('builderSection');
-      if (builder) builder.classList.add('active');
-      const submitBtn = document.getElementById('navSubmitBtn');
-      if (submitBtn) submitBtn.style.display = 'block';
-      const saveBtn = document.getElementById('navSaveBtn');
-      if (saveBtn) saveBtn.style.display = 'block';
-      applySizeToCanvas(currentSize);
-      renderLayoutPanel();
-      renderPageStrip();
-      renderCanvas();
-      updateSpreadInfoLabel();
-      // Repopulate the photo sidebar from any restored uploads.
-      rebuildPhotoGrid();
+      // Self-design path detours through the binding picker first.
+      // selectBinding() then opens the actual builder.
+      const binding = document.getElementById('bindingSection');
+      if (binding) binding.classList.add('active');
     } else {
       const expert = document.getElementById('expertSection');
       if (expert) expert.classList.add('active');
     }
+  }
+
+  // Called from the binding-picker cards in page.tsx. type is
+  // 'layflat' | 'hardcover'. Sets the global, swaps the binding section
+  // out, opens the builder, and seeds the layout panel filtered to the
+  // chosen binding type.
+  function selectBinding(type) {
+    if (type !== 'layflat' && type !== 'hardcover') return;
+    currentBinding = type;
+    bindingLocked = false;
+
+    // Reset every spread's layout to a sensible default for the new
+    // binding so we never start with lay-flat-only layouts under a
+    // hardcover binding (or vice versa).
+    const defaultId = type === 'layflat' ? 'lf_2a' : 'hc_2a';
+    selectedLayout = defaultId;
+    spreadData.forEach(s => {
+      s.layoutId = defaultId;
+      s.slots = new Array(findLayout(defaultId).slots).fill(null);
+    });
+
+    const binding = document.getElementById('bindingSection');
+    if (binding) binding.classList.remove('active');
+    const builder = document.getElementById('builderSection');
+    if (builder) builder.classList.add('active');
+    const submitBtn = document.getElementById('navSubmitBtn');
+    if (submitBtn) submitBtn.style.display = 'block';
+    const saveBtn = document.getElementById('navSaveBtn');
+    if (saveBtn) saveBtn.style.display = 'block';
+    const changeBtn = document.getElementById('changeBindingBtn');
+    if (changeBtn) changeBtn.style.display = 'inline-flex';
+    syncBindingLabel();
+
+    applySizeToCanvas(currentSize);
+    renderPhotoCountTabs();
+    renderLayoutPanel();
+    renderPageStrip();
+    renderCanvas();
+    updateSpreadInfoLabel();
+  }
+
+  // The "Change binding" button calls this. If photos are already placed
+  // we warn loudly — switching can change slot geometry and may force
+  // photos to relayout into different positions. Cancellable.
+  function promptBindingChange() {
+    const placedCount = spreadData.reduce(
+      (n, s) => n + s.slots.filter(Boolean).length, 0
+    );
+    if (placedCount > 0) {
+      const ok = confirm(
+        'Switching binding will reset all spread layouts and may unplace photos near the spine.\n\n' +
+        'Your uploads stay in the photo grid. Continue?'
+      );
+      if (!ok) return;
+    }
+    // Send the user back to the binding picker. selectBinding() will
+    // re-seed everything once they pick.
+    const builder = document.getElementById('builderSection');
+    if (builder) builder.classList.remove('active');
+    const binding = document.getElementById('bindingSection');
+    if (binding) binding.classList.add('active');
+  }
+
+  function syncBindingLabel() {
+    const label = document.getElementById('currentBindingLabel');
+    if (!label) return;
+    label.textContent = currentBinding === 'layflat' ? 'Lay-Flat' : 'Hardcover';
+  }
+
+  // Marks the binding as locked once the customer commits a photo. The
+  // lock is advisory — promptBindingChange() still lets them switch, it
+  // just makes them confirm.
+  function _lockBindingNow() {
+    if (bindingLocked) return;
+    bindingLocked = true;
   }
 
   function setSize(sizeKey) {
@@ -174,7 +236,6 @@
       b.classList.toggle('active', b.dataset.size === sizeKey);
     });
     updateSpreadInfoLabel();
-    saveLocalState();
   }
 
   function applySizeToCanvas(sizeKey) {
@@ -186,6 +247,9 @@
     canvas.dataset.size = sizeKey;
     canvas.classList.toggle('is-spread', s.isSpread);
     canvas.classList.toggle('is-single-page', !s.isSpread);
+    // .is-layflat overrides the .is-spread::after gutter line.
+    canvas.classList.toggle('is-layflat', currentBinding === 'layflat');
+    canvas.classList.toggle('is-hardcover', currentBinding === 'hardcover');
   }
 
   function updateSpreadInfoLabel() {
@@ -195,62 +259,124 @@
     info.textContent = unit + ' ' + (currentSpread + 1) + ' of ' + totalSpreads;
   }
 
+  // Render the photo-count filter tabs above the layout list. Six options
+  // (1–6) plus an "Any" reset. Click flips currentPhotoCountFilter then
+  // re-renders the list below.
+  function renderPhotoCountTabs() {
+    const tabs = document.getElementById('photoCountTabs');
+    if (!tabs) return;
+    tabs.innerHTML = '';
+    const opts = [
+      { label: 'Any', val: null },
+      { label: '1', val: 1 },
+      { label: '2', val: 2 },
+      { label: '3', val: 3 },
+      { label: '4', val: 4 },
+      { label: '5', val: 5 },
+      { label: '6', val: 6 }
+    ];
+    opts.forEach(o => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pc-tab' + (currentPhotoCountFilter === o.val ? ' active' : '');
+      b.textContent = o.label;
+      b.onclick = () => {
+        currentPhotoCountFilter = o.val;
+        renderPhotoCountTabs();
+        renderLayoutPanel();
+      };
+      tabs.appendChild(b);
+    });
+  }
+
+  // Build a small visual preview thumbnail showing where each slot sits.
+  // Honors slotAreas for non-rectangular spans so the thumb actually looks
+  // like the spread will look.
+  function buildLayoutPreviewMarkup(l) {
+    const preview = document.createElement('div');
+    preview.className = 'layout-preview';
+    preview.style.gridTemplateColumns = l.cols;
+    preview.style.gridTemplateRows = l.rows;
+    if (l.slotAreas && l.slotAreas.length) {
+      l.slotAreas.forEach(area => {
+        const cell = document.createElement('div');
+        cell.className = 'lp-cell';
+        cell.style.gridArea = area;
+        preview.appendChild(cell);
+      });
+    } else {
+      for (let i = 0; i < l.slots; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'lp-cell';
+        preview.appendChild(cell);
+      }
+    }
+    return preview;
+  }
+
   function renderLayoutPanel() {
     const c = document.getElementById('layoutScroll');
     if (!c) return;
     c.innerHTML = '';
-    const groups = [
-      { label: 'Single Photo', from: 0, to: 0 },
-      { label: 'Two Photos',   from: 1, to: 3 },
-      { label: 'Three Photos', from: 4, to: 6 },
-      { label: 'More Photos',  from: 7, to: 9 }
-    ];
-    groups.forEach(g => {
-      const title = document.createElement('span');
-      title.className = 'layout-section-title';
-      title.textContent = g.label;
-      c.appendChild(title);
-      for (let i = g.from; i <= g.to; i++) {
-        const l = layouts[i];
-        const div = document.createElement('div');
-        div.className = 'layout-thumb' + (i === selectedLayout ? ' active' : '');
-        div.onclick = () => applyLayout(i);
-        const preview = document.createElement('div');
-        preview.className = 'layout-preview';
-        preview.style.gridTemplateColumns = l.cols;
-        preview.style.gridTemplateRows = l.rows;
-        const colCount = l.cols.split(' ').length;
-        const rowCount = l.rows.split(' ').length;
-        for (let x = 0; x < colCount * rowCount; x++) {
-          const cell = document.createElement('div');
-          cell.className = 'lp-cell';
-          preview.appendChild(cell);
-        }
-        div.appendChild(preview);
-        const name = document.createElement('span');
-        name.className = 'layout-name';
-        name.textContent = l.name;
-        div.appendChild(name);
-        c.appendChild(div);
-      }
-    });
+    const visible = getVisibleLayouts();
+    if (!visible.length) {
+      const empty = document.createElement('p');
+      empty.className = 'layout-empty';
+      empty.textContent = 'No layouts for that count yet — try another.';
+      c.appendChild(empty);
+      return;
+    }
+    // Group by photoCount when "Any" is active so the rail still has structure.
+    if (currentPhotoCountFilter === null) {
+      const groups = [1, 2, 3, 4, 5, 6];
+      groups.forEach(n => {
+        const inGroup = visible.filter(l => l.photoCount === n);
+        if (!inGroup.length) return;
+        const title = document.createElement('span');
+        title.className = 'layout-section-title';
+        title.textContent = n + (n === 1 ? ' Photo' : ' Photos');
+        c.appendChild(title);
+        inGroup.forEach(l => c.appendChild(buildLayoutThumb(l)));
+      });
+    } else {
+      visible.forEach(l => c.appendChild(buildLayoutThumb(l)));
+    }
+  }
+
+  function buildLayoutThumb(l) {
+    const div = document.createElement('div');
+    div.className = 'layout-thumb' + (l.id === selectedLayout ? ' active' : '');
+    div.dataset.layoutId = l.id;
+    div.onclick = () => applyLayout(l.id);
+    div.appendChild(buildLayoutPreviewMarkup(l));
+    const name = document.createElement('span');
+    name.className = 'layout-name';
+    name.textContent = l.name;
+    div.appendChild(name);
+    return div;
   }
 
   function applyLayout(layoutId) {
-    selectedLayout = layoutId;
-    const l = layouts[layoutId];
+    const l = findLayout(layoutId);
+    if (!l) return;
+    selectedLayout = l.id;
     const spread = spreadData[currentSpread];
     const old = [...spread.slots];
-    spread.layoutId = layoutId;
+    spread.layoutId = l.id;
     spread.slots = new Array(l.slots).fill(null);
+    // Auto-flow existing photos into the new slots in original order;
+    // anything past the new slot count drops back to the photo grid
+    // (it stays in uploadedPhotos, just no longer placed).
     for (let i = 0; i < Math.min(old.length, l.slots); i++) spread.slots[i] = old[i];
     renderCanvas();
-    document.querySelectorAll('.layout-thumb').forEach((el, i) => el.classList.toggle('active', i === layoutId));
+    document.querySelectorAll('.layout-thumb').forEach(el => {
+      el.classList.toggle('active', el.dataset.layoutId === l.id);
+    });
   }
 
   function renderCanvas() {
     const spread = spreadData[currentSpread];
-    const l = layouts[spread.layoutId];
+    const l = findLayout(spread.layoutId);
     const slotsDiv = document.getElementById('layoutSlots');
     if (!slotsDiv) return;
     slotsDiv.style.gridTemplateColumns = l.cols;
@@ -262,6 +388,11 @@
       const slot = document.createElement('div');
       slot.className = 'photo-slot';
       slot.dataset.idx = idx;
+      // If the layout defines slotAreas, pin each slot to its grid area
+      // so non-rectangular spans (feature + small grid, etc.) work.
+      if (l.slotAreas && l.slotAreas[idx]) {
+        slot.style.gridArea = l.slotAreas[idx];
+      }
       slot.ondragover = e => { e.preventDefault(); slot.classList.add('drag-over'); };
       slot.ondragleave = () => slot.classList.remove('drag-over');
       slot.ondrop = e => { e.preventDefault(); slot.classList.remove('drag-over'); dropPhoto(idx); };
@@ -312,11 +443,30 @@
 
     if (canvas) {
       existingTexts.forEach(t => canvas.appendChild(t));
-      canvas.style.background = spreadData[currentSpread].bgColor || '#f8f4ee';
+      applyBackgroundToCanvas(canvas, spread);
       canvas.style.transform = 'scale(' + zoomLevel + ')';
     }
     updateSpreadInfoLabel();
     updatePageStrip();
+  }
+
+  // Renders the spread bg from the new bg model.
+  //   { type: 'solid', color }                            → flat color
+  //   { type: 'photo', photoSrc, fade: 0..1 }             → photo with white-fade overlay
+  // Fall back to the legacy `bgColor` field if the new shape isn't set.
+  function applyBackgroundToCanvas(canvas, spread) {
+    const bg = spread.bg || { type: 'solid', color: spread.bgColor || '#f8f4ee' };
+    // Normalize legacy shape on the fly so saves stay clean.
+    spread.bg = bg;
+    if (bg.type === 'photo' && bg.photoSrc) {
+      const fade = Math.max(0, Math.min(1, bg.fade ?? 0.6));
+      // Layered: white wash on top of the photo. Higher fade → more white.
+      canvas.style.background =
+        'linear-gradient(rgba(255,255,255,' + fade + '), rgba(255,255,255,' + fade + ')), ' +
+        'url("' + bg.photoSrc + '") center / cover no-repeat';
+    } else {
+      canvas.style.background = bg.color || '#f8f4ee';
+    }
   }
 
   function applyImgTransform(img, d) {
@@ -542,20 +692,168 @@
     btn.classList.add('active');
   }
 
-  // ── BACKGROUND COLOR ──
+  // ── BACKGROUND ──
+  // Three modes live in the same panel; switched via tabs.
+  //   solid → curated swatches + custom hex
+  //   photo → backdrop image (one of the uploads) + white-fade slider
+  // Each spread carries its own bg object so navigating spreads restores
+  // whatever the customer set there.
   function toggleBgPicker() {
     const bg = document.getElementById('bgPicker');
     const fs = document.getElementById('filterStrip');
     if (bg) bg.classList.toggle('open');
     if (fs) fs.classList.remove('open');
+    if (bg && bg.classList.contains('open')) renderBgPanel();
   }
-  function setBgColor(color, swatch) {
+
+  // Render the bg panel from the active spread's bg state. Called on open
+  // and after any sub-control change so tabs/swatches/sliders stay in sync
+  // when navigating between spreads.
+  function renderBgPanel() {
+    const panel = document.getElementById('bgPicker');
+    if (!panel) return;
+    const spread = spreadData[currentSpread];
+    const bg = spread.bg || (spread.bg = { type: 'solid', color: '#f8f4ee' });
+    const mode = bg.type;
+
+    panel.innerHTML = '';
+
+    // Tabs
+    const tabs = document.createElement('div');
+    tabs.className = 'bg-tabs';
+    [['solid', 'Solid'], ['photo', 'Photo Backdrop']].forEach(([key, label]) => {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.className = 'bg-tab' + (mode === key ? ' active' : '');
+      t.textContent = label;
+      t.onclick = () => setBgMode(key);
+      tabs.appendChild(t);
+    });
+    panel.appendChild(tabs);
+
+    if (mode === 'solid') {
+      const row = document.createElement('div');
+      row.className = 'bg-tab-body';
+      const swatches = [
+        { color: '#f8f4ee', title: 'Cream' },
+        { color: '#ffffff', title: 'White' },
+        { color: '#0e0c09', title: 'Black' },
+        { color: '#1a1610', title: 'Dark' },
+        { color: '#2a2218', title: 'Dark Brown' },
+        { color: '#b8965a', title: 'Gold' },
+        { color: '#e8d5b0', title: 'Light Cream' },
+        { color: '#2c2c2c', title: 'Charcoal' },
+        { color: '#4a3728', title: 'Walnut' }
+      ];
+      swatches.forEach(s => {
+        const sw = document.createElement('div');
+        sw.className = 'bg-swatch' + ((bg.color || '').toLowerCase() === s.color.toLowerCase() ? ' active' : '');
+        sw.style.background = s.color;
+        sw.title = s.title;
+        sw.onclick = () => setBgColor(s.color);
+        row.appendChild(sw);
+      });
+      // Custom hex slot — small input that accepts #rrggbb.
+      const customWrap = document.createElement('label');
+      customWrap.className = 'bg-custom';
+      customWrap.title = 'Custom hex (e.g. #b8965a)';
+      const swCustom = document.createElement('div');
+      swCustom.className = 'bg-swatch bg-swatch-custom';
+      swCustom.style.background = bg.color && bg.color.startsWith('#') ? bg.color : 'conic-gradient(red, orange, yellow, green, blue, indigo, violet, red)';
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.value = (bg.color && /^#([0-9a-f]{6})$/i.test(bg.color)) ? bg.color : '#b8965a';
+      inp.onchange = e => setBgColor(e.target.value);
+      customWrap.appendChild(swCustom);
+      customWrap.appendChild(inp);
+      row.appendChild(customWrap);
+      panel.appendChild(row);
+    } else if (mode === 'photo') {
+      const body = document.createElement('div');
+      body.className = 'bg-tab-body bg-photo-body';
+      const photoIds = Object.keys(uploadedPhotos);
+      if (!photoIds.length) {
+        const hint = document.createElement('p');
+        hint.className = 'bg-photo-hint';
+        hint.textContent = 'Upload photos first — then pick one as the backdrop.';
+        body.appendChild(hint);
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'bg-photo-grid';
+        photoIds.forEach(id => {
+          const src = typeof uploadedPhotos[id] === 'object' ? uploadedPhotos[id].src : uploadedPhotos[id];
+          const t = document.createElement('div');
+          t.className = 'bg-photo-thumb' + (bg.photoSrc === src ? ' active' : '');
+          t.style.backgroundImage = 'url("' + src + '")';
+          t.onclick = () => setBgPhoto(src);
+          grid.appendChild(t);
+        });
+        body.appendChild(grid);
+
+        const fadeWrap = document.createElement('div');
+        fadeWrap.className = 'bg-fade-wrap';
+        const fadeLabel = document.createElement('span');
+        fadeLabel.className = 'bg-fade-label';
+        const initialFade = Math.round(((bg.fade ?? 0.6) * 100));
+        fadeLabel.textContent = 'White fade: ' + initialFade + '%';
+        const fadeInput = document.createElement('input');
+        fadeInput.type = 'range';
+        fadeInput.min = 0;
+        fadeInput.max = 100;
+        fadeInput.step = 1;
+        fadeInput.value = initialFade;
+        fadeInput.oninput = e => {
+          const v = parseInt(e.target.value, 10);
+          fadeLabel.textContent = 'White fade: ' + v + '%';
+          setBgFade(v / 100);
+        };
+        fadeWrap.appendChild(fadeLabel);
+        fadeWrap.appendChild(fadeInput);
+        body.appendChild(fadeWrap);
+      }
+      panel.appendChild(body);
+    }
+  }
+
+  function setBgMode(mode) {
     saveHistory();
-    spreadData[currentSpread].bgColor = color;
-    document.querySelectorAll('.bg-swatch').forEach(s => s.classList.remove('active'));
-    swatch.classList.add('active');
-    const c = document.getElementById('spreadCanvas');
-    if (c) c.style.background = color;
+    const spread = spreadData[currentSpread];
+    if (mode === 'solid') {
+      spread.bg = { type: 'solid', color: (spread.bg && spread.bg.color) || '#f8f4ee' };
+    } else if (mode === 'photo') {
+      spread.bg = {
+        type: 'photo',
+        photoSrc: (spread.bg && spread.bg.photoSrc) || '',
+        fade: (spread.bg && spread.bg.fade) ?? 0.6
+      };
+    }
+    renderBgPanel();
+    renderCanvas();
+  }
+
+  function setBgColor(color) {
+    saveHistory();
+    const spread = spreadData[currentSpread];
+    spread.bg = { type: 'solid', color: color };
+    renderBgPanel();
+    renderCanvas();
+  }
+
+  function setBgPhoto(src) {
+    saveHistory();
+    const spread = spreadData[currentSpread];
+    const fade = (spread.bg && spread.bg.fade) ?? 0.6;
+    spread.bg = { type: 'photo', photoSrc: src, fade: fade };
+    renderBgPanel();
+    renderCanvas();
+  }
+
+  function setBgFade(fade) {
+    const spread = spreadData[currentSpread];
+    if (!spread.bg || spread.bg.type !== 'photo') return;
+    spread.bg.fade = fade;
+    // No history push on every tick — only renderCanvas.
+    renderCanvas();
   }
 
   // ── TEXT OVERLAY ──
@@ -590,29 +888,23 @@
   }
 
   // ── UNDO / REDO ──
-  // saveHistory/doUndo/doRedo all funnel through saveLocalState so the
-  // localStorage snapshot stays in sync with whatever state the user
-  // can see on the canvas.
   let history = [], future = [];
   function saveHistory() {
     history.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     if (history.length > 30) history.shift();
     future = [];
-    saveLocalState();
   }
   function doUndo() {
     if (!history.length) return;
     future.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(history.pop());
     renderCanvas();
-    saveLocalState();
   }
   function doRedo() {
     if (!future.length) return;
     history.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(future.pop());
     renderCanvas();
-    saveLocalState();
   }
 
   /**
@@ -760,11 +1052,6 @@
         uploadedPhotos[id] = src;
         replacePlaceholderWithThumb(tmpId, id, src);
         updatePhotoCount();
-        // Persist the upload immediately. saveLocalState inside
-        // replacePlaceholderWithThumb only runs on the happy DOM path
-        // (placeholder thumb still present); pulling it up here means
-        // we record the new photo even if the DOM was disrupted.
-        saveLocalState();
         return { id, src };
       })
       .catch(err => {
@@ -784,6 +1071,7 @@
       uploadOne(file).then(({ src }) => {
         saveHistory();
         spreadData[currentSpread].slots[idx] = { src, px: 0, py: 0, scale: 1, rotate: 0, flipX: false, flipY: false, filter: '' };
+        _lockBindingNow();
         renderCanvas();
       }).catch(() => {});
     };
@@ -797,6 +1085,7 @@
     const raw = uploadedPhotos[draggedPhotoId];
     const src = typeof raw === 'object' ? raw.src : raw;
     spreadData[currentSpread].slots[idx] = { src, px: 0, py: 0, scale: 1, rotate: 0, flipX: false, flipY: false, filter: '' };
+    _lockBindingNow();
     renderCanvas();
     draggedPhotoId = null;
   }
@@ -855,8 +1144,6 @@
     t.draggable = true;
     t.ondragstart = e => dragPhoto(e, id);
     t.innerHTML = '<img src="' + src + '" alt=""><div class="thumb-overlay">Drag</div>';
-    // Persist the new photo so it's still in the grid after refresh.
-    saveLocalState();
   }
 
   function markPlaceholderError(tmpId, fileName, errMsg, file) {
@@ -916,7 +1203,7 @@
     for (let i = 0; i < totalSpreads; i++) {
       const m = document.createElement('div');
       m.className = 'page-mini' + (i === currentSpread ? ' active' : '');
-      m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); saveLocalState(); };
+      m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); };
       m.innerHTML = (i + 1) + '<span class="page-mini-num">Spread ' + (i + 1) + '</span>';
       strip.appendChild(m);
     }
@@ -925,13 +1212,16 @@
     add.innerHTML = '+';
     add.title = 'Add spread';
     add.onclick = () => {
-      const l = layouts[selectedLayout];
-      spreadData.push({ layoutId: selectedLayout, slots: new Array(l.slots).fill(null) });
+      const l = findLayout(selectedLayout);
+      spreadData.push({
+        layoutId: l.id,
+        slots: new Array(l.slots).fill(null),
+        bg: { type: 'solid', color: '#f8f4ee' }
+      });
       totalSpreads++;
       renderPageStrip();
       currentSpread = totalSpreads - 1;
       renderCanvas();
-      saveLocalState();
     };
     strip.appendChild(add);
   }
@@ -945,7 +1235,6 @@
       selectedLayout = spreadData[currentSpread].layoutId;
       renderCanvas();
       renderLayoutPanel();
-      saveLocalState();
     }
   }
   function nextSpread() {
@@ -954,7 +1243,6 @@
       selectedLayout = spreadData[currentSpread].layoutId;
       renderCanvas();
       renderLayoutPanel();
-      saveLocalState();
     }
   }
   function zoom(d) {
@@ -973,8 +1261,36 @@
     const m = document.getElementById('modalOverlay');
     if (m) m.classList.remove('open');
   }
+  // Generate a short, human-readable order id. Local-only — server-side
+  // ids will replace this once /api/submit-order lands.
+  function _newOrderId() {
+    return 'FF-' + Date.now().toString(36).toUpperCase() +
+      '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+  }
+
+  // Lock the designer for further edits. localStorage is the authoritative
+  // lock — on next /design load the React shell reads this flag and shows
+  // the SubmittedView instead of the designer UI.
+  function _lockAfterSubmit(orderId) {
+    try {
+      localStorage.setItem('folio-submitted', JSON.stringify({
+        orderId: orderId,
+        submittedAt: new Date().toISOString()
+      }));
+    } catch (e) { /* private mode / disabled — fail silently */ }
+    try {
+      window.dispatchEvent(new CustomEvent('folio:submitted', {
+        detail: { orderId: orderId }
+      }));
+    } catch (e) { /* old browser — lock still applies on next reload */ }
+    var idEl = document.getElementById('successOrderId');
+    if (idEl) idEl.textContent = orderId;
+  }
+
   function submitOrder() {
     closeModal();
+    var orderId = _newOrderId();
+    _lockAfterSubmit(orderId);
     const s = document.getElementById('successOverlay');
     if (s) s.classList.add('open');
   }
@@ -982,6 +1298,8 @@
     const e = document.getElementById('expertSection');
     const s = document.getElementById('successOverlay');
     if (e) e.style.display = 'none';
+    var orderId = _newOrderId();
+    _lockAfterSubmit(orderId);
     if (s) s.classList.add('open');
   }
   function expertUploadHandle(e) {
@@ -990,570 +1308,49 @@
   }
 
   function serializeDesign() {
-    // Cover state lives in the React cover-builder component (separate
-    // from this script) and is mirrored onto window.__coverState by
-    // /design/page.tsx every render. The viewer at /album/[token] needs
-    // it to render the cover face — without this, the share link would
-    // open with no cover image / no text / no leather color.
-    let cover = null;
-    try {
-      if (typeof window !== 'undefined' && window.__coverState) {
-        cover = window.__coverState;
-      }
-    } catch (_) { /* ignore — non-blocking */ }
     return {
-      version: 1,
+      version: 2,
+      binding: currentBinding,
       size: currentSize,
       totalSpreads,
       spreadData,
       uploadedPhotos,
-      cover,
-      // Customer info captured by the email-gate modal at design start.
-      // Server stores it alongside the design so we know who owns each
-      // share token. Empty when user skipped the gate.
-      customer: getStoredCustomer() || null,
       savedAt: new Date().toISOString()
     };
   }
 
-  /**
-   * showEmailGate — captures customer email before they start designing.
-   *
-   * Why a soft gate (skippable) rather than hard block:
-   *   - Hard blocking before the design tool is seen tanks conversion
-   *   - But asking AFTER they've designed for 20 min is a friction spike
-   *     at the worst moment (they just want to save)
-   *   - Compromise: ask up-front with clear value ("we'll email you your
-   *     design link so you can come back later"), but allow Skip
-   *
-   * Captured email lives in localStorage (folio-customer-v1) and is also
-   * included in the /api/designs POST payload so the server knows who
-   * owns each saved design. Future: Resend will send them an email with
-   * their share link automatically when they hit Save & Share.
-   */
-  const CUSTOMER_LS_KEY = 'folio-customer-v1';
-
-  function getStoredCustomer() {
-    try {
-      const raw = localStorage.getItem(CUSTOMER_LS_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch { return null; }
-  }
-  function setStoredCustomer(data) {
-    try {
-      localStorage.setItem(CUSTOMER_LS_KEY, JSON.stringify({ v: 1, ...data, savedAt: new Date().toISOString() }));
-    } catch (_) { /* storage disabled */ }
-  }
-
-  function showEmailGate() {
-    if (getStoredCustomer()) return; // already captured
-    // If the URL has a ?d=<token>, the user is opening a saved/shared
-    // design — they're not starting a new project. Don't ask for email
-    // again. The original customer's email is already on the design,
-    // and a viewer (e.g. a photographer the customer shared with) should
-    // not be forced to hand over theirs just to look at the album.
-    if (typeof window !== 'undefined' && /[?&]d=[a-f0-9]{8,64}/i.test(window.location.search || '')) {
-      return;
-    }
-
-    const overlay = document.createElement('div');
-    overlay.id = 'folio-email-gate';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.style.cssText = [
-      'position:fixed', 'inset:0', 'z-index:9998',
-      'background:rgba(14,12,9,0.9)',
-      'backdrop-filter:blur(6px)', '-webkit-backdrop-filter:blur(6px)',
-      'display:flex', 'align-items:center', 'justify-content:center',
-      'padding:20px',
-    ].join(';');
-
-    const card = document.createElement('div');
-    card.style.cssText = [
-      'background:#1a1610', 'color:#f0e4ce',
-      'border:0.5px solid rgba(184,150,90,0.25)',
-      'border-radius:14px', 'padding:36px 30px 28px',
-      'max-width:440px', 'width:100%',
-      'box-shadow:0 30px 80px rgba(0,0,0,0.6)',
-      'font-family:var(--font-body, system-ui, sans-serif)',
-    ].join(';');
-
-    const tag = document.createElement('div');
-    tag.textContent = 'Before you begin';
-    tag.style.cssText = 'font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:10px';
-
-    const title = document.createElement('div');
-    title.innerHTML = 'Where should we send<br>your design link?';
-    title.style.cssText = [
-      'font-family:var(--font-display, "Cormorant Garamond", serif)',
-      'font-size:26px', 'line-height:1.2',
-      'color:#f0e4ce', 'margin-bottom:10px',
-    ].join(';');
-
-    const desc = document.createElement('div');
-    desc.textContent = 'Your design auto-saves while you work. We email you a link so you can come back to it from any device, any time.';
-    desc.style.cssText = 'font-size:12px;line-height:1.7;color:#a89a82;margin-bottom:22px';
-
-    const inputStyle = [
-      'width:100%', 'box-sizing:border-box',
-      'background:#0e0c09',
-      'border:0.5px solid rgba(184,150,90,0.3)', 'border-radius:6px',
-      'padding:12px 14px', 'color:#f0e4ce',
-      'font-size:13px', 'font-family:inherit',
-      'outline:none', 'margin-bottom:10px',
-    ].join(';');
-
-    const emailLabel = document.createElement('div');
-    emailLabel.textContent = 'Email';
-    emailLabel.style.cssText = 'font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a89a82;margin-bottom:6px';
-    const emailInput = document.createElement('input');
-    emailInput.type = 'email';
-    emailInput.placeholder = 'you@example.com';
-    emailInput.required = true;
-    emailInput.style.cssText = inputStyle;
-
-    const nameLabel = document.createElement('div');
-    nameLabel.innerHTML = 'Name <span style="opacity:0.5">(optional)</span>';
-    nameLabel.style.cssText = 'font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#a89a82;margin-bottom:6px';
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.placeholder = 'Sarah';
-    nameInput.style.cssText = inputStyle;
-
-    const errorMsg = document.createElement('div');
-    errorMsg.style.cssText = 'font-size:11px;color:#ff6b6b;margin-bottom:10px;min-height:16px';
-
-    const submitBtn = document.createElement('button');
-    submitBtn.type = 'button';
-    submitBtn.textContent = 'Continue to designer →';
-    submitBtn.style.cssText = [
-      'width:100%', 'background:#b8965a', 'color:#0e0c09',
-      'border:none', 'border-radius:30px',
-      'padding:14px', 'font-size:11px',
-      'letter-spacing:2px', 'text-transform:uppercase',
-      'cursor:pointer', 'font-weight:600',
-      'margin-top:6px',
-    ].join(';');
-
-    function submit() {
-      const email = emailInput.value.trim();
-      if (!email) { errorMsg.textContent = 'Email is required'; emailInput.focus(); return; }
-      // Loose RFC check — server will validate properly later
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        errorMsg.textContent = 'That email looks off — please double-check';
-        emailInput.focus();
-        return;
-      }
-      setStoredCustomer({ email, name: nameInput.value.trim() });
-      overlay.remove();
-    }
-
-    submitBtn.onclick = submit;
-    emailInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
-    nameInput.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
-
-    const skipLink = document.createElement('a');
-    skipLink.href = '#';
-    skipLink.textContent = 'Skip — I’ll add my email later';
-    skipLink.style.cssText = [
-      'display:block', 'text-align:center',
-      'font-size:10px', 'letter-spacing:1px',
-      'color:#a89a82', 'text-decoration:none',
-      'margin-top:14px', 'opacity:0.7',
-    ].join(';');
-    skipLink.onclick = (e) => {
-      e.preventDefault();
-      // Mark as deferred so we don't keep nagging — but with no email value
-      setStoredCustomer({ email: '', name: '', deferred: true });
-      overlay.remove();
-    };
-
-    const privacy = document.createElement('div');
-    privacy.textContent = 'We never share your email. No marketing — only your saved designs and order updates.';
-    privacy.style.cssText = 'font-size:10px;color:#7a6f5b;text-align:center;margin-top:14px;line-height:1.5';
-
-    card.appendChild(tag);
-    card.appendChild(title);
-    card.appendChild(desc);
-    card.appendChild(emailLabel);
-    card.appendChild(emailInput);
-    card.appendChild(nameLabel);
-    card.appendChild(nameInput);
-    card.appendChild(errorMsg);
-    card.appendChild(submitBtn);
-    card.appendChild(skipLink);
-    card.appendChild(privacy);
-    overlay.appendChild(card);
-    document.body.appendChild(overlay);
-
-    setTimeout(() => emailInput.focus(), 50);
-  }
-
-  // Show the gate as soon as the script runs. If it's already captured,
-  // showEmailGate is a no-op (early return).
-  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', showEmailGate);
-    } else {
-      showEmailGate();
-    }
-  }
-
-  /**
-   * showShareModal — vanilla-JS overlay shown after a successful Save.
-   *
-   * Why a custom modal instead of window.prompt: prompt can only show one
-   * label + one input, no buttons, ugly mobile keyboard pop-up. The custom
-   * modal gives Copy / Email / WhatsApp side-by-side, and lets us use
-   * neutral wording (Save & Share is shown to both couples designing for
-   * themselves AND photographers designing for their couples — saying
-   * "share with your client" assumes the photographer audience).
-   *
-   * Built inline so we don't need a separate modal component or CSS file.
-   * Cleans itself up on close. Esc key + backdrop click both dismiss.
-   */
-  function showShareModal(url, token) {
-    // Tear down any previous instance to avoid stacking.
-    const prev = document.getElementById('folio-share-modal');
-    if (prev) prev.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'folio-share-modal';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.style.cssText = [
-      'position:fixed', 'inset:0', 'z-index:9999',
-      'background:rgba(14,12,9,0.78)',
-      'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
-      'display:flex', 'align-items:center', 'justify-content:center',
-      'padding:20px',
-    ].join(';');
-
-    const card = document.createElement('div');
-    card.style.cssText = [
-      'background:#1a1610', 'color:#f0e4ce',
-      'border:0.5px solid rgba(184,150,90,0.25)',
-      'border-radius:14px', 'padding:32px 28px',
-      'max-width:460px', 'width:100%',
-      'box-shadow:0 30px 80px rgba(0,0,0,0.6)',
-      'font-family:var(--font-body, system-ui, sans-serif)',
-    ].join(';');
-
-    const tag = document.createElement('div');
-    tag.textContent = 'Saved';
-    tag.style.cssText = [
-      'font-size:9px', 'letter-spacing:3px', 'text-transform:uppercase',
-      'color:#b8965a', 'margin-bottom:10px',
-    ].join(';');
-
-    const title = document.createElement('div');
-    title.textContent = 'Your design is saved';
-    title.style.cssText = [
-      'font-family:var(--font-display, "Cormorant Garamond", serif)',
-      'font-size:24px', 'color:#f0e4ce', 'margin-bottom:8px',
-    ].join(';');
-
-    const desc = document.createElement('div');
-    desc.textContent = 'Open this link on any device to come back to it. The link works for 60 days.';
-    desc.style.cssText = [
-      'font-size:12px', 'line-height:1.7', 'color:#a89a82',
-      'margin-bottom:18px',
-    ].join(';');
-
-    const linkRow = document.createElement('div');
-    linkRow.style.cssText = 'display:flex;gap:6px;margin-bottom:14px';
-
-    const linkInput = document.createElement('input');
-    linkInput.type = 'text';
-    linkInput.value = url;
-    linkInput.readOnly = true;
-    linkInput.style.cssText = [
-      'flex:1', 'background:#0e0c09',
-      'border:0.5px solid rgba(184,150,90,0.3)', 'border-radius:6px',
-      'padding:10px 12px', 'color:#f0e4ce', 'font-size:11px',
-      'font-family:ui-monospace, SFMono-Regular, monospace',
-      'outline:none',
-    ].join(';');
-    linkInput.onclick = () => linkInput.select();
-
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.textContent = 'Copy';
-    copyBtn.style.cssText = [
-      'background:#b8965a', 'color:#0e0c09', 'border:none',
-      'border-radius:6px', 'padding:10px 16px',
-      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
-      'cursor:pointer', 'font-weight:600',
-    ].join(';');
-    copyBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(url);
-        copyBtn.textContent = 'Copied ✓';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      } catch (_) {
-        linkInput.select();
-        document.execCommand('copy');
-        copyBtn.textContent = 'Copied ✓';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
-      }
-    };
-
-    linkRow.appendChild(linkInput);
-    linkRow.appendChild(copyBtn);
-
-    // Share buttons row
-    const shareRow = document.createElement('div');
-    shareRow.style.cssText = 'display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap';
-
-    const shareSubject = encodeURIComponent('My album design — Folio & Forever');
-    const shareBody = encodeURIComponent(
-      'Here is the link to my album design:\n\n' + url +
-      '\n\nClick to view it on any device.',
-    );
-    const waText = encodeURIComponent('My album design: ' + url);
-
-    const emailBtn = document.createElement('a');
-    emailBtn.href = 'mailto:?subject=' + shareSubject + '&body=' + shareBody;
-    emailBtn.textContent = '✉  Email this link';
-    emailBtn.style.cssText = [
-      'flex:1', 'min-width:140px',
-      'background:transparent', 'color:#b8965a',
-      'border:0.5px solid rgba(184,150,90,0.4)', 'border-radius:6px',
-      'padding:10px 14px', 'text-align:center',
-      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
-      'text-decoration:none', 'cursor:pointer',
-    ].join(';');
-
-    const waBtn = document.createElement('a');
-    waBtn.href = 'https://wa.me/?text=' + waText;
-    waBtn.target = '_blank';
-    waBtn.rel = 'noopener';
-    waBtn.textContent = 'WhatsApp';
-    waBtn.style.cssText = emailBtn.style.cssText;
-
-    shareRow.appendChild(emailBtn);
-    shareRow.appendChild(waBtn);
-
-    // ---------- Auto-email status line ----------
-    // Save & Share auto-fires /api/notify-order in customer-only mode so
-    // the customer gets the share link in their inbox without an extra
-    // click. The status line below the buttons confirms the send (or
-    // explains the failure). The owner email (noorktransports@gmail.com)
-    // is NOT fired here — that goes out on actual payment, otherwise
-    // every draft save would look like a new order.
-    const orderStatus = document.createElement('div');
-    orderStatus.style.cssText = [
-      'font-size:11px', 'line-height:1.6', 'color:#a89a82',
-      'margin-bottom:14px', 'min-height:14px', 'text-align:center',
-    ].join(';');
-
-    const closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.textContent = 'Done';
-    closeBtn.style.cssText = [
-      'width:100%', 'background:transparent',
-      'color:#a89a82', 'border:0.5px solid rgba(184,150,90,0.2)',
-      'border-radius:30px', 'padding:10px',
-      'font-size:10px', 'letter-spacing:2px', 'text-transform:uppercase',
-      'cursor:pointer',
-    ].join(';');
-    closeBtn.onclick = () => overlay.remove();
-
-    card.appendChild(tag);
-    card.appendChild(title);
-    card.appendChild(desc);
-    card.appendChild(linkRow);
-    card.appendChild(shareRow);
-    card.appendChild(orderStatus);
-    card.appendChild(closeBtn);
-
-    // ---------- Auto-fire the customer email ----------
-    // Runs in parallel with the modal showing. Status line above gets
-    // updated when it resolves. Failures are non-blocking — the share
-    // link is already in the modal, the email is a bonus.
-    (async () => {
-      if (!token) return;
-      const stored =
-        (typeof getStoredCustomer === 'function' && getStoredCustomer()) || {};
-      const customerEmail = (stored && stored.email) || '';
-      const customerName = (stored && stored.name) || '';
-      if (!customerEmail) {
-        orderStatus.textContent =
-          'Tip: enter your email next time and we’ll send this link to your inbox.';
-        return;
-      }
-      orderStatus.textContent = 'Sending the link to ' + customerEmail + '…';
-      try {
-        const res = await fetch('/api/notify-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token,
-            customerEmail,
-            customerName,
-            mode: 'save',
-          }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data && data.error ? data.error : 'HTTP ' + res.status);
-        }
-        orderStatus.style.color = '#9ec79a';
-        orderStatus.textContent = '✓ Sent to ' + customerEmail;
-      } catch (err) {
-        orderStatus.style.color = '#cf6a6a';
-        orderStatus.textContent =
-          'Could not email the link (' +
-          (err && err.message ? err.message : 'unknown') +
-          ') — you can still copy or share it above.';
-      }
-    })();
-    overlay.appendChild(card);
-
-    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-    const escListener = (e) => {
-      if (e.key === 'Escape') {
-        overlay.remove();
-        document.removeEventListener('keydown', escListener);
-      }
-    };
-    document.addEventListener('keydown', escListener);
-
-    document.body.appendChild(overlay);
-    // Auto-select the URL so screen readers / paste-keyboards get it.
-    setTimeout(() => linkInput.select(), 50);
-  }
-
-  /**
-   * Save & Share — POSTs the full design state to /api/designs which
-   * stores it in Cloudflare KV (binding DESIGN_DRAFTS) and returns a
-   * shareable token. The user gets a URL like
-   *   https://folioforever.com/design?d=ab12cd34
-   * which they can paste into chat / email / their own site. Opening
-   * that URL on any device pulls the design back via /api/designs/[token].
-   *
-   * 60-day TTL — abandoned designs auto-purge.
-   *
-   * Falls back to a localStorage-only save if the network call fails
-   * (offline, server down) so the user doesn't lose their work.
-   */
   async function saveDesign(opts) {
     opts = opts || {};
     const btn = opts.buttonEl;
-    if (btn) {
-      btn.disabled = true;
-      btn.dataset.origLabel = btn.textContent;
-      btn.textContent = 'Saving…';
-    }
-    // Always update localStorage as a fast-path / offline backup.
-    saveLocalState();
+    if (btn) { btn.disabled = true; btn.dataset.origLabel = btn.textContent; btn.textContent = 'Saving…'; }
     try {
       const res = await fetch('/api/designs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(serializeDesign()),
+        body: JSON.stringify({ design: serializeDesign(), title: opts.title || '' })
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body && body.error ? body.error : 'HTTP ' + res.status);
+        const msg = data && data.message ? data.message : 'Save failed (HTTP ' + res.status + ')';
+        alert(msg);
+        return null;
       }
-      const data = await res.json();
-      const url = data.shareUrl || (window.location.origin + '/album/' + data.token);
-      // Auto-copy to clipboard, then show a real share modal — not the
-      // browser's native prompt which only shows one piece of text.
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(url);
-        }
-      } catch (_) { /* clipboard permission denied — not critical */ }
-      showShareModal(url, data.token);
+      window.prompt('Design saved. Copy this preview URL to share with your client:', data.preview_url);
       return data;
     } catch (err) {
-      console.warn('Folio: save to server failed, falling back to local-only', err);
-      alert(
-        'Saved on this device only — the share link couldn’t be created.\n' +
-        '(' + (err && err.message ? err.message : 'unknown error') + ')',
-      );
-      return { saved: true, local: true };
+      alert('Network error saving design: ' + err.message);
+      return null;
     } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = btn.dataset.origLabel || 'Save & Share';
-      }
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origLabel || 'Save & Share'; }
     }
   }
-
-  /**
-   * If the URL contains ?d=<token>, fetch that saved design and replace
-   * the in-memory state with it before any rendering happens. This is
-   * how shared links open the same design on any device.
-   *
-   * Errors fall back to whatever loadLocalState() already restored — the
-   * user sees their last-edited design, not an empty designer.
-   */
-  async function loadFromTokenIfPresent() {
-    if (typeof window === 'undefined' || !window.location) return;
-    const m = window.location.search.match(/[?&]d=([a-f0-9]{8,64})/i);
-    if (!m) return;
-    const token = m[1];
-    // If we're loading an existing design, the customer is editing — they
-    // already chose "I'll design it" the first time around. Skip the intro
-    // path-picker and drop them straight into the spread builder. Without
-    // this they'd land on the picker and have to re-click the same option
-    // before seeing their album. We do this BEFORE the network call so
-    // the UX feels instant; if the fetch later fails the builder is empty
-    // but they're already in the right place to start over.
-    try {
-      if (typeof choosePath === 'function') choosePath('self');
-    } catch (_) { /* defensive — non-blocking */ }
-    try {
-      const res = await fetch('/api/designs/' + encodeURIComponent(token));
-      if (!res.ok) {
-        console.warn('Folio: shared design not found or expired', token);
-        return;
-      }
-      const data = await res.json();
-      if (data && Array.isArray(data.spreadData)) {
-        spreadData = data.spreadData;
-        totalSpreads = data.spreadData.length;
-      }
-      if (data && data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
-        uploadedPhotos = data.uploadedPhotos;
-      }
-      if (data && typeof data.currentSpread === 'number') currentSpread = data.currentSpread;
-      if (data && typeof data.currentSize === 'string' && sizes[data.currentSize]) currentSize = data.currentSize;
-      // Restore the customer info that was saved with the design so the
-      // email gate stays dismissed and notify-order knows who placed it.
-      // Only seeds local storage when nothing's already there — never
-      // overwrite the current device's owner with someone else's data.
-      if (data && data.customer && data.customer.email && !getStoredCustomer()) {
-        setStoredCustomer({
-          email: data.customer.email,
-          name: data.customer.name || '',
-        });
-      }
-      // After replacing state, persist locally so a subsequent refresh
-      // (without the ?d= query) still shows the same design.
-      saveLocalState();
-      // If the spread builder is already mounted, force a re-render.
-      if (document.getElementById('photoGrid')) {
-        renderCanvas();
-        renderPageStrip();
-        renderLayoutPanel();
-        rebuildPhotoGrid();
-      }
-    } catch (e) {
-      console.warn('Folio: failed to load shared design', e);
-    }
-  }
-  // Fire on script init so the URL token wins over any localStorage state.
-  loadFromTokenIfPresent();
 
   // Defensive: function declarations in a non-module script are already on
   // window in browser contexts, but explicit assignment guarantees the
   // contract for the React JSX onClick handlers that call these.
   window.choosePath = choosePath;
+  window.selectBinding = selectBinding;
+  window.promptBindingChange = promptBindingChange;
   window.setSize = setSize;
   window.prevSpread = prevSpread;
   window.nextSpread = nextSpread;
@@ -1565,6 +1362,9 @@
   window.toggleFilterStrip = toggleFilterStrip;
   window.applyFilter = applyFilter;
   window.setBgColor = setBgColor;
+  window.setBgMode = setBgMode;
+  window.setBgPhoto = setBgPhoto;
+  window.setBgFade = setBgFade;
   window.handleUpload = handleUpload;
   window.expertUploadHandle = expertUploadHandle;
   window.openModal = openModal;
@@ -1572,60 +1372,6 @@
   window.submitOrder = submitOrder;
   window.submitExpert = submitExpert;
   window.saveDesign = saveDesign;
-
-  /**
-   * previewAlbum — the new "Continue" target from the cover step.
-   *
-   * Saves the current design to KV and redirects the customer to the
-   * read-only viewer at /album/<token>, which IS the preview. The
-   * Submit Album button lives on that viewer's end card.
-   *
-   * Why redirect instead of showing the save & share modal: the modal
-   * lets the customer pick "Copy / Email / WhatsApp" but offers no
-   * commit point. Customers were saving 5 times in a row with no clear
-   * way to actually order. The viewer makes the order step explicit.
-   *
-   * Falls back to the legacy share modal if the save call fails — the
-   * customer's work is never lost, and they at least have a copy-link
-   * affordance even when offline.
-   */
-  async function previewAlbum(opts) {
-    opts = opts || {};
-    const btn = opts.buttonEl;
-    if (btn) {
-      btn.disabled = true;
-      btn.dataset.origLabel = btn.textContent;
-      btn.textContent = 'Saving…';
-    }
-    saveLocalState();
-    try {
-      const res = await fetch('/api/designs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(serializeDesign()),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body && body.error ? body.error : 'HTTP ' + res.status);
-      }
-      const data = await res.json();
-      const token = data.token;
-      if (!token) throw new Error('save returned no token');
-      // Redirect to the viewer. The viewer fetches the same KV record
-      // server-side, so first paint already has the design.
-      window.location.href = '/album/' + encodeURIComponent(token);
-    } catch (err) {
-      console.warn('Folio preview: save failed, falling back to share modal', err);
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = btn.dataset.origLabel || 'Continue';
-      }
-      // Fallback: legacy save & share modal so the customer can still
-      // copy a link from local state. This path also surfaces the error.
-      saveDesign();
-    }
-  }
-  window.previewAlbum = previewAlbum;
   window.ftbFitFill = ftbFitFill;
   window.ftbFitOriginal = ftbFitOriginal;
   window.ftbZoomStep = ftbZoomStep;
@@ -1634,28 +1380,3 @@
   window.ftbRotate = ftbRotate;
   window.ftbReset = ftbReset;
   window.ftbDelete = ftbDelete;
-
-  /**
-   * Failsafe persistence.
-   *
-   * Per-action hooks (saveLocalState calls inside uploadOne, saveHistory,
-   * etc.) sometimes silently miss — async timing, DOM disruption, errors
-   * swallowed by .catch handlers. A periodic poll catches every change
-   * within 2 s regardless of which path mutated state. Cost is trivial:
-   * the whole design serializes to ~10 KB and localStorage writes are
-   * synchronous but cheap.
-   *
-   * Also expose saveLocalState + uploadedPhotos to the window so we can
-   * verify state from devtools (read-only inspection — nothing else
-   * depends on these globals).
-   */
-  window.saveLocalState = saveLocalState;
-  window.__folioInspect = {
-    get uploadedPhotos() { return uploadedPhotos; },
-    get spreadData() { return spreadData; },
-    get currentSpread() { return currentSpread; },
-    get totalSpreads() { return totalSpreads; },
-    get currentSize() { return currentSize; },
-    get selectedLayout() { return selectedLayout; },
-  };
-  setInterval(saveLocalState, 2000);

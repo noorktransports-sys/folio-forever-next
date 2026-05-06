@@ -142,6 +142,9 @@ nav {
 
 .spread-canvas.is-spread::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(0, 0, 0, 0.08); pointer-events: none; z-index: 1; }
 .spread-canvas.is-single-page::after { display: none; }
+/* Lay-flat overrides the spread gutter — pages lie flat across the
+   spine, so we hide the center seam that hardcover spreads show. */
+.spread-canvas.is-spread.is-layflat::after { display: none; }
 .layout-slots { position: absolute; inset: 4px; display: grid; gap: 3px; }
 .photo-slot { background: rgba(184, 150, 90, 0.07); border: 1.5px dashed rgba(184, 150, 90, 0.28); border-radius: 2px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: border-color 0.2s; position: relative; overflow: hidden; }
 .photo-slot:hover { border-color: rgba(184, 150, 90, 0.5); }
@@ -261,8 +264,91 @@ nav {
 .success-title em { color: var(--gold); font-style: italic; }
 .success-desc { font-size: 12px; color: var(--muted2); line-height: 2; max-width: 400px; }
 
+/* ── BINDING PICKER ───────────────────────────────────────────
+   Sits between path-choice and the builder. Two large cards with
+   small ASCII-style page mockups hint at the difference (one
+   continuous page = lay-flat; two pages with a seam = hardcover). */
+.binding-section { padding: 130px 5% 60px; text-align: center; max-width: 720px; margin: 0 auto; }
+.binding-section .page-tag { display: inline-block; }
+.binding-section .page-title { margin-bottom: 16px; }
+.binding-section .page-sub { max-width: 480px; margin: 0 auto 40px; }
+.binding-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 900px; margin: 0 auto; padding: 20px 5% 120px; }
+.binding-card { border: 0.5px solid rgba(184, 150, 90, 0.2); border-radius: 12px; padding: 36px 30px; cursor: pointer; transition: all 0.35s; background: var(--dark2); text-align: left; position: relative; }
+.binding-card:hover { border-color: rgba(184, 150, 90, 0.5); transform: translateY(-4px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4); }
+.binding-thumb { width: 100%; height: 110px; border-radius: 8px; background: rgba(232, 213, 176, 0.06); border: 0.5px solid rgba(184, 150, 90, 0.18); margin-bottom: 22px; display: flex; align-items: center; justify-content: center; gap: 0; padding: 18px; }
+.binding-thumb-page { flex: 1; height: 100%; background: var(--cream-light); border-radius: 3px; }
+.binding-thumb-layflat .binding-thumb-page { background: var(--cream-light); }
+/* Hardcover thumb has two pages separated by a thin gutter line. */
+.binding-thumb-hardcover { gap: 0; }
+.binding-thumb-hardcover .binding-thumb-page:first-child { border-right: 0.5px solid rgba(0,0,0,0.18); border-radius: 3px 0 0 3px; }
+.binding-thumb-hardcover .binding-thumb-page:last-child { border-radius: 0 3px 3px 0; }
+.binding-name { font-family: var(--font-display); font-size: 26px; font-weight: 300; color: var(--cream); margin-bottom: 6px; }
+.binding-tagline { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; display: block; }
+.binding-desc { font-size: 11px; color: var(--muted2); line-height: 1.9; margin-bottom: 18px; }
+.binding-features { list-style: none; margin-bottom: 22px; }
+.binding-features li { font-size: 10px; color: var(--muted2); letter-spacing: 0.5px; padding: 6px 0; border-bottom: 0.5px solid rgba(184, 150, 90, 0.08); display: flex; align-items: center; gap: 10px; }
+.binding-features li::before { content: ''; width: 4px; height: 4px; background: var(--gold); border-radius: 50%; flex-shrink: 0; }
+
+/* ── BINDING PILL (in canvas toolbar after a binding is set) ── */
+.binding-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--dark2); border: 0.5px solid rgba(184, 150, 90, 0.25); border-radius: 30px; padding: 6px 12px; font-family: var(--font-body); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--cream); cursor: pointer; transition: border-color 0.2s; }
+.binding-pill:hover { border-color: var(--gold); }
+.binding-pill-label { color: var(--muted2); }
+.binding-pill-arrow { color: var(--gold); margin-left: 2px; }
+
+/* ── PHOTO-COUNT TABS (above layout list) ───────────────────── */
+.photo-count-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.pc-tab { background: transparent; border: 0.5px solid rgba(184, 150, 90, 0.2); color: var(--muted2); font-family: var(--font-body); font-size: 9px; font-weight: 500; letter-spacing: 1px; padding: 5px 9px; border-radius: 30px; cursor: pointer; min-width: 24px; transition: all 0.2s; }
+.pc-tab:hover { border-color: var(--gold); color: var(--cream); }
+.pc-tab.active { background: var(--gold); color: var(--dark); border-color: var(--gold); font-weight: 600; }
+
+.layout-empty { font-size: 10px; color: var(--muted); letter-spacing: 0.5px; padding: 14px 6px; line-height: 1.6; }
+
+/* ── BACKGROUND PANEL (rebuilt with tabs) ───────────────────── */
+/* Override the legacy .bg-picker rule above: with the new tabbed
+   panel we want children to stack vertically (tabs on top, body below)
+   not flex-row-wrap like the old flat swatch row. */
+.bg-picker.open { display: block; padding: 10px 12px; }
+.bg-tabs { display: flex; gap: 4px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 0.5px solid rgba(184, 150, 90, 0.1); }
+.bg-tab { background: transparent; border: 0.5px solid rgba(184, 150, 90, 0.2); color: var(--muted2); font-family: var(--font-body); font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 12px; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+.bg-tab:hover { color: var(--cream); border-color: var(--gold); }
+.bg-tab.active { background: var(--gold); color: var(--dark); border-color: var(--gold); font-weight: 600; }
+.bg-tab-body { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* Custom hex slot. The native color picker is invisible; the swatch
+   under it shows the rainbow gradient until a color is chosen. */
+.bg-custom { position: relative; width: 22px; height: 22px; cursor: pointer; }
+.bg-swatch-custom { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid transparent; }
+.bg-custom input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: none; padding: 0; background: transparent; }
+
+.bg-photo-body { flex-direction: column; align-items: stretch; gap: 10px; }
+.bg-photo-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; max-height: 96px; overflow-y: auto; }
+.bg-photo-thumb { aspect-ratio: 1; border-radius: 3px; background-size: cover; background-position: center; cursor: pointer; border: 1.5px solid transparent; transition: border-color 0.15s; }
+.bg-photo-thumb:hover { border-color: rgba(184, 150, 90, 0.5); }
+.bg-photo-thumb.active { border-color: var(--gold); }
+.bg-photo-hint { font-size: 10px; color: var(--muted); padding: 4px 0; line-height: 1.6; }
+.bg-fade-wrap { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.bg-fade-label { font-size: 9px; letter-spacing: 1px; color: var(--muted2); white-space: nowrap; min-width: 110px; }
+.bg-fade-wrap input[type="range"] { flex: 1; accent-color: var(--gold); cursor: pointer; }
+
 @media (max-width: 860px) {
   .path-choice { grid-template-columns: 1fr; }
+  .binding-choice { grid-template-columns: 1fr; }
   .builder-wrap { grid-template-columns: 1fr; height: auto; }
   .photo-panel, .layout-panel { height: 200px; }
+  .photo-count-tabs { gap: 3px; }
+  .pc-tab { padding: 4px 7px; font-size: 8px; }
+}
+
+/* ── DESKTOP TYPOGRAPHY FIX ──────────────────────────────────
+   On large viewports the original clamp() ceilings (62px page-title
+   at weight 300, 50px success-title) read thin and stretched — the
+   hairline weight that looks elegant on phones falls apart at 60+px.
+   Tightening the ceiling, raising the weight one notch above 300 at
+   desktop sizes, and adding a small letter-spacing pull keeps the
+   serif feeling refined without going gangly. */
+@media (min-width: 900px) {
+  .page-title { font-size: clamp(36px, 4.2vw, 52px); font-weight: 400; letter-spacing: -0.5px; }
+  .modal-title { font-size: 30px; font-weight: 400; letter-spacing: -0.3px; }
+  .success-title { font-size: 44px; font-weight: 400; letter-spacing: -0.4px; }
+  .binding-name { font-size: 24px; font-weight: 400; }
+  .path-name { font-size: 26px; font-weight: 400; }
 }

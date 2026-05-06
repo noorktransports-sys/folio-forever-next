@@ -7,35 +7,39 @@ import CoverBuilder, { type CoverState } from './cover-builder';
 import './album-builder.css';
 
 /**
- * URL step persistence.
+ * Submitted-order lock contract (Phase 1 — localStorage only).
  *
- * Without this, every refresh dumps the user back on the path-picker even
- * though album-builder.js has already restored their photos + spreads from
- * localStorage. We use a query param (`?step=build|cover|expert`) so the
- * URL is bookmarkable and the back button works. window.history.replaceState
- * is used instead of next/router so the page doesn't re-mount on transition
- * — the legacy JS state would be wiped if it did.
+ * When a user clicks "Place Order", album-builder.js writes a `folio-submitted`
+ * key to localStorage with the order id + submission timestamp, then
+ * dispatches a `folio:submitted` window event. This module reads both:
+ *   1. On mount — restores the locked view after a refresh.
+ *   2. On the event — flips to the locked view in the same session, before
+ *      the user can navigate back into the designer.
+ *
+ * Per-browser, not per-user. A determined client can clear localStorage and
+ * unlock; this is a "no accidental edits" guarantee, not a security control.
+ * Once /api/submit-order + KV land (Phase 2) the lock becomes server-side
+ * and persists across browsers.
  */
-type UrlStep = 'intro' | 'build' | 'cover' | 'expert';
+const SUBMITTED_KEY = 'folio-submitted';
+type SubmittedRecord = { orderId: string; submittedAt: string };
 
-function readUrlStep(): UrlStep {
-  if (typeof window === 'undefined') return 'intro';
-  const s = new URLSearchParams(window.location.search).get('step');
-  if (s === 'build' || s === 'cover' || s === 'expert') return s;
-  return 'intro';
-}
-
-function writeUrlStep(step: UrlStep) {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  if (step === 'intro') {
-    url.searchParams.delete('step');
-  } else {
-    url.searchParams.set('step', step);
-  }
-  // replaceState (not pushState) so the back button doesn't trap the user
-  // inside the designer with a stack of intra-designer states.
-  window.history.replaceState(null, '', url.toString());
+function readSubmittedFromStorage(): SubmittedRecord | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SUBMITTED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.orderId === 'string') {
+      return {
+        orderId: parsed.orderId,
+        submittedAt: typeof parsed.submittedAt === 'string'
+          ? parsed.submittedAt
+          : new Date().toISOString(),
+      };
+    }
+  } catch { /* ignore corrupted entry */ }
+  return null;
 }
 
 /**
@@ -74,56 +78,53 @@ function fb(name: string, ...args: unknown[]) {
 type Step = 'spreads' | 'cover';
 
 export default function DesignerPage() {
-  // React's `step` controls the cover-vs-spreads view. Initial value is
-  // hydrated from the URL so refresh on `?step=cover` lands on cover.
-  const [step, setStep] = useState<Step>(() => {
-    return readUrlStep() === 'cover' ? 'cover' : 'spreads';
-  });
+  const [step, setStep] = useState<Step>('spreads');
   const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
 
-  /**
-   * On mount, if the URL says we should be past the path picker, call
-   * choosePath('self') as soon as the legacy JS finishes loading. The
-   * legacy script is loaded with `afterInteractive`, so on the first React
-   * render it isn't on window yet — we poll for it.
-   *
-   * choosePath toggles intro → builder visibility via direct DOM. Calling
-   * it here keeps "refresh restores your step" working without a full
-   * rewrite of the legacy state machine.
-   */
+  // Submit lock — `null` until we know (server-rendered HTML can't read
+  // localStorage; we read it inside the first effect). The legacy JS is
+  // still loaded on the unlocked render so it can wire up uploads etc.
+  const [submitted, setSubmitted] = useState<SubmittedRecord | null>(null);
+
   useEffect(() => {
-    const urlStep = readUrlStep();
-    if (urlStep !== 'build' && urlStep !== 'cover') return;
-    let cancelled = false;
-    let tries = 0;
-    function tryChoose() {
-      if (cancelled) return;
-      const w = window as unknown as { choosePath?: (t: string) => void };
-      if (typeof w.choosePath === 'function') {
-        w.choosePath('self');
-        // If we landed on cover, also pull the photo list now that
-        // uploadedPhotos has been rehydrated by the legacy script.
-        if (urlStep === 'cover') hydratePhotosForCover();
-        return;
-      }
-      tries++;
-      if (tries < 60) {  // up to ~6 seconds
-        setTimeout(tryChoose, 100);
-      }
+    // 1. Restore lock from a prior session.
+    setSubmitted(readSubmittedFromStorage());
+
+    // 2. Listen for in-session submits dispatched by album-builder.js.
+    function onSubmitted(ev: Event) {
+      const detail = (ev as CustomEvent<{ orderId?: string }>).detail;
+      const orderId = detail?.orderId;
+      if (!orderId) return;
+      setSubmitted({
+        orderId,
+        submittedAt: new Date().toISOString(),
+      });
     }
-    tryChoose();
-    return () => { cancelled = true; };
+    window.addEventListener('folio:submitted', onSubmitted);
+    return () => {
+      window.removeEventListener('folio:submitted', onSubmitted);
+    };
   }, []);
 
-  /** Pulls window.uploadedPhotos into React state so CoverBuilder can read it. */
-  function hydratePhotosForCover() {
-    const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
-    const map = w.uploadedPhotos ?? {};
-    const list = Object.entries(map).map(([id, val]) => ({
-      id,
-      src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
-    })).filter((p) => p.src);
-    setPhotos(list);
+  /**
+   * Clear the lock and reload the designer for a fresh order. Used by the
+   * SubmittedView's "Start a new album" CTA. We reload rather than
+   * re-mount so the legacy album-builder.js fully resets its module-scoped
+   * state (spreadData, uploadedPhotos, history) — easier than tracking
+   * down every globally-scoped reset.
+   */
+  function startNewAlbum() {
+    try {
+      window.localStorage.removeItem(SUBMITTED_KEY);
+    } catch { /* ignore */ }
+    window.location.reload();
+  }
+
+  // When locked, render the minimal confirmation view — no nav, no
+  // designer. This is the post-submit experience whether the user just
+  // clicked Place Order or returned days later.
+  if (submitted) {
+    return <SubmittedView record={submitted} onNewAlbum={startNewAlbum} />;
   }
 
   /**
@@ -132,33 +133,29 @@ export default function DesignerPage() {
    * button now that cover is part of the flow.
    */
   function goToCover() {
-    hydratePhotosForCover();
+    const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
+    const map = w.uploadedPhotos ?? {};
+    const list = Object.entries(map).map(([id, val]) => ({
+      id,
+      src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
+    })).filter((p) => p.src);
+    setPhotos(list);
     setStep('cover');
-    writeUrlStep('cover');
   }
 
   /**
-   * onContinue from CoverBuilder: stash the cover state on window so
-   * serializeDesign() picks it up, then call previewAlbum() in the
-   * legacy script — which saves the design to KV and redirects the
-   * customer to /album/<token> (the viewer = the preview = where the
-   * Submit Album button lives).
-   *
-   * The previous behaviour opened a Save & Share modal here, which had
-   * no commit point. Customers ended up generating 4–5 share links and
-   * never actually ordering. The viewer makes the order step explicit.
+   * onContinue from CoverBuilder: stash the cover state on window where
+   * the legacy submit modal will pick it up (Task #6 wires it into the
+   * Stripe checkout payload), then open the modal as before.
    */
   function continueFromCover(cover: CoverState) {
     (window as unknown as { __coverState?: CoverState }).__coverState = cover;
-    fb('previewAlbum');
+    fb('openModal');
   }
 
   return (
     <>
-      {/* ?v= query bumps a hard cache miss — Cloudflare serves /js/* with
-          max-age=14400 so without this, browsers keep the old JS for hours
-          after a deploy. Bump this string on every functional JS change. */}
-      <Script src="/js/album-builder.js?v=20260429-9" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260505-1" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -169,15 +166,21 @@ export default function DesignerPage() {
           <Link href="/" className="nav-back">
             ← Back
           </Link>
-          {/* The old "Save & Share" button is removed deliberately.
-              It called saveDesign directly, which serializes the design
-              before the cover step has been touched — so window.__coverState
-              is null and the saved record has no cover. Users then opened
-              the share link and saw the default "Our Story" placeholder.
-              The canonical path is now: spreads → Cover → Preview album.
-              That button below transitions to the cover step; the
-              "Preview album →" button inside cover-builder.tsx is what
-              actually saves + redirects to /album/<token>. */}
+          <button
+            type="button"
+            className="nav-submit"
+            id="navSaveBtn"
+            onClick={(e) => fb('saveDesign', { buttonEl: e.currentTarget })}
+            style={{
+              display: 'none',
+              background: 'transparent',
+              color: 'var(--gold)',
+              border: '0.5px solid var(--gold)',
+              marginRight: 6,
+            }}
+          >
+            Save &amp; Share
+          </button>
           <button
             type="button"
             className="nav-submit"
@@ -206,13 +209,7 @@ export default function DesignerPage() {
 
         <div className="path-choice">
           {/* SELF DESIGN */}
-          <div
-            className="path-card"
-            onClick={() => {
-              fb('choosePath', 'self');
-              writeUrlStep('build');
-            }}
-          >
+          <div className="path-card" onClick={() => fb('choosePath', 'self')}>
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="2" y="2" width="7" height="7" stroke="#b8965a" strokeWidth="0.8" />
@@ -244,10 +241,7 @@ export default function DesignerPage() {
           {/* EXPERT DESIGN */}
           <div
             className="path-card recommended"
-            onClick={() => {
-              fb('choosePath', 'expert');
-              writeUrlStep('expert');
-            }}
+            onClick={() => fb('choosePath', 'expert')}
           >
             <div className="path-badge">Recommended</div>
             <div className="path-icon">
@@ -282,14 +276,76 @@ export default function DesignerPage() {
         </div>
       </div>
 
+      {/* BINDING PICKER — shown after path-choice (Self), before builder.
+          Picking a card calls selectBinding() in album-builder.js which
+          flips this section off and the builder on. */}
+      <div className="builder-section" id="bindingSection">
+        <div className="binding-section">
+          <span className="page-tag">Pick your album style</span>
+          <h2 className="page-title">
+            Lay-flat or<br />
+            <em>hardcover photo book?</em>
+          </h2>
+          <p className="page-sub">
+            This sets how your spreads behave. You can switch later, but
+            we&apos;ll need to reset your layouts.
+          </p>
+          <div className="binding-choice">
+            <div
+              className="binding-card"
+              onClick={() => fb('selectBinding', 'layflat')}
+            >
+              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
+                <div className="binding-thumb-page" />
+              </div>
+              <p className="binding-name">Lay-Flat Album</p>
+              <span className="binding-tagline">No center seam</span>
+              <p className="binding-desc">
+                Pages lie completely flat across the spine. Photos can
+                span the entire spread without losing the middle.
+              </p>
+              <ul className="binding-features">
+                <li>Full-bleed photos across the spine</li>
+                <li>Premium hand-bound construction</li>
+                <li>Best for hero shots &amp; panoramas</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-primary">
+                Choose Lay-Flat
+              </button>
+            </div>
+
+            <div
+              className="binding-card"
+              onClick={() => fb('selectBinding', 'hardcover')}
+            >
+              <div className="binding-thumb binding-thumb-hardcover" aria-hidden="true">
+                <div className="binding-thumb-page" />
+                <div className="binding-thumb-page" />
+              </div>
+              <p className="binding-name">Hardcover Photo Book</p>
+              <span className="binding-tagline">Coffee-table style</span>
+              <p className="binding-desc">
+                Press-printed and casebound, with a visible spine
+                gutter. Layouts keep photos clear of the binding.
+              </p>
+              <ul className="binding-features">
+                <li>Crisp press-printed pages</li>
+                <li>More pages at a friendlier price</li>
+                <li>Photos sit fully on each page</li>
+              </ul>
+              <button type="button" className="btn-path btn-path-secondary">
+                Choose Hardcover
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* COVER BUILDER (shown when step === 'cover') */}
       {step === 'cover' && (
         <CoverBuilder
           uploadedPhotos={photos}
-          onBack={() => {
-            setStep('spreads');
-            writeUrlStep('build');
-          }}
+          onBack={() => setStep('spreads')}
           onContinue={continueFromCover}
         />
       )}
@@ -383,6 +439,21 @@ export default function DesignerPage() {
                   20×30 Page
                 </button>
               </div>
+
+              {/* CHANGE BINDING — initially hidden; album-builder.js
+                  reveals it once a binding is selected. Click prompts a
+                  warning before resetting layouts. */}
+              <button
+                type="button"
+                id="changeBindingBtn"
+                className="binding-pill"
+                onClick={() => fb('promptBindingChange')}
+                style={{ display: 'none' }}
+              >
+                <span className="binding-pill-label">Style:</span>
+                <span id="currentBindingLabel">Lay-Flat</span>
+                <span className="binding-pill-arrow">⇄</span>
+              </button>
 
               <div
                 style={{
@@ -537,28 +608,12 @@ export default function DesignerPage() {
               ))}
             </div>
 
-            <div className="bg-picker" id="bgPicker">
-              <span className="bg-label">Spread background:</span>
-              {[
-                { color: '#f8f4ee', title: 'Cream', active: true },
-                { color: '#ffffff', title: 'White' },
-                { color: '#0e0c09', title: 'Black' },
-                { color: '#1a1610', title: 'Dark' },
-                { color: '#2a2218', title: 'Dark Brown' },
-                { color: '#b8965a', title: 'Gold' },
-                { color: '#e8d5b0', title: 'Light Cream' },
-                { color: '#2c2c2c', title: 'Charcoal' },
-                { color: '#4a3728', title: 'Walnut' },
-              ].map((s) => (
-                <div
-                  key={s.color}
-                  className={'bg-swatch' + (s.active ? ' active' : '')}
-                  style={{ background: s.color }}
-                  onClick={(e) => fb('setBgColor', s.color, e.currentTarget)}
-                  title={s.title}
-                />
-              ))}
-            </div>
+            {/* BG panel is populated dynamically by album-builder.js
+                (renderBgPanel) so we can show tabs, custom hex picker,
+                and the photo-backdrop sub-panel without hardcoding any
+                of it here. Empty container is intentional. */}
+            <div className="bg-picker" id="bgPicker" />
+
 
             <div className="canvas-area">
               <div
@@ -580,6 +635,10 @@ export default function DesignerPage() {
           <div className="layout-panel">
             <div className="panel-header">
               <p className="panel-header-title">Layouts</p>
+              {/* Photo-count filter tabs. Populated by renderPhotoCountTabs
+                  in album-builder.js so the active state can flip without
+                  React knowing the count. */}
+              <div className="photo-count-tabs" id="photoCountTabs" />
             </div>
             <div className="layout-scroll" id="layoutScroll" />
           </div>
@@ -957,6 +1016,16 @@ export default function DesignerPage() {
           We&apos;ll send a confirmation and invoice to your email within the
           hour. Your monument will arrive in 12–16 days.
         </p>
+        <p
+          id="successOrderId"
+          style={{
+            marginTop: 8,
+            fontSize: 10,
+            letterSpacing: 2,
+            color: 'var(--gold)',
+            textTransform: 'uppercase',
+          }}
+        />
         <Link
           href="/"
           style={{
@@ -975,5 +1044,219 @@ export default function DesignerPage() {
         </Link>
       </div>
     </>
+  );
+}
+
+/**
+ * SubmittedView — the locked, post-submit experience.
+ *
+ * Replaces the entire designer once an order is locked (via localStorage
+ * flag set by album-builder.js's submitOrder). No nav, no edit controls,
+ * just confirmation + the option to start a brand new album. Refreshes,
+ * back-navigation, or direct revisit to /design all land here as long as
+ * the flag persists.
+ */
+function SubmittedView({
+  record,
+  onNewAlbum,
+}: {
+  record: SubmittedRecord;
+  onNewAlbum: () => void;
+}) {
+  const submittedDate = (() => {
+    const d = new Date(record.submittedAt);
+    return Number.isNaN(d.getTime())
+      ? null
+      : d.toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+  })();
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'var(--dark)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '60px 20px',
+        textAlign: 'center',
+      }}
+    >
+      <div style={{ maxWidth: 520, width: '100%' }}>
+        <div
+          style={{
+            width: 80,
+            height: 80,
+            margin: '0 auto 28px',
+            border: '0.5px solid rgba(184,150,90,0.4)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          aria-hidden="true"
+        >
+          <svg width="36" height="36" viewBox="0 0 28 28" fill="none">
+            <path
+              d="M7 14l5 5 9-9"
+              stroke="#b8965a"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+
+        <h1
+          style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 'clamp(36px, 5vw, 56px)',
+            fontWeight: 300,
+            color: 'var(--cream)',
+            lineHeight: 1.15,
+            marginBottom: 16,
+          }}
+        >
+          Order <em style={{ color: 'var(--gold)', fontStyle: 'italic' }}>
+            received.
+          </em>
+        </h1>
+
+        <p
+          style={{
+            fontSize: 13,
+            color: 'var(--muted2)',
+            lineHeight: 2,
+            margin: '0 auto 28px',
+            maxWidth: 420,
+          }}
+        >
+          Your design is locked and queued for production. We&apos;ll send a
+          confirmation and invoice within the hour. Your album will arrive
+          in 12–16 days.
+        </p>
+
+        <div
+          style={{
+            background: 'var(--dark2)',
+            border: '0.5px solid rgba(184,150,90,0.2)',
+            borderRadius: 10,
+            padding: '18px 22px',
+            display: 'inline-block',
+            marginBottom: 36,
+            minWidth: 280,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              letterSpacing: 2,
+              color: 'var(--muted2)',
+              textTransform: 'uppercase',
+              marginBottom: 6,
+            }}
+          >
+            Order ID
+          </div>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 22,
+              color: 'var(--gold)',
+              letterSpacing: 1,
+            }}
+          >
+            {record.orderId}
+          </div>
+          {submittedDate && (
+            <div
+              style={{
+                fontSize: 10,
+                color: 'var(--muted2)',
+                marginTop: 8,
+                letterSpacing: 1,
+              }}
+            >
+              Submitted {submittedDate}
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            gap: 14,
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            marginBottom: 24,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onNewAlbum}
+            style={{
+              background: 'var(--gold)',
+              color: 'var(--dark)',
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: 2,
+              textTransform: 'uppercase',
+              padding: '15px 36px',
+              borderRadius: 40,
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            Start a new album
+          </button>
+          <Link
+            href="/"
+            style={{
+              background: 'transparent',
+              color: 'var(--gold)',
+              fontSize: 10,
+              letterSpacing: 2,
+              textTransform: 'uppercase',
+              padding: '15px 36px',
+              borderRadius: 40,
+              border: '0.5px solid var(--gold)',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-body)',
+              display: 'inline-block',
+            }}
+          >
+            Back to Home
+          </Link>
+        </div>
+
+        <p
+          style={{
+            fontSize: 10,
+            color: 'var(--muted2)',
+            letterSpacing: 1,
+            lineHeight: 1.8,
+            opacity: 0.7,
+          }}
+        >
+          Need to change something on this order?{' '}
+          <a
+            href={`mailto:orders@folioforever.com?subject=Change%20request%20${encodeURIComponent(record.orderId)}`}
+            style={{
+              color: 'var(--gold)',
+              textDecoration: 'underline',
+              textUnderlineOffset: 3,
+            }}
+          >
+            Email us
+          </a>
+          .
+        </p>
+      </div>
+    </div>
   );
 }
