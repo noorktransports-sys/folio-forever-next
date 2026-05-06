@@ -75,11 +75,19 @@ export interface Album3DProps {
    */
   onPhotoPan?: (x: number, y: number) => void;
   /**
-   * Called on wheel events while in crop mode. Direction is +1 for
-   * zoom-in (wheel-up) and -1 for zoom-out. Parent decides the step size
-   * and clamping (so we don't have to know PHOTO_SCALE_MIN/MAX here).
+   * Called on wheel events while in crop mode.
+   *
+   * direction: +1 for zoom-in (wheel-up), -1 for zoom-out.
+   * cu, cv: cursor position normalized to the canvas (each in [0, 1]),
+   *   where (0, 0) is top-left and (1, 1) is bottom-right. The parent
+   *   uses this to pivot the zoom around the cursor so the photo pixel
+   *   under the mouse stays under the mouse through the zoom — without
+   *   it, zooming on the groom drifts him off-cursor toward the center.
+   *
+   * The parent decides step size and clamping (so we don't have to know
+   * PHOTO_SCALE_MIN/MAX here).
    */
-  onPhotoZoom?: (direction: 1 | -1) => void;
+  onPhotoZoom?: (direction: 1 | -1, cu: number, cv: number) => void;
 }
 
 // --- Book proportions in scene units. ---
@@ -693,8 +701,13 @@ export default function Album3D({
       if (!cropModeRef.current) return;
       if (!onPhotoZoomRef.current) return;
       ev.preventDefault();
+      // Cursor position normalized to the canvas — used by the parent to
+      // pivot the zoom around the mouse instead of around photo-center.
+      const rect = renderer.domElement.getBoundingClientRect();
+      const cu = (ev.clientX - rect.left) / rect.width;
+      const cv = (ev.clientY - rect.top) / rect.height;
       const direction = ev.deltaY > 0 ? -1 : 1;
-      onPhotoZoomRef.current(direction);
+      onPhotoZoomRef.current(direction, cu, cv);
     }
     renderer.domElement.addEventListener('wheel', onWheelNative, { passive: false });
 

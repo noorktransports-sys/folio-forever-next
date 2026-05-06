@@ -731,21 +731,39 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                   };
                 });
               }}
-              onPhotoZoom={(direction) => {
+              onPhotoZoom={(direction, cu, cv) => {
                 setState((prev) => {
                   const next = prev.photoScale + direction * 0.05;
                   const nextScale = Math.max(
                     PHOTO_SCALE_MIN,
                     Math.min(PHOTO_SCALE_MAX, next),
                   );
-                  // Re-clamp pan against the new zoom so zooming out
-                  // doesn't leave the photo panned past its edge.
+                  if (nextScale === prev.photoScale) return prev;
+                  // Pivot the zoom around the cursor — without this, zoom
+                  // always re-centers and the photo pixel the user wanted
+                  // to focus on (e.g. the groom's face) drifts off-cursor.
+                  // Derivation: at the cursor's UV position, the texture
+                  // sample BEFORE and AFTER the zoom must be identical.
+                  // Solving that constraint for the new pan (photoX, photoY)
+                  // yields:
+                  //   newX = r·oldX + (r−1)·(½ − cu)·COVER_REF
+                  //   newY = r·oldY + (r−1)·(½ − cv)·COVER_REF
+                  // where r = newScale/oldScale. Pure linear interpolation
+                  // between "centered zoom" (cu=cv=0.5 → no pan change other
+                  // than scale*old) and "edge-anchored zoom" (cu=0 or 1).
+                  const r = nextScale / prev.photoScale;
+                  const rawX =
+                    r * prev.photoX + (r - 1) * (0.5 - cu) * COVER_REF_PX;
+                  const rawY =
+                    r * prev.photoY + (r - 1) * (0.5 - cv) * COVER_REF_PX;
+                  // Re-clamp pan against the new zoom so the pivot can't
+                  // push the photo edge inside the cover.
                   const max = (COVER_REF_PX * (nextScale - 1)) / 2;
                   return {
                     ...prev,
                     photoScale: nextScale,
-                    photoX: Math.max(-max, Math.min(max, prev.photoX)),
-                    photoY: Math.max(-max, Math.min(max, prev.photoY)),
+                    photoX: Math.max(-max, Math.min(max, rawX)),
+                    photoY: Math.max(-max, Math.min(max, rawY)),
                   };
                 });
               }}
