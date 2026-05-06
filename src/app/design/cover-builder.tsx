@@ -686,6 +686,10 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               subtitle={state.subtitleText || ''}
               variant={state.type as 'leather' | 'photo' | 'acrylic'}
               photoSrc={state.photoSrc || undefined}
+              backPhotoSrc={state.backPhotoSrc || undefined}
+              photoScale={state.photoScale}
+              photoX={state.photoX}
+              photoY={state.photoY}
               leatherHex={bindingHex}
               foilHex={textHex}
               width={560}
