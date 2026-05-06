@@ -321,7 +321,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => fb('selectProduct', 'spread_17x24', 'hardcover')}
             >
-              <div className="binding-thumb binding-thumb-hardcover" aria-hidden="true">
+              <div className="binding-thumb binding-thumb-hardcover product-thumb-17" aria-hidden="true">
                 <div className="binding-thumb-page" />
                 <div className="binding-thumb-page" />
               </div>
@@ -346,7 +346,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => fb('selectProduct', 'spread_17x24', 'layflat')}
             >
-              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
+              <div className="binding-thumb binding-thumb-layflat product-thumb-17" aria-hidden="true">
                 <div className="binding-thumb-page" />
               </div>
               <p className="binding-name">17×24 Lay-Flat</p>
@@ -371,7 +371,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => fb('selectProduct', 'page_20x30', 'hardcover')}
             >
-              <div className="binding-thumb binding-thumb-hardcover" aria-hidden="true">
+              <div className="binding-thumb binding-thumb-hardcover product-thumb-20" aria-hidden="true">
                 <div className="binding-thumb-page" />
                 <div className="binding-thumb-page" />
               </div>
@@ -397,7 +397,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => fb('selectProduct', 'page_20x30', 'layflat')}
             >
-              <div className="binding-thumb binding-thumb-layflat" aria-hidden="true">
+              <div className="binding-thumb binding-thumb-layflat product-thumb-20" aria-hidden="true">
                 <div className="binding-thumb-page" />
               </div>
               <p className="binding-name">20×30 Poster · Lay-Flat</p>

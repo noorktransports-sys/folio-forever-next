@@ -300,10 +300,81 @@ nav {
   max-width: 1100px; margin: 0 auto; padding: 20px 5% 120px;
 }
 .product-card { padding: 28px 26px; }
-.product-card .binding-thumb { height: 80px; padding: 14px; margin-bottom: 18px; }
 .product-card .binding-name { font-size: 22px; }
 .product-card .binding-features { margin-bottom: 18px; }
 .product-card .binding-features li { font-size: 9.5px; padding: 5px 0; }
+
+/* PRODUCT-CARD THUMBS — make each SKU visually distinct.
+ * Old version: identical cream rectangles on every card. New:
+ *   - Dark "scene" background with vignette so the book sits on a surface.
+ *   - Inner "book" shows page-edge stack on the bottom (multiple thin
+ *     stripes) so it reads as a real album, not a flat panel.
+ *   - 17×24 thumbs use 60% of the thumb's height; 20×30 use 90% — so
+ *     the size difference is visible at a glance.
+ *   - Coffee-Table shows two pages with a pronounced gutter; Lay-Flat
+ *     shows one continuous page (full-bleed across the spine). */
+.product-card .binding-thumb {
+  height: 110px;
+  padding: 14px;
+  margin-bottom: 18px;
+  background:
+    radial-gradient(ellipse at center 110%, rgba(0, 0, 0, 0.5) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(14, 12, 9, 0.6) 0%, rgba(26, 22, 16, 0.85) 100%);
+  border: 0.5px solid rgba(184, 150, 90, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Inner page block — cream cover with visible page-edge stripe on the
+ * bottom (the lighter band suggests page edges peeking from below the
+ * cover, the way they do on a closed album seen at a slight angle). */
+.product-card .binding-thumb-page {
+  flex: none;
+  position: relative;
+  background:
+    /* page-edge stripe at the bottom — slightly lighter cream */
+    linear-gradient(180deg, var(--cream-light) 0%, var(--cream-light) 82%, #d8c8a4 82%, #c8b88f 92%, #b8a47e 100%);
+  border: 0.5px solid #2a2218;
+  border-radius: 1px 2px 2px 1px;
+  box-shadow:
+    /* drop shadow under the book */
+    0 4px 10px rgba(0, 0, 0, 0.6),
+    0 1px 3px rgba(0, 0, 0, 0.45),
+    /* subtle top highlight on the cover */
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Size differentiation — 17×24 is compact, 20×30 fills the thumb so
+ * customer can see at a glance which is the bigger product. */
+.product-thumb-17 .binding-thumb-page { height: 70%; }
+.product-thumb-20 .binding-thumb-page { height: 92%; }
+
+/* LAY-FLAT — single page, full-bleed across the spine. Wider than
+ * one half of the coffee-table because there's no center seam. */
+.product-thumb-17.binding-thumb-layflat .binding-thumb-page { width: 60%; border-radius: 1px 2px 2px 1px; }
+.product-thumb-20.binding-thumb-layflat .binding-thumb-page { width: 80%; border-radius: 1px 2px 2px 1px; }
+
+/* COFFEE-TABLE — two pages with a clearly visible gutter. The gutter
+ * is rendered as a darker line at the spine, way more pronounced than
+ * the original 0.5px hairline so the difference reads from across the
+ * room. */
+.product-thumb-17.binding-thumb-hardcover .binding-thumb-page { width: 31%; }
+.product-thumb-20.binding-thumb-hardcover .binding-thumb-page { width: 41%; }
+.product-thumb-17.binding-thumb-hardcover .binding-thumb-page:first-child,
+.product-thumb-20.binding-thumb-hardcover .binding-thumb-page:first-child {
+  border-right: 2px solid #1a1610;
+  border-radius: 2px 0 0 2px;
+}
+.product-thumb-17.binding-thumb-hardcover .binding-thumb-page:last-child,
+.product-thumb-20.binding-thumb-hardcover .binding-thumb-page:last-child {
+  border-left: 2px solid #1a1610;
+  border-radius: 0 2px 2px 0;
+}
+
 
 .product-price {
   display: flex; flex-direction: column; gap: 2px;
