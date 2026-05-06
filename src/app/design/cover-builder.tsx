@@ -694,6 +694,30 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               foilHex={textHex}
               width={560}
               caption=""
+              /* Crop mode — when on, the WebGL canvas treats pointer drag
+                 as a photo pan and wheel as a photo zoom. Without this the
+                 only way to crop was the slider, and the user couldn't
+                 reposition the photo at all (the original bug). */
+              cropMode={
+                cropMode &&
+                (state.type === 'acrylic' || state.type === 'photo') &&
+                !!state.photoSrc
+              }
+              onPhotoPan={(x, y) => {
+                setState((prev) => ({ ...prev, photoX: x, photoY: y }));
+              }}
+              onPhotoZoom={(direction) => {
+                setState((prev) => {
+                  const next = prev.photoScale + direction * 0.05;
+                  return {
+                    ...prev,
+                    photoScale: Math.max(
+                      PHOTO_SCALE_MIN,
+                      Math.min(PHOTO_SCALE_MAX, next),
+                    ),
+                  };
+                });
+              }}
             />
           </div>
 

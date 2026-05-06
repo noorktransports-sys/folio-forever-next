@@ -42,6 +42,28 @@ export interface Album3DProps {
   width?: number;
   caption?: string;
   className?: string;
+  /**
+   * When true, pointer drag inside the WebGL canvas pans the cover photo
+   * instead of rotating the book. Use to flip between "rotate the album"
+   * and "crop the photo" modes — the same canvas handles both, but only
+   * one gesture meaning at a time. Toggled by the parent's "Edit photo /
+   * Done · back to rotate" button.
+   */
+  cropMode?: boolean;
+  /**
+   * Called when the user pans the photo while in crop mode. Receives the
+   * cumulative photoX/photoY values (CSS pixels) so the parent's React
+   * state stays the source of truth — the texture offset is recomputed
+   * via the existing photoScale/photoX/photoY useEffect after parent
+   * re-renders. This avoids two-way data binding between Three.js and React.
+   */
+  onPhotoPan?: (x: number, y: number) => void;
+  /**
+   * Called on wheel events while in crop mode. Direction is +1 for
+   * zoom-in (wheel-up) and -1 for zoom-out. Parent decides the step size
+   * and clamping (so we don't have to know PHOTO_SCALE_MIN/MAX here).
+   */
+  onPhotoZoom?: (direction: 1 | -1) => void;
 }
 
 // --- Book proportions in scene units. ---
@@ -195,9 +217,29 @@ export default function Album3D({
   width = 360,
   caption = 'Drag to rotate · Real 3D leather',
   className = '',
+  cropMode = false,
+  onPhotoPan,
+  onPhotoZoom,
 }: Album3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
+  /**
+   * Latest copies of crop-mode props, kept in refs so the pointer
+   * handlers (which are bound ONCE in the setup useEffect) always see the
+   * current values without needing to re-bind on every prop change.
+   * Re-binding listeners on prop change would drop in-flight drags
+   * between mousedown and mouseup.
+   */
+  const cropModeRef = useRef(cropMode);
+  const onPhotoPanRef = useRef(onPhotoPan);
+  const onPhotoZoomRef = useRef(onPhotoZoom);
+  const photoXRef = useRef(photoX);
+  const photoYRef = useRef(photoY);
+  useEffect(() => { cropModeRef.current = cropMode; }, [cropMode]);
+  useEffect(() => { onPhotoPanRef.current = onPhotoPan; }, [onPhotoPan]);
+  useEffect(() => { onPhotoZoomRef.current = onPhotoZoom; }, [onPhotoZoom]);
+  useEffect(() => { photoXRef.current = photoX; }, [photoX]);
+  useEffect(() => { photoYRef.current = photoY; }, [photoY]);
 
   // ─── ONE-TIME SCENE SETUP ────────────────────────────────────
   useEffect(() => {
@@ -360,20 +402,46 @@ export default function Album3D({
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // Drag-to-rotate
+    // Drag handler — branches at pointerdown into ROTATE or PAN based on
+    // cropModeRef. The chosen mode sticks for the duration of the gesture
+    // so a mid-drag cropMode toggle can't switch modes under the user.
     let isDragging = false;
+    let dragMode: 'rotate' | 'pan' = 'rotate';
     let prevX = 0;
     let prevY = 0;
     let velY = 0;
     let velX = 0;
+    let panStartPhotoX = 0;
+    let panStartPhotoY = 0;
+    let panStartClientX = 0;
+    let panStartClientY = 0;
     function onPointerDown(e: PointerEvent) {
       isDragging = true;
+      dragMode = cropModeRef.current ? 'pan' : 'rotate';
       prevX = e.clientX;
       prevY = e.clientY;
+      panStartClientX = e.clientX;
+      panStartClientY = e.clientY;
+      panStartPhotoX = photoXRef.current;
+      panStartPhotoY = photoYRef.current;
+      // Kill any inertial spin so the book doesn't drift during a pan.
+      if (dragMode === 'pan') {
+        velY = 0;
+        velX = 0;
+      }
       renderer.domElement.setPointerCapture(e.pointerId);
     }
     function onPointerMove(e: PointerEvent) {
       if (!isDragging) return;
+      if (dragMode === 'pan') {
+        // Pan: report cumulative offset to the parent. Pixel-for-pixel
+        // mapping in the CSS_COVER_REF_PX coordinate space — the parent
+        // owns the value and feeds it back via photoX/photoY props.
+        const px = panStartPhotoX + (e.clientX - panStartClientX);
+        const py = panStartPhotoY + (e.clientY - panStartClientY);
+        onPhotoPanRef.current?.(px, py);
+        return;
+      }
       const dx = e.clientX - prevX;
       const dy = e.clientY - prevY;
       prevX = e.clientX;
@@ -391,6 +459,20 @@ export default function Album3D({
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('pointercancel', onPointerUp);
+
+    // Wheel-zoom for the photo, but only while the user is in crop mode.
+    // Outside crop mode the wheel is left alone so the page can scroll
+    // normally over the canvas. Native listener with passive:false because
+    // calling preventDefault() inside React's synthetic onWheel is a
+    // silent no-op since React 17.
+    function onWheelNative(ev: WheelEvent) {
+      if (!cropModeRef.current) return;
+      if (!onPhotoZoomRef.current) return;
+      ev.preventDefault();
+      const direction = ev.deltaY > 0 ? -1 : 1;
+      onPhotoZoomRef.current(direction);
+    }
+    renderer.domElement.addEventListener('wheel', onWheelNative, { passive: false });
 
     let raf = 0;
     function animate() {
@@ -411,6 +493,7 @@ export default function Album3D({
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+      renderer.domElement.removeEventListener('wheel', onWheelNative);
       coverGeom.dispose();
       backGeom.dispose();
       pageGeom.dispose();
@@ -496,22 +579,23 @@ export default function Album3D({
     const c = new THREE.Color(foilHex);
     r.frontFaceMat.emissive.copy(c);
     r.backFaceMat.emissive.copy(c);
-    // Repaint foil canvases too (text color changes)
+    // Repaint front foil only. Back stays clean — see TITLE/SUBTITLE effect.
     paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
-    paintFoilCanvas(r.foilBackCanvas, title, '', foilHex, 'small');
     r.foilFrontTex.needsUpdate = true;
-    r.foilBackTex.needsUpdate = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foilHex]);
 
   // ─── REACT TO TITLE / SUBTITLE ───────────────────────────────
+  // Back cover is INTENTIONALLY blank — earlier builds painted the title in
+  // small foil on the back too, but that read as "duplicated branding" once
+  // the user rotated the book. Cleaner result: leather back with the foil
+  // *color* but no text (real photo books often emboss only the spine
+  // and back-bottom corner; we leave it minimal).
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
-    paintFoilCanvas(r.foilBackCanvas, title, '', foilHex, 'small');
     r.foilFrontTex.needsUpdate = true;
-    r.foilBackTex.needsUpdate = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, subtitle]);
 
@@ -578,12 +662,21 @@ export default function Album3D({
 
       const sheenW = BOOK_W - stripW;
       const sheenGeom = new THREE.PlaneGeometry(sheenW, BOOK_H);
-      const sheenMat = new THREE.MeshStandardMaterial({
+      // Acrylic sheen — was metalness:0.6 + opacity:0.10 which, with no
+      // env-map on this scene, made the metallic component reflect the
+      // default "black void" right back at the camera. Net effect: a
+      // ~60%-dark wash over the photo (the symptom in the bug report:
+      // "you don't see the photo, just a faint silhouette").
+      //
+      // Switch to MeshBasicMaterial: pure additive-style overlay with no
+      // PBR shading. Low opacity + AdditiveBlending gives the glassy
+      // highlight without darkening anything underneath.
+      const sheenMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.10,
-        roughness: 0.05,
-        metalness: 0.6,
+        opacity: 0.18,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
         side: THREE.DoubleSide,
       });
       const sheen = new THREE.Mesh(sheenGeom, sheenMat);
@@ -605,38 +698,66 @@ export default function Album3D({
     const r = refs.current;
     if (!r) return;
     if (!photoSrc || variant === 'leather') {
-      // Strip the photo, fall back to foil.
+      // Strip the photo, fall back to foil. Restore the leather material
+      // properties we mutated on photo-load (normal map, leather color,
+      // roughness, metalness) so leather renders correctly again.
       if (r.photoTex) {
         r.photoTex.dispose();
         r.photoTex = null;
       }
       r.frontFaceMat.map = r.foilFrontTex;
       r.frontFaceMat.emissiveMap = r.foilFrontTex;
+      r.frontFaceMat.emissiveIntensity = 0.4;
+      r.frontFaceMat.normalMap = r.normalTex;
+      r.frontFaceMat.color.set(leatherHex);
+      r.frontFaceMat.roughness = 0.5;
+      r.frontFaceMat.metalness = 0.1;
       r.frontFaceMat.needsUpdate = true;
       return;
     }
     const loader = new THREE.TextureLoader();
     loader.crossOrigin = 'anonymous';
-    loader.load(photoSrc, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.center.set(0.5, 0.5);
-      tex.wrapS = THREE.ClampToEdgeWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      // Apply current zoom + pan immediately on load.
-      tex.repeat.set(1 / photoScale, 1 / photoScale);
-      tex.offset.set(
-        0.5 - 0.5 / photoScale - photoX / CSS_COVER_REF_PX,
-        0.5 - 0.5 / photoScale + photoY / CSS_COVER_REF_PX,
-      );
-      tex.needsUpdate = true;
-      // Dispose old photo tex.
-      if (r.photoTex) r.photoTex.dispose();
-      r.photoTex = tex;
-      r.frontFaceMat.map = tex;
-      r.frontFaceMat.emissiveMap = null;
-      r.frontFaceMat.emissiveIntensity = 0;
-      r.frontFaceMat.needsUpdate = true;
-    });
+    loader.load(
+      photoSrc,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.center.set(0.5, 0.5);
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.anisotropy = 8;
+        // Apply current zoom + pan immediately on load.
+        tex.repeat.set(1 / photoScale, 1 / photoScale);
+        tex.offset.set(
+          0.5 - 0.5 / photoScale - photoX / CSS_COVER_REF_PX,
+          0.5 - 0.5 / photoScale + photoY / CSS_COVER_REF_PX,
+        );
+        tex.needsUpdate = true;
+        if (r.photoTex) r.photoTex.dispose();
+        r.photoTex = tex;
+        // Strip leather normal + emissive so the photo prints flat. Keeping
+        // them on caused the photo to render as a leather-grained,
+        // foil-tinted brown wash — which is what the user sees in the
+        // "photo not visible" screenshot. Acrylic is glass-over-photo;
+        // there should be no leather texture between photo and viewer.
+        r.frontFaceMat.map = tex;
+        r.frontFaceMat.emissiveMap = null;
+        r.frontFaceMat.emissiveIntensity = 0;
+        r.frontFaceMat.normalMap = null;
+        r.frontFaceMat.color.set(0xffffff); // white base so the photo's own
+                                            // colors aren't tinted by leather hex
+        r.frontFaceMat.roughness = 0.35;    // smoother than leather (more like glossy print)
+        r.frontFaceMat.metalness = 0;
+        r.frontFaceMat.needsUpdate = true;
+      },
+      undefined,
+      (err) => {
+        // Texture load failed — surface to console so the dev can see the
+        // photo never made it. Common cause: the image URL 404s, or CORS
+        // headers are missing on the proxy (try `/api/photo/...` from a
+        // browser tab to verify it returns 200 + image bytes).
+        console.warn('Album3D: failed to load cover photo', photoSrc, err);
+      },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photoSrc, variant]);
 
@@ -645,14 +766,18 @@ export default function Album3D({
     const r = refs.current;
     if (!r) return;
     if (!backPhotoSrc || variant === 'leather' || variant === 'acrylic') {
-      // Restore leather + foil mark on back.
+      // Restore plain leather on the back — no foil text. Earlier versions
+      // mapped foilBackTex here which painted the title onto the back of
+      // the book ("back side shows name" bug). Strip both diffuse and
+      // emissive maps so the back is pure leather color + normal-mapped
+      // grain.
       if (r.backPhotoTex) {
         r.backPhotoTex.dispose();
         r.backPhotoTex = null;
       }
-      r.backFaceMat.map = r.foilBackTex;
-      r.backFaceMat.emissiveMap = r.foilBackTex;
-      r.backFaceMat.emissiveIntensity = 0.3;
+      r.backFaceMat.map = null;
+      r.backFaceMat.emissiveMap = null;
+      r.backFaceMat.emissiveIntensity = 0;
       r.backFaceMat.needsUpdate = true;
       return;
     }
@@ -683,24 +808,24 @@ export default function Album3D({
     tex.needsUpdate = true;
   }, [photoScale, photoX, photoY]);
 
-  // Initial render: setup the foil textures with current title/foil
-  // so first frame isn't blank. Done in a final useEffect that runs
-  // after the setup useEffect has populated refs.current.
+  // Initial render: setup the foil texture with current title/foil so the
+  // first frame isn't blank. Done in a final useEffect that runs after the
+  // setup useEffect has populated refs.current.
   useEffect(() => {
     const r = refs.current;
     if (!r) return;
     paintFoilCanvas(r.foilFrontCanvas, title, subtitle, foilHex, 'large');
-    paintFoilCanvas(r.foilBackCanvas, title, '', foilHex, 'small');
     r.foilFrontTex.needsUpdate = true;
-    r.foilBackTex.needsUpdate = true;
     // Make sure variant materials are wired on first paint.
     if (variant === 'leather') {
       r.frontFaceMat.map = r.foilFrontTex;
       r.frontFaceMat.emissiveMap = r.foilFrontTex;
       r.frontFaceMat.needsUpdate = true;
     }
-    r.backFaceMat.map = r.foilBackTex;
-    r.backFaceMat.emissiveMap = r.foilBackTex;
+    // Back face: plain leather, no foil/title.
+    r.backFaceMat.map = null;
+    r.backFaceMat.emissiveMap = null;
+    r.backFaceMat.emissiveIntensity = 0;
     r.backFaceMat.needsUpdate = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width]); // re-init on full rebuild only
