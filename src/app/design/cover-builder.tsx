@@ -223,8 +223,16 @@ interface CoverBuilderProps {
  */
 const REST_ROTATE_X_DEG = 2;
 const REST_ROTATE_Y_DEG = -12;
-const ROTATE_X_RANGE_DEG = 28;
-const ROTATE_Y_RANGE_DEG = 720;
+const ROTATE_X_RANGE_DEG = 18;
+/**
+ * Y rotation range — was 720 (effectively unbounded full-spin).
+ * Capped to 30 so the user can never drag past 90° and reach the
+ * back face, which exposed the CSS-3D fakeness ("open box" effect).
+ * With rest at -12, dragging spans -42° to +18° — front-facing
+ * with enough 3/4-angle interactivity to feel alive, but the back
+ * is unreachable.
+ */
+const ROTATE_Y_RANGE_DEG = 30;
 const DRAG_SENSITIVITY = 0.5;
 
 /**
