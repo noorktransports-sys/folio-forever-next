@@ -139,6 +139,90 @@
 
   for (let i = 0; i < totalSpreads; i++) spreadData.push({ layoutId: 'lf_2a', slots: [null, null], bg: { type: 'solid', color: '#f8f4ee' } });
 
+  // ── PERSISTENCE ──────────────────────────────────────────────
+  // Survive refresh. The whole designer state is serialized to
+  // localStorage on every meaningful mutation (debounced). On script
+  // load we restore it before any DOM is touched.
+  //
+  // Keys are bumped if the schema changes — old versions are ignored
+  // rather than migrated. v3 = current shape (binding, size, layouts,
+  // spreads, uploads).
+  //
+  // Note: photos uploaded in dev/preview without /api/upload are stored
+  // as data URLs which can blow past the 5 MB localStorage quota fast.
+  // We catch the QuotaExceededError silently — better to lose the save
+  // than to crash the page. Production R2 URLs are tiny strings, so
+  // this only ever bites the preview deploy.
+  const STATE_KEY = 'folio-design-state-v3';
+  let _saveTimer = null;
+
+  function _saveStateNow() {
+    _saveTimer = null;
+    try {
+      const payload = {
+        v: 3,
+        binding: currentBinding,
+        size: currentSize,
+        selectedLayout: selectedLayout,
+        totalSpreads: totalSpreads,
+        spreadData: spreadData,
+        uploadedPhotos: uploadedPhotos,
+        currentSpread: currentSpread,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem(STATE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      // QuotaExceededError or private mode — fail silently.
+      console.warn('Folio: state save failed', e && e.message);
+    }
+  }
+
+  // Debounced wrapper. Call this freely from state-mutation paths;
+  // it coalesces bursts into one write.
+  function _scheduleSave() {
+    if (_saveTimer) clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(_saveStateNow, 400);
+  }
+
+  function _restoreState() {
+    try {
+      const raw = localStorage.getItem(STATE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (!data || data.v !== 3) return false;
+      if (data.binding === 'layflat' || data.binding === 'hardcover') {
+        currentBinding = data.binding;
+      }
+      if (typeof data.size === 'string' && sizes[data.size]) {
+        currentSize = data.size;
+      }
+      if (typeof data.selectedLayout === 'string' && layouts.find(l => l.id === data.selectedLayout)) {
+        selectedLayout = data.selectedLayout;
+      }
+      if (typeof data.totalSpreads === 'number' && data.totalSpreads > 0) {
+        totalSpreads = data.totalSpreads;
+      }
+      if (Array.isArray(data.spreadData) && data.spreadData.length) {
+        spreadData = data.spreadData;
+      }
+      if (data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
+        uploadedPhotos = data.uploadedPhotos;
+      }
+      if (typeof data.currentSpread === 'number' && data.currentSpread >= 0) {
+        currentSpread = Math.min(data.currentSpread, totalSpreads - 1);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Folio: state restore failed', e && e.message);
+      return false;
+    }
+  }
+
+  // Restore before any rendering happens. Even if the page lands on
+  // path-choice or a non-builder route, having the globals populated
+  // means jumping straight to /design/build later doesn't lose state.
+  const _hadSavedState = _restoreState();
+
   // ── PRICING ──────────────────────────────────────────────────
   // All prices in USD. "Included" is the spread count baked into the
   // base price; anything beyond costs `perExtra` per spread. Edit this
@@ -269,19 +353,27 @@
     if (!sizes[sizeKey]) return;
     if (bindingType !== 'layflat' && bindingType !== 'hardcover') return;
 
+    // Don't wipe the user's work if they re-pick the SAME product they
+    // were already on. This matters after a refresh: state is restored
+    // from localStorage; the user clicks the matching product card to
+    // re-enter the builder; we should preserve their photos & layouts.
+    const sameProduct = (currentSize === sizeKey && currentBinding === bindingType);
+
     currentSize = sizeKey;
     currentBinding = bindingType;
     bindingLocked = false;
 
-    // Seed every spread with the default layout for the chosen binding
-    // so we never start with lay-flat-only layouts under hardcover (or
-    // vice versa).
-    const defaultId = bindingType === 'layflat' ? 'lf_2a' : 'hc_2a';
-    selectedLayout = defaultId;
-    spreadData.forEach(s => {
-      s.layoutId = defaultId;
-      s.slots = new Array(findLayout(defaultId).slots).fill(null);
-    });
+    if (!sameProduct) {
+      // Different SKU picked — seed every spread with the default layout
+      // for the chosen binding so we never start with lay-flat-only
+      // layouts under hardcover (or vice versa).
+      const defaultId = bindingType === 'layflat' ? 'lf_2a' : 'hc_2a';
+      selectedLayout = defaultId;
+      spreadData.forEach(s => {
+        s.layoutId = defaultId;
+        s.slots = new Array(findLayout(defaultId).slots).fill(null);
+      });
+    }
 
     // Sync the toolbar size-switcher highlight to match.
     document.querySelectorAll('.size-btn').forEach(b => {
@@ -307,11 +399,16 @@
     renderCanvas();
     updateSpreadInfoLabel();
     renderPriceTag();
+    _scheduleSave();
   }
 
   // The "Change product" pill in the toolbar calls this. If photos are
   // already placed we warn loudly — switching binding/size changes slot
   // geometry and may unplace photos. Cancellable.
+  //
+  // Navigation is handed back to React via the folio:nav custom event
+  // so the URL flips to /design/product. Plain DOM toggling here would
+  // desync URL from view (refresh would land back on /design/build).
   function promptBindingChange() {
     const placedCount = spreadData.reduce(
       (n, s) => n + s.slots.filter(Boolean).length, 0
@@ -323,12 +420,14 @@
       );
       if (!ok) return;
     }
-    // Send the user back to the product picker. selectProduct() will
-    // re-seed everything once they pick.
-    const builder = document.getElementById('builderSection');
-    if (builder) builder.classList.remove('active');
-    const product = document.getElementById('productSection');
-    if (product) product.classList.add('active');
+    try {
+      window.dispatchEvent(new CustomEvent('folio:nav', { detail: { to: '/design/product' } }));
+    } catch (e) { /* old browser — fall back to DOM toggle */
+      const builder = document.getElementById('builderSection');
+      if (builder) builder.classList.remove('active');
+      const product = document.getElementById('productSection');
+      if (product) product.classList.add('active');
+    }
   }
 
   function syncBindingLabel() {
@@ -386,6 +485,33 @@
     bindingLocked = true;
   }
 
+  // mountBuilder — called by React when the URL enters /design/build.
+  // Repaints the whole designer from current globals (which may have
+  // just been restored from localStorage, or freshly set by a product
+  // pick). Idempotent: safe to call repeatedly. Also re-adds photo
+  // thumbs from uploadedPhotos so they survive refresh.
+  function mountBuilder() {
+    // Re-populate the photo grid from the in-memory map. We rebuild
+    // the grid from scratch so rerunning mountBuilder doesn't double
+    // up thumbs.
+    const grid = document.getElementById('photoGrid');
+    if (grid) grid.innerHTML = '';
+    Object.entries(uploadedPhotos).forEach(([id, val]) => {
+      const src = typeof val === 'object' ? val.src : val;
+      if (src) addThumb(id, src);
+    });
+
+    applySizeToCanvas(currentSize);
+    syncBindingLabel();
+    renderPhotoCountTabs();
+    renderLayoutPanel();
+    renderPageStrip();
+    renderCanvas();
+    updateSpreadInfoLabel();
+    updatePhotoCount();
+    renderPriceTag();
+  }
+
   function setSize(sizeKey) {
     if (!sizes[sizeKey] || sizeKey === currentSize) return;
     currentSize = sizeKey;
@@ -397,6 +523,7 @@
     // Size change flips the per-spread rate AND can flip the acrylic
     // surcharge ($40 → $65), so the price tag has to refresh.
     renderPriceTag();
+    _scheduleSave();
   }
 
   function applySizeToCanvas(sizeKey) {
@@ -533,6 +660,7 @@
     document.querySelectorAll('.layout-thumb').forEach(el => {
       el.classList.toggle('active', el.dataset.layoutId === l.id);
     });
+    _scheduleSave();
   }
 
   function renderCanvas() {
@@ -990,6 +1118,7 @@
     }
     renderBgPanel();
     renderCanvas();
+    _scheduleSave();
   }
 
   function setBgColor(color) {
@@ -998,6 +1127,7 @@
     spread.bg = { type: 'solid', color: color };
     renderBgPanel();
     renderCanvas();
+    _scheduleSave();
   }
 
   function setBgPhoto(src) {
@@ -1007,14 +1137,17 @@
     spread.bg = { type: 'photo', photoSrc: src, fade: fade };
     renderBgPanel();
     renderCanvas();
+    _scheduleSave();
   }
 
   function setBgFade(fade) {
     const spread = spreadData[currentSpread];
     if (!spread.bg || spread.bg.type !== 'photo') return;
     spread.bg.fade = fade;
-    // No history push on every tick — only renderCanvas.
+    // No history push on every tick — only renderCanvas. Slider drags
+    // are debounced by _scheduleSave's 400ms.
     renderCanvas();
+    _scheduleSave();
   }
 
   // ── TEXT OVERLAY ──
@@ -1060,12 +1193,14 @@
     future.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(history.pop());
     renderCanvas();
+    _scheduleSave();
   }
   function doRedo() {
     if (!future.length) return;
     history.push(JSON.stringify(spreadData.map(s => ({ ...s, slots: [...s.slots] }))));
     spreadData = JSON.parse(future.pop());
     renderCanvas();
+    _scheduleSave();
   }
 
   /**
@@ -1213,6 +1348,9 @@
         uploadedPhotos[id] = src;
         replacePlaceholderWithThumb(tmpId, id, src);
         updatePhotoCount();
+        // Persist so an upload survives refresh, even if the user
+        // hasn't dropped it into a slot yet.
+        _scheduleSave();
         return { id, src };
       })
       .catch(err => {
@@ -1234,6 +1372,7 @@
         spreadData[currentSpread].slots[idx] = { src, px: 0, py: 0, scale: 1, rotate: 0, flipX: false, flipY: false, filter: '' };
         _lockBindingNow();
         renderCanvas();
+        _scheduleSave();
       }).catch(() => {});
     };
     input.click();
@@ -1248,6 +1387,7 @@
     spreadData[currentSpread].slots[idx] = { src, px: 0, py: 0, scale: 1, rotate: 0, flipX: false, flipY: false, filter: '' };
     _lockBindingNow();
     renderCanvas();
+    _scheduleSave();
     draggedPhotoId = null;
   }
 
@@ -1386,6 +1526,7 @@
       // Adding a spread past the included count bumps the price by
       // perExtra, so we refresh the toolbar tag immediately.
       renderPriceTag();
+      _scheduleSave();
     };
     strip.appendChild(add);
   }
@@ -1553,3 +1694,12 @@
   window.computePrice = computePrice;
   window.renderPriceTag = renderPriceTag;
   window.renderPriceBreakdown = renderPriceBreakdown;
+  // mountBuilder is invoked by React when the URL enters /design/build
+  // (or on hot reload of that route) so the DOM gets repainted from
+  // current globals. Safe to call repeatedly.
+  window.mountBuilder = mountBuilder;
+  // Expose so the "Start a new album" flow can clear persistent state
+  // before reloading.
+  window._folioClearState = function() {
+    try { localStorage.removeItem(STATE_KEY); } catch (e) {}
+  };

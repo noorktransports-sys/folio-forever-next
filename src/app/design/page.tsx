@@ -3,8 +3,36 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Script from 'next/script';
+import { useParams, useRouter } from 'next/navigation';
 import CoverBuilder, { type CoverState } from './cover-builder';
 import './album-builder.css';
+
+/**
+ * URL-driven step routing.
+ *
+ * /design               → intro (path-choice)
+ * /design/product       → product picker (4 SKUs)
+ * /design/build         → spread builder
+ * /design/cover         → cover builder
+ * /design/expert        → expert design form
+ *
+ * The catch-all route at /design/[[...step]]/page.tsx re-exports this
+ * component so any sub-path lands here. We derive `currentStep` from
+ * useParams().step and toggle the existing DOM sections via useEffect.
+ * Navigation flows through router.push so browser back/forward works
+ * and refresh keeps the user on their step (paired with localStorage
+ * persistence in album-builder.js).
+ */
+type RouteStep = 'intro' | 'product' | 'build' | 'cover' | 'expert';
+
+function deriveStep(stepArr?: string[]): RouteStep {
+  const s = (stepArr?.[0] ?? '').toLowerCase();
+  if (s === 'product') return 'product';
+  if (s === 'build') return 'build';
+  if (s === 'cover') return 'cover';
+  if (s === 'expert') return 'expert';
+  return 'intro';
+}
 
 /**
  * Submitted-order lock contract (Phase 1 — localStorage only).
@@ -67,18 +95,17 @@ function fb(name: string, ...args: unknown[]) {
 }
 
 /**
- * Step controls which view of the designer is shown:
- *   'spreads' — the legacy album-builder.js drag/drop spread editor.
- *   'cover'   — the React-based CoverBuilder (cover-builder.tsx).
- *
- * The spreads section is kept mounted (display: none) so that the legacy JS
- * keeps its module-scoped state (spreadData, uploadedPhotos, history) when
- * the user toggles between cover and spreads.
+ * Steps are now URL-driven; see the RouteStep type above. The spreads
+ * section is kept mounted (display: none via .builder-section) so that
+ * the legacy JS keeps its module-scoped state (spreadData, uploadedPhotos,
+ * history) when the user navigates between /design/build and /design/cover.
  */
-type Step = 'spreads' | 'cover';
 
 export default function DesignerPage() {
-  const [step, setStep] = useState<Step>('spreads');
+  const router = useRouter();
+  const params = useParams<{ step?: string[] }>();
+  const currentStep: RouteStep = deriveStep(params?.step);
+
   const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
 
   // Submit lock — `null` until we know (server-rendered HTML can't read
@@ -100,11 +127,80 @@ export default function DesignerPage() {
         submittedAt: new Date().toISOString(),
       });
     }
+    // 3. Allow album-builder.js to request navigation via custom event
+    //    (it can't call useRouter from module scope).
+    function onFolioNav(ev: Event) {
+      const detail = (ev as CustomEvent<{ to?: string }>).detail;
+      if (detail?.to) router.push(detail.to);
+    }
     window.addEventListener('folio:submitted', onSubmitted);
+    window.addEventListener('folio:nav', onFolioNav);
     return () => {
       window.removeEventListener('folio:submitted', onSubmitted);
+      window.removeEventListener('folio:nav', onFolioNav);
     };
-  }, []);
+  }, [router]);
+
+  // Drive DOM section visibility from the URL. Each section was already
+  // toggled via .active class by album-builder.js's choosePath/etc; we
+  // now own that here so refresh on /design/build lands in the right
+  // place. Navbar bits (price tag, save/submit buttons, change-style
+  // pill) only appear inside the builder/cover steps.
+  useEffect(() => {
+    const intro = document.getElementById('introSection') as HTMLElement | null;
+    const product = document.getElementById('productSection');
+    const builder = document.getElementById('builderSection');
+    const expert = document.getElementById('expertSection');
+
+    product?.classList.remove('active');
+    builder?.classList.remove('active');
+    expert?.classList.remove('active');
+    if (intro) intro.style.display = currentStep === 'intro' ? '' : 'none';
+
+    if (currentStep === 'product') product?.classList.add('active');
+    else if (currentStep === 'build' || currentStep === 'cover') builder?.classList.add('active');
+    else if (currentStep === 'expert') expert?.classList.add('active');
+
+    const inBuilder = currentStep === 'build' || currentStep === 'cover';
+    const navSubmitBtn = document.getElementById('navSubmitBtn') as HTMLElement | null;
+    const navSaveBtn = document.getElementById('navSaveBtn') as HTMLElement | null;
+    const changeBtn = document.getElementById('changeBindingBtn') as HTMLElement | null;
+    const priceTag = document.getElementById('priceTag') as HTMLElement | null;
+    if (navSubmitBtn) navSubmitBtn.style.display = inBuilder ? 'block' : 'none';
+    if (navSaveBtn) navSaveBtn.style.display = inBuilder ? 'block' : 'none';
+    if (changeBtn) changeBtn.style.display = inBuilder ? 'inline-flex' : 'none';
+    if (priceTag) priceTag.style.display = inBuilder ? 'inline-flex' : 'none';
+
+    // When entering /design/build, ask album-builder.js to repaint from
+    // its current globals (which may have just been restored from
+    // localStorage). Retry briefly while the script loads — it's
+    // declared with strategy="afterInteractive" so it may not have run
+    // yet on the very first render.
+    if (currentStep === 'build') {
+      let tries = 0;
+      const tick = () => {
+        const w = window as unknown as { mountBuilder?: () => void };
+        if (typeof w.mountBuilder === 'function') {
+          w.mountBuilder();
+        } else if (tries++ < 40) {
+          setTimeout(tick, 50);
+        }
+      };
+      tick();
+    }
+
+    // When entering /design/cover, hand the cover-builder the current
+    // photo list so it can render thumbnails for the photo cover option.
+    if (currentStep === 'cover') {
+      const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
+      const map = w.uploadedPhotos ?? {};
+      const list = Object.entries(map).map(([id, val]) => ({
+        id,
+        src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
+      })).filter((p) => p.src);
+      setPhotos(list);
+    }
+  }, [currentStep]);
 
   /**
    * Clear the lock and reload the designer for a fresh order. Used by the
@@ -116,8 +212,15 @@ export default function DesignerPage() {
   function startNewAlbum() {
     try {
       window.localStorage.removeItem(SUBMITTED_KEY);
+      // Also clear the persisted designer state so a fresh order
+      // doesn't inherit the previous album's spreads/photos.
+      const w = window as unknown as { _folioClearState?: () => void };
+      if (typeof w._folioClearState === 'function') w._folioClearState();
     } catch { /* ignore */ }
-    window.location.reload();
+    // Full reload + back to /design — the legacy album-builder.js needs
+    // its module-scoped globals (spreadData, uploadedPhotos, history)
+    // fully reset, easier than tracking down every reset path.
+    window.location.href = '/design';
   }
 
   // When locked, render the minimal confirmation view — no nav, no
@@ -133,6 +236,9 @@ export default function DesignerPage() {
    * button now that cover is part of the flow.
    */
   function goToCover() {
+    // Photo list is also re-derived inside the URL-effect when
+    // currentStep flips to 'cover' — we set it eagerly here so the
+    // CoverBuilder's first paint has the photos already.
     const w = window as unknown as { uploadedPhotos?: Record<string, unknown> };
     const map = w.uploadedPhotos ?? {};
     const list = Object.entries(map).map(([id, val]) => ({
@@ -140,7 +246,7 @@ export default function DesignerPage() {
       src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
     })).filter((p) => p.src);
     setPhotos(list);
-    setStep('cover');
+    router.push('/design/cover');
   }
 
   /**
@@ -155,7 +261,7 @@ export default function DesignerPage() {
 
   return (
     <>
-      <Script src="/js/album-builder.js?v=20260505-5" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260506-1" strategy="afterInteractive" />
 
       {/* NAVBAR */}
       <nav>
@@ -163,17 +269,19 @@ export default function DesignerPage() {
           FOLIO &amp; FOREVER
         </Link>
         <div className="nav-right">
-          {/* Back: if a flow section is active, navBack() hides it and
-              shows intro (returning false). Otherwise it returns true
-              and we navigate to /. Lets the customer step back through
-              the wizard with one click instead of bailing to home. */}
+          {/* Back: walks one step backward through the URL flow.
+              build → product → intro → home. cover → build. expert →
+              intro. The browser's native back button works the same
+              because we use router.push (real History entries). */}
           <button
             type="button"
             className="nav-back nav-back-btn"
             onClick={() => {
-              const w = window as unknown as { navBack?: () => boolean };
-              const goHome = w.navBack ? w.navBack() : true;
-              if (goHome) window.location.href = '/';
+              if (currentStep === 'build') router.push('/design/product');
+              else if (currentStep === 'cover') router.push('/design/build');
+              else if (currentStep === 'product') router.push('/design');
+              else if (currentStep === 'expert') router.push('/design');
+              else window.location.href = '/';
             }}
           >
             ← Back
@@ -230,7 +338,7 @@ export default function DesignerPage() {
 
         <div className="path-choice">
           {/* SELF DESIGN */}
-          <div className="path-card" onClick={() => fb('choosePath', 'self')}>
+          <div className="path-card" onClick={() => router.push('/design/product')}>
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="2" y="2" width="7" height="7" stroke="#b8965a" strokeWidth="0.8" />
@@ -262,7 +370,7 @@ export default function DesignerPage() {
           {/* EXPERT DESIGN */}
           <div
             className="path-card recommended"
-            onClick={() => fb('choosePath', 'expert')}
+            onClick={() => router.push('/design/expert')}
           >
             <div className="path-badge">Recommended</div>
             <div className="path-icon">
@@ -319,7 +427,10 @@ export default function DesignerPage() {
             {/* 17×24 Coffee-Table — cheapest, anchor price */}
             <div
               className="binding-card product-card"
-              onClick={() => fb('selectProduct', 'spread_17x24', 'hardcover')}
+              onClick={() => {
+                fb('selectProduct', 'spread_17x24', 'hardcover');
+                router.push('/design/build');
+              }}
             >
               <div className="binding-thumb binding-thumb-hardcover product-thumb-17" aria-hidden="true">
                 <div className="binding-thumb-page" />
@@ -344,7 +455,10 @@ export default function DesignerPage() {
             {/* 17×24 Lay-Flat — premium of the standard size */}
             <div
               className="binding-card product-card"
-              onClick={() => fb('selectProduct', 'spread_17x24', 'layflat')}
+              onClick={() => {
+                fb('selectProduct', 'spread_17x24', 'layflat');
+                router.push('/design/build');
+              }}
             >
               <div className="binding-thumb binding-thumb-layflat product-thumb-17" aria-hidden="true">
                 <div className="binding-thumb-page" />
@@ -369,7 +483,10 @@ export default function DesignerPage() {
             {/* 20×30 Poster Coffee-Table */}
             <div
               className="binding-card product-card"
-              onClick={() => fb('selectProduct', 'page_20x30', 'hardcover')}
+              onClick={() => {
+                fb('selectProduct', 'page_20x30', 'hardcover');
+                router.push('/design/build');
+              }}
             >
               <div className="binding-thumb binding-thumb-hardcover product-thumb-20" aria-hidden="true">
                 <div className="binding-thumb-page" />
@@ -395,7 +512,10 @@ export default function DesignerPage() {
             {/* 20×30 Poster Lay-Flat — top of range */}
             <div
               className="binding-card product-card"
-              onClick={() => fb('selectProduct', 'page_20x30', 'layflat')}
+              onClick={() => {
+                fb('selectProduct', 'page_20x30', 'layflat');
+                router.push('/design/build');
+              }}
             >
               <div className="binding-thumb binding-thumb-layflat product-thumb-20" aria-hidden="true">
                 <div className="binding-thumb-page" />
@@ -420,11 +540,11 @@ export default function DesignerPage() {
         </div>
       </div>
 
-      {/* COVER BUILDER (shown when step === 'cover') */}
-      {step === 'cover' && (
+      {/* COVER BUILDER (shown at /design/cover) */}
+      {currentStep === 'cover' && (
         <CoverBuilder
           uploadedPhotos={photos}
-          onBack={() => setStep('spreads')}
+          onBack={() => router.push('/design/build')}
           onContinue={continueFromCover}
         />
       )}
@@ -433,7 +553,7 @@ export default function DesignerPage() {
       <div
         className="builder-section"
         id="builderSection"
-        hidden={step === 'cover'}
+        hidden={currentStep === 'cover'}
       >
         <div className="builder-wrap">
           {/* LEFT: Photos */}
@@ -880,7 +1000,7 @@ export default function DesignerPage() {
       <div
         className="photo-float-toolbar"
         id="photoFloatToolbar"
-        hidden={step === 'cover'}
+        hidden={currentStep !== 'build'}
       >
         <span className="ftb-label">Photo</span>
         <div className="ftb-sep" />
