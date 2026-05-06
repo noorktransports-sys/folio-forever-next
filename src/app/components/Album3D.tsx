@@ -456,18 +456,29 @@ export default function Album3D({
         normalScale: new THREE.Vector2(0.6, 0.6),
       });
 
-    // LEATHER FRONT — leather color + foil-stamped title (foil texture in
-    // map + emissiveMap so the text catches light). This material is bound
-    // to the cover's +Z slot only when variant === 'leather'.
+    // LEATHER FRONT — leather color + foil-stamped title.
+    //
+    // CRITICAL: the foil canvas goes on emissiveMap ONLY, not map. Earlier
+    // versions set map=foilFrontTex which was a silent killer of the
+    // leather color: the canvas is mostly RGBA(0,0,0,0), and
+    // MeshStandardMaterial computes diffuse = color * map.rgb — so every
+    // non-text pixel rendered black, regardless of which leather color
+    // the user picked. (The user filed: "BROWN selected but cover shows
+    // navy / dark.") Now diffuse uses just `color` (uniform leather) and
+    // the foil text rides on emissive only.
+    //
+    // Emissive is white so the canvas's foilHex pixels pass through
+    // unchanged — emit_out = white * canvas.rgb = foilHex on text,
+    // 0 elsewhere. This also means the FOIL EMISSIVE COLOR effect can
+    // be retired: foil color flows entirely through the canvas repaint.
     const leatherFrontMat = new THREE.MeshStandardMaterial({
       color: initialColor.clone(),
       roughness: 0.5,
       metalness: 0.1,
       normalMap: normalTex,
       normalScale: new THREE.Vector2(0.6, 0.6),
-      emissive: initialFoil.clone(),
-      emissiveIntensity: 0.4,
-      map: foilFrontTex,
+      emissive: 0xffffff,
+      emissiveIntensity: 1,
       emissiveMap: foilFrontTex,
     });
 
@@ -794,18 +805,11 @@ export default function Album3D({
     }
   }, [leatherHex]);
 
-  // ─── FOIL EMISSIVE COLOR (leather material only) ─────────────
-  // The leather front material's emissive tint follows foilHex so the
-  // stamped text catches a hint of glow under lighting. Photo / acrylic
-  // materials don't read this — they have their own emissive (white) for
-  // the unlit photo treatment.
-  useEffect(() => {
-    const r = refs.current;
-    if (!r) return;
-    r.leatherFrontMat.emissive.set(foilHex);
-  }, [foilHex]);
-
   // ─── FOIL CANVAS REPAINT ─────────────────────────────────────
+  // Foil color now flows ENTIRELY through the canvas repaint — the
+  // leather material's emissive stays white and acts as a passthrough
+  // for whatever color the canvas paints the title in. So we no longer
+  // need a separate effect to tint leatherFrontMat.emissive.
   // Single source of truth for the title texture. ANY user pick that
   // affects the rendered title (text, font, size, position, color) goes
   // through here. Earlier we had multiple useEffects each with partial
