@@ -460,36 +460,36 @@
   transform: translateY(-1px);
 }
 
-/* Type-specific surface treatments. Boosted texture so the back
- * cover doesn't read as a flat paper-box panel when rotated — real
- * leather has visible pebbling, a top-light sheen, and darker
- * corners. Same treatment is applied to .cover-backface so front
- * and back stay consistent. */
+/* Type-specific surface treatments — leather grain.
+ *
+ * v2: drops mix-blend-mode (which barely shifted dark-brown pixels)
+ * for an SVG fractal-noise grain layer + visible sheen + deep corner
+ * shadow. Result reads as actual leather, not a flat paint chip.
+ * Same treatment is applied to .cover-backface via the leather-grain
+ * div added to the back cover, so front and back stay consistent. */
 .cover-leather-grain {
   position: absolute; inset: 0;
   pointer-events: none;
-  background:
-    /* studio top-light sheen */
-    radial-gradient(ellipse at 28% 18%, rgba(255, 255, 255, 0.14) 0%, transparent 48%),
-    /* darker bottom-right corner */
-    radial-gradient(ellipse at 82% 88%, rgba(0, 0, 0, 0.32) 0%, transparent 55%),
-    /* primary pebble grain */
+  background-image:
+    radial-gradient(ellipse at 25% 15%, rgba(255, 255, 255, 0.22) 0%, transparent 48%),
+    radial-gradient(ellipse at 82% 88%, rgba(0, 0, 0, 0.45) 0%, transparent 58%),
     repeating-linear-gradient(
       35deg,
-      rgba(0, 0, 0, 0.07) 0px,
-      rgba(0, 0, 0, 0.07) 1px,
+      rgba(0, 0, 0, 0.10) 0px,
+      rgba(0, 0, 0, 0.10) 1px,
       transparent 1px,
       transparent 3px
     ),
-    /* secondary cross-hatch grain */
     repeating-linear-gradient(
       125deg,
-      rgba(255, 255, 255, 0.04) 0px,
-      rgba(255, 255, 255, 0.04) 1px,
+      rgba(255, 255, 255, 0.05) 0px,
+      rgba(255, 255, 255, 0.05) 1px,
       transparent 1px,
       transparent 4px
-    );
-  mix-blend-mode: overlay;
+    ),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.55 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 140px 140px;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, repeat;
 }
 
 .cover-acrylic-sheen {
