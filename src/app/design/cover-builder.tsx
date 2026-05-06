@@ -728,6 +728,13 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                       : undefined,  // photo + no back: CSS .is-fabric supplies bg
                 }}
               >
+                {/* Leather grain on the back too — without it the back
+                 * reads as a flat paper-box panel when rotated. Acrylic
+                 * shares the same leather binding-panel back, so it
+                 * gets the grain too. */}
+                {(state.type === 'leather' || state.type === 'acrylic') && (
+                  <div className="cover-leather-grain" aria-hidden="true" />
+                )}
                 {state.type === 'photo' && state.backPhotoSrc && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img

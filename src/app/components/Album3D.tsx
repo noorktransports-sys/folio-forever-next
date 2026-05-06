@@ -209,6 +209,12 @@ export default function Album3D({
             className="album3d-back"
             style={{ background: variant === 'leather' ? leatherHex : '#1a1816' }}
           >
+            {/* Leather grain on the back too — without it the back face
+             * reads as a flat paper-box panel (real leather has texture
+             * on every surface, not just the front). */}
+            {variant === 'leather' && (
+              <div className="album3d-leather-grain" aria-hidden="true" />
+            )}
             {variant === 'leather' && (
               <div className="album3d-back-mark" style={{ color: foilHex }}>
                 <span className="album3d-back-rule" aria-hidden="true" />
