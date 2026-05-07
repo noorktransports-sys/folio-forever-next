@@ -103,10 +103,15 @@
     { id: 'lf_6b', name: 'Two by Three',   cols: '1fr 1fr',       rows: 'repeat(3, 1fr)', slots: 6, photoCount: 6, binding: 'layflat' },
 
     // ── HARDCOVER (gutter respected — every slot edge falls on 50%) ──
-    { id: 'hc_1a', name: 'Left Page',      cols: '1fr 1fr',       rows: '1fr',           slots: 1, photoCount: 1, binding: 'hardcover',
-      slotAreas: ['1 / 1 / 2 / 2'] },
-    { id: 'hc_1b', name: 'Right Page',     cols: '1fr 1fr',       rows: '1fr',           slots: 1, photoCount: 1, binding: 'hardcover',
-      slotAreas: ['1 / 2 / 2 / 3'] },
+    //
+    // Removed: hc_1a "Left Page" and hc_1b "Right Page". Those layouts
+    // left one of the two pages completely blank with no editable slot,
+    // which in production = wasted paper, and in the editor = confusing
+    // (the user couldn't tell whether they were supposed to do something
+    // with the empty side). Hardcover now starts at 2 photos minimum.
+    // Title sheet's default is hc_2a so both sides of the first spread
+    // are editable too — the user can leave the left blank if they want
+    // it pasted under the cover endpaper, but the choice is theirs.
 
     { id: 'hc_2a', name: 'One Per Page',   cols: '1fr 1fr',       rows: '1fr',           slots: 2, photoCount: 2, binding: 'hardcover' },
     { id: 'hc_2b', name: 'Stacked Left',   cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 2, photoCount: 2, binding: 'hardcover',
@@ -196,26 +201,17 @@
   // Returns layouts that match the current binding plus an optional
   // photoCount filter. Used by renderLayoutPanel and the filter rail.
   //
-  // Title-page exception: hc_1a (Left Page) and hc_1b (Right Page) leave
-  // one side blank, which is wasted paper for any spread except the
-  // first — there the blank side is the cover paste-down endpaper, so
-  // the "waste" is structural, not a layout choice. So we only show
-  // those single-page hardcover layouts on currentSpread === 0.
-  //
-  // Layflat is untouched: lf_1a is a full-spread single photo (one image
-  // spanning both pages), not a single page with the other blank.
+  // The previous title-page exception (allowing 1-photo hardcover
+  // layouts only on spread 0) was retired when we deleted hc_1a and
+  // hc_1b entirely. Hardcover now has no single-page layouts. The
+  // defense-in-depth filter below still hides any 1-photo hardcover
+  // entry that might sneak back in via a future edit, so we don't
+  // accidentally expose the broken UX again.
   function getVisibleLayouts() {
-    const isTitleSpread = currentSpread === 0;
     return layouts.filter(l => {
       if (l.binding !== currentBinding) return false;
       if (currentPhotoCountFilter !== null && l.photoCount !== currentPhotoCountFilter) return false;
-      if (
-        l.binding === 'hardcover' &&
-        l.photoCount === 1 &&
-        !isTitleSpread
-      ) {
-        return false;
-      }
+      if (l.binding === 'hardcover' && l.photoCount === 1) return false;
       return true;
     });
   }
@@ -235,10 +231,17 @@
    * the default works for both bindings.
    */
   function buildDefaultTitleSheet() {
+    // Hardcover default is hc_2a "One Per Page" (was hc_1b "Right Page",
+    // which we deleted because single-page layouts left an unusable blank
+    // facing page). The user can leave one slot empty if they want the
+    // paste-down look — that's a placement choice, not a layout one.
+    // Layflat default stays lf_1a (full-spread single photo, both pages
+    // used by one image).
+    const isHardcover = currentBinding === 'hardcover';
     return {
       kind: 'title',
-      layoutId: currentBinding === 'hardcover' ? 'hc_1b' : 'lf_1a',
-      slots: [null],
+      layoutId: isHardcover ? 'hc_2a' : 'lf_1a',
+      slots: isHardcover ? [null, null] : [null],
       bg: { type: 'solid', color: '#f8f4ee' },
     };
   }
@@ -316,6 +319,19 @@
       }
       if (Array.isArray(data.spreadData) && data.spreadData.length) {
         spreadData = data.spreadData;
+        // Migration: hc_1a "Left Page" and hc_1b "Right Page" were
+        // deleted (they left one page blank with nothing to edit).
+        // Heal any saved spread that still references them by swapping
+        // to hc_2a "One Per Page" — same binding, both sides editable.
+        // The slots array gets padded to length 2 so the layout's
+        // expected slot count matches.
+        spreadData.forEach((sp) => {
+          if (sp && (sp.layoutId === 'hc_1a' || sp.layoutId === 'hc_1b')) {
+            sp.layoutId = 'hc_2a';
+            const existing = sp.slots && sp.slots[0] ? sp.slots[0] : null;
+            sp.slots = [existing, null];
+          }
+        });
       }
       if (data.uploadedPhotos && typeof data.uploadedPhotos === 'object') {
         uploadedPhotos = data.uploadedPhotos;
