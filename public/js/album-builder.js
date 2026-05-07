@@ -122,6 +122,68 @@
     { id: 'hc_4a', name: '2×2 Grid',       cols: '1fr 1fr',       rows: '1fr 1fr',       slots: 4, photoCount: 4, binding: 'hardcover' },
     { id: 'hc_4b', name: 'Wide Strip',     cols: 'repeat(4, 1fr)', rows: '1fr',          slots: 4, photoCount: 4, binding: 'hardcover' },
 
+    // ── Patterns drawn from reference albums ──
+    // These are the asymmetric grids real wedding albums use: a featured
+    // page paired with a mosaic page. All slot edges still align with
+    // the 50% gutter so they're hardcover-safe.
+
+    /* Image 19 reference — full feature on the left page, a small portrait
+     * top-right and a wider environment shot bottom-right. 3 photos. */
+    { id: 'hc_3c', name: 'Big Left · Small + Wide Right',
+      cols: '2fr 1fr 1fr', rows: '1fr 1fr', slots: 3, photoCount: 3, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 4', '2 / 2 / 3 / 4'] },
+
+    /* Image 11 reference — full feature on the left, two stacked photos
+     * on the right page (group up, group down). 3 photos. */
+    { id: 'hc_3d', name: 'Big Left · Stacked Right',
+      cols: '1fr 1fr', rows: '1fr 1fr', slots: 3, photoCount: 3, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3'] },
+
+    /* Image 2 / 9 reference — two stacked on the left page, single big
+     * portrait on the right. Mirror of hc_3d. 3 photos. */
+    { id: 'hc_3e', name: 'Stacked Left · Big Right',
+      cols: '1fr 1fr', rows: '1fr 1fr', slots: 3, photoCount: 3, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 2 / 2', '2 / 1 / 3 / 2', '1 / 2 / 3 / 3'] },
+
+    /* Image 7 / 12 reference — full feature left, three-photo mosaic on
+     * the right (two small on top, one wide on bottom). 4 photos. */
+    { id: 'hc_4c', name: 'Big Left · 3-Mosaic Right',
+      cols: '2fr 1fr 1fr', rows: '1fr 1fr', slots: 4, photoCount: 4, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '1 / 3 / 2 / 4', '2 / 2 / 3 / 4'] },
+
+    /* Image 13 reference — full feature left, large photo top-right,
+     * two smaller photos sharing the bottom-right. 4 photos. */
+    { id: 'hc_4d', name: 'Big Left · Big-Top + 2-Small Right',
+      cols: '2fr 1fr 1fr', rows: '2fr 1fr', slots: 4, photoCount: 4, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 4', '2 / 2 / 3 / 3', '2 / 3 / 3 / 4'] },
+
+    /* Image 4 / 14 reference — wide photo across the top of the left
+     * page, two smaller photos sharing the bottom of the left page,
+     * full feature on the right page. 4 photos. */
+    { id: 'hc_4e', name: 'Wide-Top + 2-Bottom Left · Big Right',
+      cols: '1fr 1fr 2fr', rows: '2fr 1fr', slots: 4, photoCount: 4, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 2 / 3', '2 / 1 / 3 / 2', '2 / 2 / 3 / 3', '1 / 3 / 3 / 4'] },
+
+    /* Image 8 / 17 reference — two stacked photos on the left, large
+     * photo across the top-right, two smaller sharing the bottom-right.
+     * 5 photos. */
+    { id: 'hc_5c', name: '2-Left · Big-Top-Right + 2-Bottom-Right',
+      cols: '1fr 1fr 1fr 1fr', rows: '1fr 1fr 1fr', slots: 5, photoCount: 5, binding: 'hardcover',
+      slotAreas: [
+        '1 / 1 / 3 / 3',  // top-left (covers ~top half of left page)
+        '3 / 1 / 4 / 3',  // bottom-left (covers ~bottom third of left page)
+        '1 / 3 / 3 / 5',  // top-right (large)
+        '3 / 3 / 4 / 4',  // bottom-mid-right
+        '3 / 4 / 4 / 5',  // bottom-right
+      ] },
+
+    /* Image 5 reference — feature on the left with a small inset photo
+     * on its right edge, plus a small photo below the inset; full
+     * feature on the right page. 4 photos. */
+    { id: 'hc_4f', name: 'Feature + Side Inset · Big Right',
+      cols: '3fr 1fr 4fr', rows: '1fr 1fr', slots: 4, photoCount: 4, binding: 'hardcover',
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 3 / 4'] },
+
     { id: 'hc_6a', name: '3 Per Page',     cols: 'repeat(4, 1fr)', rows: '1fr 1fr',      slots: 6, photoCount: 6, binding: 'hardcover',
       slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 2 / 4', '2 / 3 / 3 / 4', '1 / 4 / 3 / 5'] }
   ];
