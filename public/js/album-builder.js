@@ -1640,10 +1640,22 @@
     const strip = document.getElementById('pageThumbs');
     if (!strip) return;
     strip.innerHTML = '';
+    // Base spread count = (title sheet, if present) + 10 content spreads.
+    // Anything past this is an "extra" spread the user added — those get
+    // a × delete button, base spreads don't (we don't let users delete
+    // the title or the included 10).
+    const hasTitleSheet = spreadData[0] && spreadData[0].kind === 'title';
+    const baseSpreadCount = (hasTitleSheet ? 1 : 0) + 10;
+
     for (let i = 0; i < totalSpreads; i++) {
       const m = document.createElement('div');
-      const isTitle = i === 0;
-      m.className = 'page-mini' + (i === currentSpread ? ' active' : '') + (isTitle ? ' is-title' : '');
+      const isTitle = i === 0 && hasTitleSheet;
+      const isExtra = i >= baseSpreadCount;
+      m.className =
+        'page-mini' +
+        (i === currentSpread ? ' active' : '') +
+        (isTitle ? ' is-title' : '') +
+        (isExtra ? ' is-extra' : '');
       m.onclick = () => { currentSpread = i; selectedLayout = spreadData[i].layoutId; renderCanvas(); renderLayoutPanel(); };
       // Title sheet shows a star ("✦") and "First Sheet" caption; content
       // spreads keep the 1-indexed number labeled against the 10 content
@@ -1651,7 +1663,24 @@
       if (isTitle) {
         m.innerHTML = '<span class="page-mini-glyph">✦</span><span class="page-mini-num">First Sheet</span>';
       } else {
-        m.innerHTML = i + '<span class="page-mini-num">Spread ' + i + '</span>';
+        const displayNum = hasTitleSheet ? i : i + 1;
+        m.innerHTML = displayNum + '<span class="page-mini-num">Spread ' + displayNum + '</span>';
+      }
+      // Delete button — only on extras. Stops click-propagation so it
+      // doesn't trigger the page-mini's own onclick (which would switch
+      // to the spread we're about to delete).
+      if (isExtra) {
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'page-mini-delete';
+        del.title = 'Delete this spread';
+        del.setAttribute('aria-label', 'Delete spread');
+        del.textContent = '×';
+        del.onclick = (e) => {
+          e.stopPropagation();
+          deleteSpread(i);
+        };
+        m.appendChild(del);
       }
       strip.appendChild(m);
     }
@@ -1681,6 +1710,44 @@
   function updatePageStrip() {
     document.querySelectorAll('.page-mini').forEach((el, i) => el.classList.toggle('active', i === currentSpread));
   }
+  /**
+   * Delete an extra spread (one the user added past the included 10).
+   * Base spreads — the title sheet and the 10 content spreads — are
+   * locked to keep the album's contracted page count intact. Photos in
+   * the deleted spread's slots stay in uploadedPhotos so the user can
+   * reuse them in another spread; only the *placement* is removed.
+   *
+   * Adjusts currentSpread if the deleted index was active or trailing,
+   * then re-renders the strip, canvas, and price tag (extra spreads
+   * incur perExtra cost, so removing one needs to refresh the toolbar).
+   */
+  function deleteSpread(index) {
+    const hasTitleSheet = spreadData[0] && spreadData[0].kind === 'title';
+    const baseSpreadCount = (hasTitleSheet ? 1 : 0) + 10;
+    if (index < baseSpreadCount) return; // refuse — not an extra
+    if (!confirm('Delete this spread? Any photos placed here will return to your photo grid.')) return;
+
+    spreadData.splice(index, 1);
+    totalSpreads = spreadData.length;
+
+    if (currentSpread > index) {
+      // Active spread shifted left by one when we spliced.
+      currentSpread--;
+    } else if (currentSpread === index) {
+      // We were viewing the deleted spread; jump to the previous one.
+      currentSpread = Math.max(0, index - 1);
+    }
+    if (currentSpread >= totalSpreads) currentSpread = totalSpreads - 1;
+    selectedLayout = spreadData[currentSpread].layoutId;
+
+    renderPageStrip();
+    renderCanvas();
+    renderLayoutPanel();
+    // Extra spreads cost perExtra — the price tag needs to drop now.
+    renderPriceTag();
+    _scheduleSave();
+  }
+
   function prevSpread() {
     if (currentSpread > 0) {
       currentSpread--;
