@@ -1973,8 +1973,21 @@
   // (or on hot reload of that route) so the DOM gets repainted from
   // current globals. Safe to call repeatedly.
   window.mountBuilder = mountBuilder;
-  // Expose so the "Start a new album" flow can clear persistent state
-  // before reloading.
+  // Expose so the "Start fresh" / "Start a new album" flow can clear
+  // EVERY piece of persisted state before reloading. The earlier version
+  // only nuked STATE_KEY, which left the cover design (folio-cover-v1),
+  // cover photos (folio-cover-photos-v1), and submission lock
+  // (folio-submitted) in place — so a "fresh start" still resurrected
+  // the user's old cover and locked them out of the editor. Now we
+  // wipe everything that starts with "folio-" so the page truly
+  // reloads to a clean slate.
   window._folioClearState = function() {
-    try { localStorage.removeItem(STATE_KEY); } catch (e) {}
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf('folio-') === 0) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
+    } catch (e) {}
   };

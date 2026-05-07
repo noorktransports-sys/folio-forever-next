@@ -207,7 +207,30 @@ export default function DesignerPage() {
     }
   }, [currentStep]);
 
-  function startNewAlbum() {
+  /**
+   * Wipe the entire designer state and redirect to the path-picker.
+   * Used by both the "Start Fresh" navbar button (mid-design escape
+   * hatch when the user wants a clean slate) and the post-submit
+   * "Start a new album" flow.
+   *
+   * `confirmFirst` controls whether we show the warning dialog before
+   * nuking. The post-submit flow doesn't need it (the user has already
+   * placed the order; there's no in-progress work to lose). The
+   * navbar button passes confirmFirst=true so the user gets a clear
+   * "this is destructive" warning before everything disappears.
+   */
+  function startNewAlbum(confirmFirst = false) {
+    if (confirmFirst) {
+      const ok = window.confirm(
+        'Start fresh?\n\nThis will permanently delete:\n' +
+          '  • All uploaded photos\n' +
+          '  • Every spread layout you\'ve placed\n' +
+          '  • Your cover design (text, color, foil, photo)\n' +
+          '  • The title sheet content\n\n' +
+          'This cannot be undone. Continue?',
+      );
+      if (!ok) return;
+    }
     try {
       window.localStorage.removeItem(SUBMITTED_KEY);
       const w = window as unknown as { _folioClearState?: () => void };
@@ -258,6 +281,33 @@ export default function DesignerPage() {
           >
             ← Back
           </button>
+          {/*
+            Start Fresh — destructive escape hatch that wipes ALL design
+            state (photos, layouts, cover, title) and sends the user back
+            to the path picker. Visible only on the active-design steps
+            (build + cover) where there's actually something to throw
+            away. Hidden on intro/product because there's no in-progress
+            work yet, and on expert because that flow has its own
+            handoff. Always shows a confirm dialog before wiping (the
+            "true" arg).
+          */}
+          {(currentStep === 'build' || currentStep === 'cover') && (
+            <button
+              type="button"
+              className="nav-back nav-back-btn nav-start-fresh"
+              onClick={() => startNewAlbum(true)}
+              title="Erase everything and design from scratch"
+              style={{
+                color: '#ff8a8a',
+                marginLeft: 4,
+                fontSize: 9,
+                letterSpacing: 2,
+                textTransform: 'uppercase',
+              }}
+            >
+              ↺ Start Fresh
+            </button>
+          )}
           <span
             id="priceTag"
             className="price-tag"
