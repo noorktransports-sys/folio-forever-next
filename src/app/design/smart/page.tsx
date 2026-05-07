@@ -15,8 +15,10 @@ const FAV_CAP = 30
 
 // ============== TYPES ==============
 
-type EventId = 'prep' | 'ceremony' | 'portraits' | 'reception' | 'other'
+type AlbumSize = '17x24' | '20x30'
+type AlbumType = 'standard' | 'layflat'
 
+type EventId = 'prep' | 'ceremony' | 'portraits' | 'reception' | 'other'
 type EventDef = { id: EventId; name: string }
 
 const EVENTS: EventDef[] = [
@@ -37,102 +39,344 @@ type Photo = {
   blurry: boolean
 }
 
-type Step = 'upload' | 'group' | 'tag' | 'pages' | 'generate' | 'adjust' | 'submit'
+type Step =
+  | 'setup'
+  | 'guidance'
+  | 'upload'
+  | 'group'
+  | 'tag'
+  | 'pages'
+  | 'generate'
+  | 'adjust'
+  | 'submit'
 
-type SpreadType = 'hero-full' | 'pair' | 'triple' | 'quad'
+// Slots are positioned in % within the SPREAD (not per-page).
+// A standard template's slots respect the gutter at x=50: no slot
+// straddles 50%. A layflat template can have slots that cross 50%.
+type Slot = { x: number; y: number; w: number; h: number; isHero?: boolean }
+
+type LayoutTemplate = {
+  id: string
+  name: string
+  slots: Slot[]
+  // Which album types this template can be used with.
+  compat: AlbumType[]
+}
 
 type Spread = {
   id: string
-  type: SpreadType
+  templateId: string
   photoIds: string[]
   eventId: EventId
 }
 
-// ============== LAYOUT ENGINE ==============
-// Pure function: photos + pageCount → ordered list of spreads.
-// Rules: heroes get full-bleed solo spreads; favorites pair up; others
-// fill remaining spreads in chunks of 3–4. Order follows the event arc.
+// ============== ALBUM SPECS (pricing + dimensions) ==============
 
-function generateLayout(photos: Photo[], pageCount: number): Spread[] {
+const ALBUM_SPECS: Record<
+  AlbumSize,
+  Record<AlbumType, { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }> & {
+    spreadAspectRatio: number
+    label: string
+  }
+> = {
+  '17x24': {
+    spreadAspectRatio: 24 / 17, // landscape spread (open book = 24w × 17h)
+    label: '17×24',
+    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+  },
+  '20x30': {
+    spreadAspectRatio: 30 / 20,
+    label: '20×30',
+    standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+  },
+}
+
+function computePrice(size: AlbumSize, type: AlbumType, spreads: number): number {
+  const spec = ALBUM_SPECS[size][type]
+  const extra = Math.max(0, spreads - spec.minSpreads)
+  return spec.base + extra * spec.perExtraSpread
+}
+
+// ============== LAYOUT TEMPLATES ==============
+// Coordinates are in % within the spread (0-100 horizontal, 0-100 vertical).
+// For standard albums, no slot crosses x=50 (the gutter).
+// For layflat, slots may cross x=50 freely.
+
+const TEMPLATES: LayoutTemplate[] = [
+  // ---- STANDARD + LAYFLAT (gutter-respecting; usable in both) ----
+  {
+    id: 'hero-1r',
+    name: 'Hero · Solo right',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 92, isHero: true },
+      { x: 52, y: 4, w: 46, h: 92 },
+    ],
+  },
+  {
+    id: 'hero-2r',
+    name: 'Hero · Pair right',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 92, isHero: true },
+      { x: 52, y: 4, w: 46, h: 44 },
+      { x: 52, y: 52, w: 46, h: 44 },
+    ],
+  },
+  {
+    id: 'hero-3r',
+    name: 'Hero · Trio right',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 92, isHero: true },
+      { x: 52, y: 4, w: 46, h: 28 },
+      { x: 52, y: 36, w: 46, h: 28 },
+      { x: 52, y: 68, w: 46, h: 28 },
+    ],
+  },
+  {
+    id: 'hero-1l',
+    name: 'Hero · Solo left',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 92 },
+      { x: 52, y: 4, w: 46, h: 92, isHero: true },
+    ],
+  },
+  {
+    id: 'pair',
+    name: '2 photos',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 92 },
+      { x: 52, y: 4, w: 46, h: 92 },
+    ],
+  },
+  {
+    id: 'pair-pair',
+    name: '4 photos · 2+2',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 44 },
+      { x: 2, y: 52, w: 46, h: 44 },
+      { x: 52, y: 4, w: 46, h: 44 },
+      { x: 52, y: 52, w: 46, h: 44 },
+    ],
+  },
+  {
+    id: 'trio-pair',
+    name: '5 photos · 3+2',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 28 },
+      { x: 2, y: 36, w: 46, h: 28 },
+      { x: 2, y: 68, w: 46, h: 28 },
+      { x: 52, y: 4, w: 46, h: 44 },
+      { x: 52, y: 52, w: 46, h: 44 },
+    ],
+  },
+  {
+    id: 'trio-trio',
+    name: '6 photos · 3+3',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 46, h: 28 },
+      { x: 2, y: 36, w: 46, h: 28 },
+      { x: 2, y: 68, w: 46, h: 28 },
+      { x: 52, y: 4, w: 46, h: 28 },
+      { x: 52, y: 36, w: 46, h: 28 },
+      { x: 52, y: 68, w: 46, h: 28 },
+    ],
+  },
+  {
+    id: 'quad-trio',
+    name: '7 photos · 4+3',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 22, h: 44 },
+      { x: 26, y: 4, w: 22, h: 44 },
+      { x: 2, y: 52, w: 22, h: 44 },
+      { x: 26, y: 52, w: 22, h: 44 },
+      { x: 52, y: 4, w: 46, h: 28 },
+      { x: 52, y: 36, w: 46, h: 28 },
+      { x: 52, y: 68, w: 46, h: 28 },
+    ],
+  },
+  {
+    id: 'quad-quad',
+    name: '8 photos · 4+4',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 4, w: 22, h: 44 },
+      { x: 26, y: 4, w: 22, h: 44 },
+      { x: 2, y: 52, w: 22, h: 44 },
+      { x: 26, y: 52, w: 22, h: 44 },
+      { x: 52, y: 4, w: 22, h: 44 },
+      { x: 76, y: 4, w: 22, h: 44 },
+      { x: 52, y: 52, w: 22, h: 44 },
+      { x: 76, y: 52, w: 22, h: 44 },
+    ],
+  },
+  // ---- LAYFLAT-ONLY (image crosses gutter) ----
+  {
+    id: 'panorama',
+    name: 'Panorama · full bleed',
+    compat: ['layflat'],
+    slots: [{ x: 0, y: 0, w: 100, h: 100, isHero: true }],
+  },
+  {
+    id: 'hero-wide-1',
+    name: 'Hero spans gutter · 1 accent',
+    compat: ['layflat'],
+    slots: [
+      { x: 0, y: 0, w: 70, h: 100, isHero: true },
+      { x: 72, y: 4, w: 26, h: 92 },
+    ],
+  },
+  {
+    id: 'hero-wide-3',
+    name: 'Hero spans gutter · 3 accent',
+    compat: ['layflat'],
+    slots: [
+      { x: 0, y: 0, w: 70, h: 100, isHero: true },
+      { x: 72, y: 4, w: 26, h: 28 },
+      { x: 72, y: 36, w: 26, h: 28 },
+      { x: 72, y: 68, w: 26, h: 28 },
+    ],
+  },
+]
+
+const TEMPLATE_BY_ID = new Map(TEMPLATES.map((t) => [t.id, t] as const))
+
+function templatesForCount(count: number, type: AlbumType): LayoutTemplate[] {
+  return TEMPLATES.filter((t) => t.compat.includes(type) && t.slots.length === count)
+}
+
+// ============== LAYOUT ENGINE ==============
+// Place ALL non-blurry photos across `pageCount` spreads, prioritizing
+// heroes (they get the isHero slot in a layout) and favorites (they go
+// in lower-density spreads first, more prominent placement).
+
+function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Spread[] {
+  const useable = photos.filter((p) => !p.blurry)
+  if (useable.length === 0) return []
+
+  // Photos per spread is bounded by available templates (1–8 above).
+  // Distribute photos roughly evenly across spreads, hero-bearing
+  // spreads get smaller counts (more prominence).
+  const perSpreadAvg = Math.max(1, Math.min(8, Math.ceil(useable.length / pageCount)))
+
+  // Order events: prep → ceremony → portraits → reception → other
   const eventOrder: EventId[] = ['prep', 'ceremony', 'portraits', 'reception', 'other']
+
+  // Priority queues per event
+  const eventBuckets = eventOrder.map((eid) => ({
+    eid,
+    heroes: useable.filter((p) => p.eventId === eid && p.tagged === 'hero'),
+    favorites: useable.filter((p) => p.eventId === eid && p.tagged === 'favorite'),
+    others: useable.filter((p) => p.eventId === eid && p.tagged === 'none'),
+  }))
+
   const spreads: Spread[] = []
   let idx = 0
 
-  const useable = photos.filter((p) => !p.blurry)
-
-  for (const eventId of eventOrder) {
+  for (const bucket of eventBuckets) {
     if (spreads.length >= pageCount) break
 
-    const inEvent = useable.filter((p) => p.eventId === eventId)
-    const heroes = inEvent.filter((p) => p.tagged === 'hero')
-    const favs = inEvent.filter((p) => p.tagged === 'favorite')
-    const others = inEvent.filter((p) => p.tagged === 'none')
-
-    // Heroes: each gets a full-bleed spread.
-    for (const h of heroes) {
-      if (spreads.length >= pageCount) break
-      spreads.push({
-        id: `s-${idx++}`,
-        type: 'hero-full',
-        photoIds: [h.id],
-        eventId,
-      })
-    }
-
-    // Favorites: pair them up (2 per spread). Odd one becomes a hero-style.
-    for (let i = 0; i < favs.length; i += 2) {
-      if (spreads.length >= pageCount) break
-      const pair = favs.slice(i, i + 2)
-      if (pair.length === 2) {
-        spreads.push({
-          id: `s-${idx++}`,
-          type: 'pair',
-          photoIds: pair.map((p) => p.id),
-          eventId,
-        })
-      } else {
-        spreads.push({
-          id: `s-${idx++}`,
-          type: 'hero-full',
-          photoIds: [pair[0].id],
-          eventId,
-        })
+    // Hero spreads: each hero gets a "hero · pair right" or similar
+    // template with the hero in the isHero slot. Filler photos come
+    // from this event's favorites/others (or borrow from later events
+    // if this one runs out of fillers).
+    while (bucket.heroes.length > 0 && spreads.length < pageCount) {
+      const hero = bucket.heroes.shift()!
+      const heroFillerCount = Math.min(
+        perSpreadAvg - 1,
+        bucket.favorites.length + bucket.others.length,
+      )
+      const fillers: Photo[] = []
+      // Prefer favorites for hero spreads
+      while (fillers.length < heroFillerCount && bucket.favorites.length > 0) {
+        fillers.push(bucket.favorites.shift()!)
       }
-    }
-
-    // Others: chunks of 3–4 per spread.
-    let oi = 0
-    while (oi < others.length && spreads.length < pageCount) {
-      const remaining = others.length - oi
-      const take = remaining >= 4 ? 4 : remaining >= 3 ? 3 : remaining >= 2 ? 2 : 1
-      const chunk = others.slice(oi, oi + take)
-      if (chunk.length === 0) break
-      const type: SpreadType =
-        chunk.length === 4 ? 'quad' : chunk.length === 3 ? 'triple' : chunk.length === 2 ? 'pair' : 'hero-full'
-      spreads.push({
-        id: `s-${idx++}`,
-        type,
-        photoIds: chunk.map((p) => p.id),
-        eventId,
-      })
-      oi += take
+      while (fillers.length < heroFillerCount && bucket.others.length > 0) {
+        fillers.push(bucket.others.shift()!)
+      }
+      const totalCount = 1 + fillers.length
+      const candidates = TEMPLATES.filter(
+        (t) =>
+          t.compat.includes(type) &&
+          t.slots.length === totalCount &&
+          t.slots.some((s) => s.isHero),
+      )
+      const tpl = candidates[0] ?? TEMPLATES.find((t) => t.compat.includes(type) && t.slots.length === 2 && t.slots.some((s) => s.isHero))!
+      const photoIds = [hero.id, ...fillers.map((f) => f.id)]
+      spreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds, eventId: bucket.eid })
     }
   }
 
-  return spreads.slice(0, pageCount)
+  // Now distribute remaining favorites + others across remaining spreads.
+  // We respect event order roughly by interleaving from each bucket.
+  const remaining: Photo[] = []
+  for (const eid of eventOrder) {
+    const bucket = eventBuckets.find((b) => b.eid === eid)!
+    remaining.push(...bucket.favorites, ...bucket.others)
+  }
+
+  while (remaining.length > 0 && spreads.length < pageCount) {
+    // Decide spread size: keep all spreads roughly equal so all photos fit.
+    const remainingSpreads = pageCount - spreads.length
+    const idealCount = Math.max(1, Math.min(8, Math.ceil(remaining.length / remainingSpreads)))
+    const take = Math.min(idealCount, remaining.length)
+    const chunk = remaining.splice(0, take)
+    const eventId = chunk[0].eventId
+    const candidates = TEMPLATES.filter(
+      (t) => t.compat.includes(type) && t.slots.length === take && !t.slots.some((s) => s.isHero),
+    )
+    const fallback =
+      candidates[0] ??
+      TEMPLATES.filter((t) => t.compat.includes(type) && t.slots.length >= take).sort(
+        (a, b) => a.slots.length - b.slots.length,
+      )[0]
+    const tpl = fallback ?? TEMPLATES.find((t) => t.compat.includes(type))!
+    spreads.push({
+      id: `s-${idx++}`,
+      templateId: tpl.id,
+      photoIds: chunk.slice(0, tpl.slots.length).map((p) => p.id),
+      eventId,
+    })
+  }
+
+  // If photos remain but we ran out of spreads, append them to the last
+  // spread by swapping to a larger template if available.
+  if (remaining.length > 0 && spreads.length > 0) {
+    const last = spreads[spreads.length - 1]
+    const newCount = Math.min(8, last.photoIds.length + remaining.length)
+    const candidates = TEMPLATES.filter(
+      (t) => t.compat.includes(type) && t.slots.length === newCount && !t.slots.some((s) => s.isHero),
+    )
+    if (candidates[0]) {
+      last.templateId = candidates[0].id
+      last.photoIds = [...last.photoIds, ...remaining.splice(0, newCount - last.photoIds.length).map((p) => p.id)]
+    }
+  }
+
+  return spreads
 }
 
 // ============== DEMO DATA ==============
 
 function buildSampleWeddingPhotos(): Photo[] {
+  // 30 sample photos to better demonstrate the all-photos-placed rule
   const eventMap: EventId[] = [
-    'prep', 'prep', 'prep', 'prep', 'prep',
-    'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony',
-    'portraits', 'portraits', 'portraits',
-    'reception', 'reception', 'reception', 'reception', 'reception',
+    'prep', 'prep', 'prep', 'prep', 'prep', 'prep',
+    'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony',
+    'portraits', 'portraits', 'portraits', 'portraits',
+    'reception', 'reception', 'reception', 'reception', 'reception', 'reception', 'reception', 'reception',
+    'other', 'other', 'other', 'other',
   ]
-  // Pre-flagged blurries — deterministic for demo (so it's the same every time).
-  const blurryIdxs = new Set([3, 11, 17])
+  const blurryIdxs = new Set([4, 13, 22])
   return eventMap.map((eventId, i) => ({
     id: `sample-${i}`,
     preview: `https://picsum.photos/seed/wedding${i}/1200/800`,
@@ -182,6 +426,7 @@ const css: Record<string, React.CSSProperties> = {
     textDecoration: 'none',
   },
   container: { maxWidth: 1100, margin: '0 auto', padding: '0 5%' },
+  containerWide: { maxWidth: 1400, margin: '0 auto', padding: '0 5%' },
   title: {
     fontFamily: 'var(--font-display)',
     fontSize: 'clamp(36px, 5vw, 56px)',
@@ -191,13 +436,7 @@ const css: Record<string, React.CSSProperties> = {
     marginBottom: 16,
   },
   titleEm: { color: GOLD, fontStyle: 'italic' },
-  subtitle: {
-    fontSize: 12,
-    letterSpacing: 1,
-    color: 'var(--muted2)',
-    lineHeight: 2,
-    marginBottom: 32,
-  },
+  subtitle: { fontSize: 12, letterSpacing: 1, color: 'var(--muted2)', lineHeight: 2, marginBottom: 32 },
   betaPill: {
     display: 'inline-block',
     fontSize: 9,
@@ -272,6 +511,18 @@ const css: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     padding: 24,
   },
+  cardSelectable: {
+    background: 'var(--dark2)',
+    border: '0.5px solid rgba(184,150,90,0.2)',
+    borderRadius: 12,
+    padding: 24,
+    cursor: 'pointer',
+    transition: 'all 0.3s',
+  },
+  cardSelected: {
+    background: 'rgba(184,150,90,0.08)',
+    borderColor: GOLD,
+  },
 }
 
 // ============== ICONS ==============
@@ -306,19 +557,32 @@ const IconBlur = (props: React.SVGProps<SVGSVGElement>) => (
 // ============== MAIN ==============
 
 export default function SmartDesignerPage() {
-  const [step, setStep] = useState<Step>('upload')
+  const [step, setStep] = useState<Step>('setup')
+  const [size, setSize] = useState<AlbumSize | null>(null)
+  const [type, setType] = useState<AlbumType | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [pageCount, setPageCount] = useState(15)
   const [spreads, setSpreads] = useState<Spread[]>([])
   const [eventFilter, setEventFilter] = useState<EventId | 'all'>('all')
   const [recatId, setRecatId] = useState<string | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
+  const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
+  const [uploadProgress, setUploadProgress] = useState(0) // 0-1, transient during upload
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const heroCount = photos.filter((p) => p.tagged === 'hero').length
   const favCount = photos.filter((p) => p.tagged === 'favorite').length
+  const usefulPhotoCount = photos.filter((p) => !p.blurry).length
+
+  // Recommended page count: ~4 photos per page = 8 per spread.
+  const recommendedSpreads = Math.max(10, Math.min(25, Math.ceil(usefulPhotoCount / 8)))
+
+  const albumPrice = useMemo(() => {
+    if (!size || !type) return 0
+    return computePrice(size, type, pageCount)
+  }, [size, type, pageCount])
 
   const loadSamples = useCallback(() => {
     setPhotos(buildSampleWeddingPhotos())
@@ -327,13 +591,20 @@ export default function SmartDesignerPage() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    if (photos.length + files.length > PHOTO_CAP) {
-      alert(`Maximum ${PHOTO_CAP} photos allowed`)
+    const remaining = PHOTO_CAP - photos.length
+    if (remaining <= 0) {
+      alert(`You've reached the ${PHOTO_CAP}-photo limit.`)
       return
     }
+    const toProcess = Array.from(files).slice(0, remaining)
+    if (files.length > remaining) {
+      alert(`Only ${remaining} more photos can fit (limit ${PHOTO_CAP}). Adding the first ${remaining}.`)
+    }
+
+    setUploadProgress(0)
     const newPhotos: Photo[] = []
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
+    for (let i = 0; i < toProcess.length; i++) {
+      const file = toProcess[i]
       const dim = await getImageDimensions(file)
       newPhotos.push({
         id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
@@ -344,8 +615,10 @@ export default function SmartDesignerPage() {
         eventId: 'other',
         blurry: false,
       })
+      setUploadProgress((i + 1) / toProcess.length)
     }
     setPhotos([...photos, ...newPhotos])
+    setTimeout(() => setUploadProgress(0), 600)
   }
 
   const recategorize = (photoId: string, eventId: EventId) => {
@@ -360,9 +633,9 @@ export default function SmartDesignerPage() {
     if (tag === 'hero' && photo.tagged !== 'hero') {
       if (photo.width < HERO_MIN_PX || photo.height < HERO_MIN_PX) {
         alert(
-          `This photo is ${photo.width}×${photo.height}px. Heroes get full-spread placement, ` +
-            `so they need at least ${HERO_MIN_PX}×${HERO_MIN_PX}px to print sharp. Try a higher-res shot, ` +
-            `or tag this one as a Favorite instead.`,
+          `This photo is ${photo.width}×${photo.height}px. Hero photos take half a spread (a full page) ` +
+            `so they need at least ${HERO_MIN_PX}×${HERO_MIN_PX}px to print sharp. Try a higher-res ` +
+            `shot, or tag this one as a Favorite — favorites get prioritized placement too.`,
         )
         return
       }
@@ -391,17 +664,19 @@ export default function SmartDesignerPage() {
   }
 
   const runGenerate = useCallback(() => {
+    if (!type) return
     setGenerating(true)
     setStep('generate')
     setTimeout(() => {
-      setSpreads(generateLayout(photos, pageCount))
+      setSpreads(generateLayout(photos, pageCount, type))
       setGenerating(false)
       setStep('adjust')
     }, 1400)
-  }, [photos, pageCount])
+  }, [photos, pageCount, type])
 
   const regenerate = () => {
-    setSpreads(generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount))
+    if (!type) return
+    setSpreads(generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type))
   }
 
   const swapPhoto = (newPhotoId: string) => {
@@ -410,15 +685,70 @@ export default function SmartDesignerPage() {
       spreads.map((s) => {
         if (s.id !== swapSlot.spreadId) return s
         const newIds = [...s.photoIds]
+        // If newPhotoId was already used elsewhere, swap places (preserve all-photos placed)
+        const oldId = newIds[swapSlot.idx]
         newIds[swapSlot.idx] = newPhotoId
+        // Find any other spread where newPhotoId already lives, and put oldId there
         return { ...s, photoIds: newIds }
       }),
     )
+    // Maintain "all photos used" by swapping places if duplicated
+    setSpreads((prev) => {
+      const used = new Map<string, { spreadId: string; idx: number }>()
+      const dups: Array<{ spreadId: string; idx: number; photoId: string }> = []
+      prev.forEach((s) =>
+        s.photoIds.forEach((pid, i) => {
+          if (used.has(pid)) {
+            dups.push({ spreadId: s.id, idx: i, photoId: pid })
+          } else {
+            used.set(pid, { spreadId: s.id, idx: i })
+          }
+        }),
+      )
+      // Find unused photos to plug duplicate slots
+      const unused = photos.filter((p) => !p.blurry && !used.has(p.id))
+      let ui = 0
+      return prev.map((s) => ({
+        ...s,
+        photoIds: s.photoIds.map((pid, i) => {
+          const dup = dups.find((d) => d.spreadId === s.id && d.idx === i)
+          if (dup && unused[ui]) {
+            const replacement = unused[ui++]
+            return replacement.id
+          }
+          return pid
+        }),
+      }))
+    })
     setSwapSlot(null)
   }
 
+  const swapTemplate = (spreadId: string, newTemplateId: string) => {
+    setSpreads(
+      spreads.map((s) => {
+        if (s.id !== spreadId) return s
+        const newTpl = TEMPLATE_BY_ID.get(newTemplateId)
+        if (!newTpl) return s
+        // Clip or pad photo list to match the new slot count
+        let newIds = [...s.photoIds]
+        if (newTpl.slots.length < newIds.length) newIds = newIds.slice(0, newTpl.slots.length)
+        if (newTpl.slots.length > newIds.length) {
+          const used = new Set(spreads.flatMap((sp) => sp.photoIds))
+          const fillers = photos.filter((p) => !p.blurry && !used.has(p.id))
+          while (newIds.length < newTpl.slots.length && fillers.length > 0) {
+            newIds.push(fillers.shift()!.id)
+          }
+        }
+        return { ...s, templateId: newTemplateId, photoIds: newIds }
+      }),
+    )
+    setLayoutMenuId(null)
+  }
+
   const reset = () => {
-    setStep('upload')
+    setStep('setup')
+    setSize(null)
+    setType(null)
     setPhotos([])
     setSpreads([])
     setPageCount(15)
@@ -431,18 +761,25 @@ export default function SmartDesignerPage() {
     return m
   }, [photos])
 
+  const usedPhotoIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads])
+  const unusedPhotos = useMemo(
+    () => photos.filter((p) => !p.blurry && !usedPhotoIds.has(p.id)),
+    [photos, usedPhotoIds],
+  )
+
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['upload', 'group', 'tag', 'pages', 'adjust', 'submit']
-    const idx = Math.max(0, stepOrder.indexOf(step === 'generate' ? 'adjust' : step))
+    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'submit']
+    const stepForIdx = step === 'generate' ? 'adjust' : step
+    const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
       <div style={{ display: 'flex', gap: 6, marginBottom: 28, justifyContent: 'center' }}>
         {stepOrder.map((s, i) => (
           <div
             key={s}
             style={{
-              width: 28,
+              width: 24,
               height: 3,
               background: i <= idx ? GOLD : 'rgba(184,150,90,0.2)',
               borderRadius: 2,
@@ -453,105 +790,293 @@ export default function SmartDesignerPage() {
     )
   }
 
-  const renderUpload = () => (
+  // ----- STEP: SETUP (size + type) -----
+  const renderSetup = () => (
     <div style={css.container}>
       {renderStepIndicator()}
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+      <div style={{ textAlign: 'center', marginBottom: 36 }}>
         <span style={css.betaPill}>⚡ Smart Auto-Layout · Beta</span>
         <h1 style={css.title}>
-          Upload your <em style={css.titleEm}>photos</em>
+          Choose your <em style={css.titleEm}>album.</em>
         </h1>
-        <p style={css.subtitle}>
-          Up to {PHOTO_CAP} photos · Heroes need {HERO_MIN_PX}×{HERO_MIN_PX}px to print sharp
-        </p>
+        <p style={css.subtitle}>Size and binding shape every layout that follows.</p>
       </div>
 
-      <div
-        onClick={() => fileInputRef.current?.click()}
-        style={css.uploadZone}
-        onMouseEnter={(e) => (e.currentTarget.style.borderColor = GOLD)}
-        onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(184,150,90,0.4)')}
-      >
-        <IconUpload width={36} height={36} style={{ marginBottom: 12 }} />
-        <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--cream)' }}>
-          Click to select photos
+      <div style={{ marginBottom: 36 }}>
+        <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 14 }}>
+          Album size
         </p>
-        <p style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1, marginTop: 8 }}>
-          {photos.length} / {PHOTO_CAP} uploaded
-        </p>
-      </div>
-
-      <div style={{ textAlign: 'center', margin: '24px 0' }}>
-        <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-          or
-        </span>
-      </div>
-
-      <button
-        type="button"
-        onClick={loadSamples}
-        style={{ ...css.btnGhost, width: '100%', padding: '14px 20px' }}
-      >
-        Use sample wedding photos (no upload)
-      </button>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept="image/*"
-        onChange={handleFileSelect}
-        style={{ display: 'none' }}
-      />
-
-      {photos.length > 0 && (
-        <>
-          <div
-            style={{
-              marginTop: 32,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 8,
-            }}
-          >
-            {photos.map((p) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+          {(['17x24', '20x30'] as AlbumSize[]).map((s) => {
+            const spec = ALBUM_SPECS[s]
+            const isSel = size === s
+            return (
               <div
-                key={p.id}
-                style={{
-                  aspectRatio: '1',
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  border: '0.5px solid rgba(184,150,90,0.2)',
-                }}
+                key={s}
+                onClick={() => setSize(s)}
+                style={{ ...css.cardSelectable, ...(isSel ? css.cardSelected : {}) }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--cream)', marginBottom: 6 }}>
+                  {spec.label}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.7 }}>
+                  {s === '17x24' ? 'Coffee-table size · the classic format' : 'Oversized poster · premium hero format'}
+                </p>
+                <p style={{ fontSize: 10, color: GOLD, marginTop: 10, letterSpacing: 1 }}>
+                  Standard from ${spec.standard.base} · Layflat from ${spec.layflat.base}
+                </p>
               </div>
-            ))}
-          </div>
+            )
+          })}
+        </div>
+      </div>
 
-          <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-            <button type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
-              Clear
-            </button>
-            <button type="button" style={css.btnPrimary} onClick={() => setStep('group')}>
-              Continue →
-            </button>
-          </div>
-        </>
-      )}
+      <div style={{ marginBottom: 36 }}>
+        <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 14 }}>
+          Binding type
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+          {(['standard', 'layflat'] as AlbumType[]).map((t) => {
+            const isSel = type === t
+            return (
+              <div
+                key={t}
+                onClick={() => setType(t)}
+                style={{ ...css.cardSelectable, ...(isSel ? css.cardSelected : {}) }}
+              >
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--cream)', marginBottom: 6 }}>
+                  {t === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)'}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.7 }}>
+                  {t === 'standard'
+                    ? 'Visible gutter between pages. Photos stay on each page.'
+                    : 'No center seam. Photos can span the full spread.'}
+                </p>
+                {size && (
+                  <p style={{ fontSize: 10, color: GOLD, marginTop: 10, letterSpacing: 1 }}>
+                    From ${ALBUM_SPECS[size][t].base} · 10 spreads included · ${ALBUM_SPECS[size][t].perExtraSpread}/extra
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12 }}>
+        <Link href="/design" style={{ ...css.btnSecondary, textDecoration: 'none', display: 'inline-block', textAlign: 'center' }}>
+          ← Back
+        </Link>
+        <button
+          type="button"
+          style={{ ...css.btnPrimary, opacity: size && type ? 1 : 0.4, cursor: size && type ? 'pointer' : 'not-allowed' }}
+          disabled={!size || !type}
+          onClick={() => setStep('guidance')}
+        >
+          Continue →
+        </button>
+      </div>
     </div>
   )
 
+  // ----- STEP: GUIDANCE -----
+  const renderGuidance = () => {
+    if (!size || !type) return null
+    const spec = ALBUM_SPECS[size][type]
+    return (
+      <div style={{ ...css.container, maxWidth: 720 }}>
+        {renderStepIndicator()}
+        <h2 style={css.title}>
+          Before you <em style={css.titleEm}>upload.</em>
+        </h2>
+        <p style={css.subtitle}>A quick read so the layout fits your story.</p>
+
+        <div style={{ ...css.card, marginBottom: 18 }}>
+          <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 12 }}>
+            How many photos to upload
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.9, marginBottom: 10 }}>
+            Each page fits <strong style={{ color: GOLD }}>3–5 photos</strong>. A spread is two pages.
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.9, marginBottom: 10 }}>
+            Rule of thumb: <strong style={{ color: GOLD }}>photos ÷ 4 ≈ pages</strong>.
+            <br />
+            100 photos → ~25 pages → ~13 spreads.
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.8, marginTop: 14 }}>
+            Hard cap: 100 photos. Less is fine — every photo you upload will be placed in the album.
+          </p>
+        </div>
+
+        <div style={{ ...css.card, marginBottom: 18 }}>
+          <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 12 }}>
+            Album range
+          </p>
+          <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.9 }}>
+            <strong style={{ color: GOLD }}>{ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard' : 'Layflat'}</strong>
+            <br />
+            Min {spec.minSpreads} spreads · Max {spec.maxSpreads} spreads · Base ${spec.base} · ${spec.perExtraSpread} per extra spread
+          </p>
+        </div>
+
+        <div style={css.notice}>
+          <strong style={{ color: 'var(--cream)' }}>Heroes</strong> = main photos. They take a full page (half a spread) — not the whole spread, so you keep variety.
+          <br />
+          <strong style={{ color: 'var(--cream)' }}>Favorites</strong> = priority photos. They get prominent placement.
+          <br />
+          <strong style={{ color: 'var(--cream)' }}>Everything else</strong> still gets placed — heroes/favorites are priority flags, not filters.
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('setup')}>
+            ← Back
+          </button>
+          <button type="button" style={css.btnPrimary} onClick={() => setStep('upload')}>
+            Got it — let&apos;s upload →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ----- STEP: UPLOAD -----
+  const renderUpload = () => {
+    const pct = Math.round((photos.length / PHOTO_CAP) * 100)
+    return (
+      <div style={css.container}>
+        {renderStepIndicator()}
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <h1 style={css.title}>
+            Upload your <em style={css.titleEm}>photos</em>
+          </h1>
+          <p style={css.subtitle}>
+            {photos.length} of {PHOTO_CAP} used · {Math.max(0, PHOTO_CAP - photos.length)} remaining
+          </p>
+        </div>
+
+        {/* Capacity bar */}
+        <div style={{ marginBottom: 24 }}>
+          <div
+            style={{
+              width: '100%',
+              height: 8,
+              background: 'var(--dark2)',
+              borderRadius: 4,
+              overflow: 'hidden',
+              border: '0.5px solid rgba(184,150,90,0.2)',
+            }}
+          >
+            <div
+              style={{
+                width: `${pct}%`,
+                height: '100%',
+                background: pct >= 100 ? '#ff8a8a' : GOLD,
+                transition: 'width 0.3s',
+              }}
+            />
+          </div>
+          <p style={{ fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', marginTop: 6, textAlign: 'right', textTransform: 'uppercase' }}>
+            {pct}% capacity
+          </p>
+        </div>
+
+        {/* Active upload progress (transient) */}
+        {uploadProgress > 0 && uploadProgress < 1 && (
+          <div style={{ ...css.notice, marginBottom: 16, borderColor: GOLD }}>
+            Uploading… {Math.round(uploadProgress * 100)}%
+          </div>
+        )}
+
+        <div
+          onClick={() => photos.length < PHOTO_CAP && fileInputRef.current?.click()}
+          style={{
+            ...css.uploadZone,
+            cursor: photos.length >= PHOTO_CAP ? 'not-allowed' : 'pointer',
+            opacity: photos.length >= PHOTO_CAP ? 0.5 : 1,
+          }}
+          onMouseEnter={(e) => {
+            if (photos.length < PHOTO_CAP) e.currentTarget.style.borderColor = GOLD
+          }}
+          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(184,150,90,0.4)')}
+        >
+          <IconUpload width={36} height={36} style={{ marginBottom: 12 }} />
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--cream)' }}>
+            {photos.length >= PHOTO_CAP ? 'Photo limit reached' : 'Click to select photos'}
+          </p>
+          <p style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1, marginTop: 8 }}>
+            Up to {PHOTO_CAP - photos.length} more
+          </p>
+        </div>
+
+        <div style={{ textAlign: 'center', margin: '24px 0' }}>
+          <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>or</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={loadSamples}
+          style={{ ...css.btnGhost, width: '100%', padding: '14px 20px' }}
+        >
+          Use sample wedding photos (no upload)
+        </button>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+
+        {photos.length > 0 && (
+          <>
+            <div
+              style={{
+                marginTop: 32,
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                gap: 8,
+              }}
+            >
+              {photos.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    aspectRatio: '1',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    border: '0.5px solid rgba(184,150,90,0.2)',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+              <button type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
+                Clear
+              </button>
+              <button type="button" style={css.btnPrimary} onClick={() => setStep('group')}>
+                Continue →
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ----- STEP: GROUP -----
   const renderGroup = () => (
     <div style={css.container}>
       {renderStepIndicator()}
       <h2 style={css.title}>
         Group by <em style={css.titleEm}>event</em>
       </h2>
-      <p style={css.subtitle}>
-        Auto-grouped from filename clues. Click any photo to recategorize.
-      </p>
+      <p style={css.subtitle}>Auto-grouped to start. Click any photo to recategorize.</p>
 
       <div style={{ display: 'grid', gap: 20 }}>
         {EVENTS.map((ev) => {
@@ -579,7 +1104,10 @@ export default function SmartDesignerPage() {
                 {inEvent.map((p) => (
                   <div key={p.id} style={{ position: 'relative' }}>
                     <div
-                      onClick={() => setRecatId(p.id === recatId ? null : p.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setRecatId(p.id === recatId ? null : p.id)
+                      }}
                       style={{
                         aspectRatio: '1',
                         borderRadius: 6,
@@ -593,6 +1121,7 @@ export default function SmartDesignerPage() {
                     </div>
                     {recatId === p.id && (
                       <div
+                        onClick={(e) => e.stopPropagation()}
                         style={{
                           position: 'absolute',
                           top: 'calc(100% + 4px)',
@@ -651,6 +1180,7 @@ export default function SmartDesignerPage() {
     </div>
   )
 
+  // ----- STEP: TAG -----
   const renderTag = () => {
     const visible = photos.filter((p) => eventFilter === 'all' || p.eventId === eventFilter)
     return (
@@ -659,7 +1189,9 @@ export default function SmartDesignerPage() {
         <h2 style={css.title}>
           Tag your <em style={css.titleEm}>best shots</em>
         </h2>
-        <p style={css.subtitle}>Heroes get full spreads. Favorites get prominent placement.</p>
+        <p style={css.subtitle}>
+          Heroes get a full page (half-spread). Favorites get prominent placement. Everything else still gets placed.
+        </p>
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 18, flexWrap: 'wrap' }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--cream)', letterSpacing: 1 }}>
@@ -696,13 +1228,6 @@ export default function SmartDesignerPage() {
               </button>
             )
           })}
-        </div>
-
-        <div style={{ ...css.notice, marginBottom: 24 }}>
-          <strong style={{ color: 'var(--cream)' }}>Heroes</strong> ({HERO_CAP} max): full-spread worthy.{' '}
-          <strong style={{ color: 'var(--cream)' }}>Favorites</strong> ({FAV_CAP} max): featured prominently. Others fill the gaps.
-          <br />
-          <span style={{ color: '#ff8a8a' }}>⚠ Blurry-flagged photos</span> are skipped from layouts unless you tag them.
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
@@ -801,59 +1326,70 @@ export default function SmartDesignerPage() {
           <button type="button" style={css.btnSecondary} onClick={() => setStep('group')}>
             ← Back
           </button>
-          <button
-            type="button"
-            style={{ ...css.btnPrimary, opacity: heroCount === 0 ? 0.4 : 1, cursor: heroCount === 0 ? 'not-allowed' : 'pointer' }}
-            disabled={heroCount === 0}
-            onClick={() => setStep('pages')}
-          >
-            {heroCount === 0 ? 'Tag at least 1 hero' : 'Continue →'}
+          <button type="button" style={css.btnPrimary} onClick={() => setStep('pages')}>
+            Continue →
           </button>
         </div>
       </div>
     )
   }
 
+  // ----- STEP: PAGES -----
   const renderPages = () => {
-    const basePrice = 450
-    const extraSpreads = Math.max(0, pageCount - 10)
-    const extraCost = extraSpreads * 35
-    const total = basePrice + extraCost
+    if (!size || !type) return null
+    const spec = ALBUM_SPECS[size][type]
+    const extraSpreads = Math.max(0, pageCount - spec.minSpreads)
+    const extraCost = extraSpreads * spec.perExtraSpread
     return (
       <div style={{ ...css.container, maxWidth: 640 }}>
         {renderStepIndicator()}
         <h2 style={css.title}>
           Album <em style={css.titleEm}>length</em>
         </h2>
-        <p style={css.subtitle}>Base price includes 10 spreads (20 pages).</p>
+        <p style={css.subtitle}>
+          {usefulPhotoCount} usable photos · we recommend ~{recommendedSpreads} spreads
+        </p>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18 }}>
-          <span style={{ fontSize: 11, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>Spreads</span>
+          <span style={{ fontSize: 11, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+            Spreads ({pageCount * 2} pages)
+          </span>
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 48, color: GOLD }}>{pageCount}</span>
         </div>
 
         <input
           type="range"
-          min="10"
-          max="25"
+          min={spec.minSpreads}
+          max={spec.maxSpreads}
           value={pageCount}
           onChange={(e) => setPageCount(parseInt(e.target.value))}
           style={{ width: '100%', accentColor: GOLD, cursor: 'pointer' }}
         />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', marginTop: 8 }}>
-          <span>10 spreads</span>
-          <span>25 spreads</span>
+          <span>{spec.minSpreads} spreads</span>
+          <span>{spec.maxSpreads} spreads</span>
         </div>
 
+        {pageCount < recommendedSpreads && (
+          <div style={{ ...css.notice, marginTop: 18, borderColor: '#ff8a8a' }}>
+            ⚠ With {pageCount} spreads, your {usefulPhotoCount} photos will be packed{' '}
+            <strong>~{Math.ceil(usefulPhotoCount / pageCount)} per spread</strong>. Consider going up to{' '}
+            <strong>{recommendedSpreads}</strong> for a more breathable layout.
+          </div>
+        )}
+
         <div style={{ ...css.card, marginTop: 28 }}>
+          <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 14 }}>
+            {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard' : 'Layflat'}
+          </p>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--cream)', marginBottom: 10 }}>
-            <span>Base album (10 spreads)</span>
-            <span>${basePrice}</span>
+            <span>Base ({spec.minSpreads} spreads)</span>
+            <span>${spec.base}</span>
           </div>
           {extraSpreads > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: GOLD, marginBottom: 10 }}>
-              <span>{extraSpreads} extra spreads × $35</span>
+              <span>{extraSpreads} extra spreads × ${spec.perExtraSpread}</span>
               <span>+${extraCost}</span>
             </div>
           )}
@@ -868,7 +1404,7 @@ export default function SmartDesignerPage() {
             }}
           >
             <span style={{ fontSize: 11, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>Total</span>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, color: GOLD }}>${total}</span>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, color: GOLD }}>${albumPrice}</span>
           </div>
         </div>
 
@@ -884,6 +1420,7 @@ export default function SmartDesignerPage() {
     )
   }
 
+  // ----- STEP: GENERATE -----
   const renderGenerate = () => (
     <div style={{ ...css.container, maxWidth: 520, textAlign: 'center', paddingTop: 80 }}>
       <div
@@ -903,19 +1440,28 @@ export default function SmartDesignerPage() {
       </h2>
       <p style={css.subtitle}>
         {generating
-          ? `Placing ${heroCount} hero${heroCount === 1 ? '' : 'es'}, ${favCount} favorites, fitting ${pageCount} spreads…`
+          ? `Placing ${heroCount} hero${heroCount === 1 ? '' : 'es'} · ${favCount} favorites · fitting ${pageCount} spreads…`
           : 'Done.'}
       </p>
     </div>
   )
 
+  // ----- STEP: ADJUST -----
   const renderAdjust = () => {
-    const usedPhotoIds = new Set(spreads.flatMap((s) => s.photoIds))
-    const swapPool = photos.filter((p) => !p.blurry && !usedPhotoIds.has(p.id))
+    if (!size || !type) return null
     return (
-      <div style={css.container}>
+      <div style={css.containerWide}>
         {renderStepIndicator()}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 16, marginBottom: 8 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            flexWrap: 'wrap',
+            gap: 16,
+            marginBottom: 8,
+          }}
+        >
           <h2 style={{ ...css.title, marginBottom: 0 }}>
             Review &amp; <em style={css.titleEm}>adjust</em>
           </h2>
@@ -924,12 +1470,13 @@ export default function SmartDesignerPage() {
           </button>
         </div>
         <p style={css.subtitle}>
-          {spreads.length} spreads · click any photo to swap
+          Preview at {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard (with gutter)' : 'Layflat (flush)'} · click any
+          photo or layout name to swap.
         </p>
 
         {swapSlot && (
           <div style={{ ...css.notice, marginBottom: 20, borderColor: GOLD }}>
-            <strong style={{ color: GOLD }}>Pick a replacement</strong> — click a photo from your pool below, or{' '}
+            <strong style={{ color: GOLD }}>Pick a replacement</strong> — click a photo from your pool on the right, or{' '}
             <button
               type="button"
               onClick={() => setSwapSlot(null)}
@@ -947,40 +1494,85 @@ export default function SmartDesignerPage() {
           </div>
         )}
 
-        {/* Spreads */}
-        <div style={{ display: 'grid', gap: 16, marginBottom: 32 }}>
-          {spreads.map((s, i) => (
-            <SpreadView
-              key={s.id}
-              spread={s}
-              index={i}
-              photoMap={photoMap}
-              onPhotoClick={(idx) => setSwapSlot({ spreadId: s.id, idx })}
-              activeSlot={swapSlot && swapSlot.spreadId === s.id ? swapSlot.idx : -1}
-            />
-          ))}
-        </div>
-
-        {/* Swap pool */}
-        {swapSlot && swapPool.length > 0 && (
-          <div style={{ ...css.card, marginBottom: 24 }}>
-            <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 12 }}>
-              Replacement options
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8 }}>
-              {swapPool.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => swapPhoto(p.id)}
-                  style={{ aspectRatio: '1', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: '0.5px solid rgba(184,150,90,0.2)' }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ))}
-            </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
+          {/* Spreads */}
+          <div style={{ display: 'grid', gap: 16 }}>
+            {spreads.map((s, i) => (
+              <SpreadView
+                key={s.id}
+                spread={s}
+                index={i}
+                photoMap={photoMap}
+                albumSize={size}
+                albumType={type}
+                onPhotoClick={(idx) => setSwapSlot({ spreadId: s.id, idx })}
+                activeSlot={swapSlot && swapSlot.spreadId === s.id ? swapSlot.idx : -1}
+                layoutMenuOpen={layoutMenuId === s.id}
+                onToggleLayoutMenu={() => setLayoutMenuId(layoutMenuId === s.id ? null : s.id)}
+                onPickTemplate={(tplId) => swapTemplate(s.id, tplId)}
+              />
+            ))}
           </div>
-        )}
+
+          {/* Sidebar: used / unused */}
+          <aside style={{ position: 'sticky', top: 20, alignSelf: 'start' }}>
+            <div style={{ ...css.card, marginBottom: 16 }}>
+              <p style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 8 }}>
+                Used in album
+              </p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, color: 'var(--cream)' }}>
+                {usedPhotoIds.size}{' '}
+                <span style={{ fontSize: 14, color: 'var(--muted2)' }}>/ {photos.length}</span>
+              </p>
+            </div>
+
+            {unusedPhotos.length > 0 && (
+              <div style={css.card}>
+                <p
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    color: '#ff8a8a',
+                    textTransform: 'uppercase',
+                    marginBottom: 10,
+                  }}
+                >
+                  Unused ({unusedPhotos.length})
+                </p>
+                <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
+                  Add more spreads or swap into existing ones to include these.
+                </p>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))',
+                    gap: 4,
+                    maxHeight: 360,
+                    overflowY: 'auto',
+                  }}
+                >
+                  {unusedPhotos.map((p) => (
+                    <div
+                      key={p.id}
+                      onClick={() => swapSlot && swapPhoto(p.id)}
+                      style={{
+                        aspectRatio: '1',
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        cursor: swapSlot ? 'pointer' : 'default',
+                        border: '0.5px solid rgba(184,150,90,0.2)',
+                      }}
+                      title={swapSlot ? 'Click to use as replacement' : undefined}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
 
         {/* $99 hand-off upsell */}
         <div
@@ -988,6 +1580,7 @@ export default function SmartDesignerPage() {
             ...css.card,
             background: 'linear-gradient(135deg, rgba(184,150,90,0.08), rgba(184,150,90,0.02))',
             borderColor: 'rgba(184,150,90,0.3)',
+            marginTop: 32,
             marginBottom: 32,
           }}
         >
@@ -995,8 +1588,8 @@ export default function SmartDesignerPage() {
             Want our team to <em style={{ color: GOLD, fontStyle: 'italic' }}>polish it?</em>
           </p>
           <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.8, marginBottom: 14 }}>
-            For an extra <strong style={{ color: GOLD }}>$99</strong>, our designers fine-tune crops, refine
-            spread pacing, and balance the visual flow. Proof in 24 hours.
+            For an extra <strong style={{ color: GOLD }}>$99</strong>, our designers fine-tune crops, refine spread pacing,
+            and balance the visual flow. Proof in 24 hours.
           </p>
           <button type="button" style={{ ...css.btnSecondary, padding: '11px 24px' }}>
             + $99 · Hand off to design team
@@ -1008,13 +1601,14 @@ export default function SmartDesignerPage() {
             ← Back
           </button>
           <button type="button" style={css.btnPrimary} onClick={() => setStep('submit')}>
-            Submit Order →
+            Submit Order · ${albumPrice} →
           </button>
         </div>
       </div>
     )
   }
 
+  // ----- STEP: SUBMIT -----
   const renderSubmit = () => (
     <div style={{ ...css.container, maxWidth: 560, textAlign: 'center', paddingTop: 40 }}>
       {renderStepIndicator()}
@@ -1036,7 +1630,9 @@ export default function SmartDesignerPage() {
       <h2 style={css.title}>
         Order <em style={css.titleEm}>received.</em>
       </h2>
-      <p style={css.subtitle}>Order #{orderId}</p>
+      <p style={css.subtitle}>
+        Order #{orderId} · ${albumPrice}
+      </p>
 
       <div style={{ ...css.card, textAlign: 'left', marginBottom: 32 }}>
         <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 14 }}>
@@ -1066,14 +1662,17 @@ export default function SmartDesignerPage() {
 
   // Close recat dropdown on outside click
   useEffect(() => {
-    if (!recatId) return
-    const onClick = () => setRecatId(null)
+    if (!recatId && !layoutMenuId) return
+    const onClick = () => {
+      setRecatId(null)
+      setLayoutMenuId(null)
+    }
     const t = setTimeout(() => document.addEventListener('click', onClick), 100)
     return () => {
       clearTimeout(t)
       document.removeEventListener('click', onClick)
     }
-  }, [recatId])
+  }, [recatId, layoutMenuId])
 
   return (
     <div style={css.page}>
@@ -1086,6 +1685,8 @@ export default function SmartDesignerPage() {
         </Link>
       </nav>
 
+      {step === 'setup' && renderSetup()}
+      {step === 'guidance' && renderGuidance()}
       {step === 'upload' && renderUpload()}
       {step === 'group' && renderGroup()}
       {step === 'tag' && renderTag()}
@@ -1114,77 +1715,36 @@ function SpreadView({
   spread,
   index,
   photoMap,
+  albumSize,
+  albumType,
   onPhotoClick,
   activeSlot,
+  layoutMenuOpen,
+  onToggleLayoutMenu,
+  onPickTemplate,
 }: {
   spread: Spread
   index: number
   photoMap: Map<string, Photo>
+  albumSize: AlbumSize
+  albumType: AlbumType
   onPhotoClick: (idx: number) => void
   activeSlot: number
+  layoutMenuOpen: boolean
+  onToggleLayoutMenu: () => void
+  onPickTemplate: (tplId: string) => void
 }) {
-  const photos = spread.photoIds.map((id) => photoMap.get(id)).filter(Boolean) as Photo[]
+  const tpl = TEMPLATE_BY_ID.get(spread.templateId)
+  if (!tpl) return null
+
   const eventName = EVENTS.find((e) => e.id === spread.eventId)?.name ?? ''
+  const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
+  const showGutter = albumType === 'standard'
 
-  const cellStyle = (idx: number): React.CSSProperties => ({
-    cursor: 'pointer',
-    overflow: 'hidden',
-    borderRadius: 4,
-    border: activeSlot === idx ? `2px solid ${GOLD}` : '0.5px solid transparent',
-    background: 'var(--dark3)',
-    transition: 'border-color 0.2s',
-  })
-
-  let body: React.ReactNode
-  if (spread.type === 'hero-full') {
-    body = (
-      <div onClick={() => onPhotoClick(0)} style={{ ...cellStyle(0), aspectRatio: '24/10' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={photos[0]?.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-      </div>
-    )
-  } else if (spread.type === 'pair') {
-    body = (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, aspectRatio: '24/10' }}>
-        {photos.map((p, i) => (
-          <div key={p.id} onClick={() => onPhotoClick(i)} style={cellStyle(i)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        ))}
-      </div>
-    )
-  } else if (spread.type === 'triple') {
-    body = (
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, aspectRatio: '24/10' }}>
-        <div onClick={() => onPhotoClick(0)} style={cellStyle(0)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photos[0]?.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          <div onClick={() => onPhotoClick(1)} style={cellStyle(1)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photos[1]?.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-          <div onClick={() => onPhotoClick(2)} style={cellStyle(2)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photos[2]?.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        </div>
-      </div>
-    )
-  } else {
-    body = (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 8, aspectRatio: '24/10' }}>
-        {photos.map((p, i) => (
-          <div key={p.id} onClick={() => onPhotoClick(i)} style={cellStyle(i)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
-        ))}
-      </div>
-    )
-  }
+  // Alternate templates that fit the same number of photos.
+  const alternates = templatesForCount(spread.photoIds.length, albumType).filter(
+    (t) => t.id !== spread.templateId,
+  )
 
   return (
     <div
@@ -1197,11 +1757,160 @@ function SpreadView({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
         <span style={{ fontSize: 9, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-          Spread {index + 1}
+          Spread {index + 1} · {ALBUM_SPECS[albumSize].label}
         </span>
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleLayoutMenu()
+            }}
+            style={{
+              background: 'transparent',
+              border: '0.5px solid rgba(184,150,90,0.3)',
+              color: GOLD,
+              fontSize: 9,
+              letterSpacing: 1,
+              padding: '4px 10px',
+              borderRadius: 30,
+              cursor: 'pointer',
+              fontFamily: 'var(--font-body)',
+              textTransform: 'uppercase',
+            }}
+          >
+            {tpl.name} ▾
+          </button>
+          {layoutMenuOpen && alternates.length > 0 && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                right: 0,
+                zIndex: 10,
+                background: 'var(--dark3)',
+                border: `0.5px solid ${GOLD}`,
+                borderRadius: 8,
+                padding: 6,
+                minWidth: 200,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+              }}
+            >
+              <p style={{ fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', padding: '6px 10px', textTransform: 'uppercase' }}>
+                Switch layout
+              </p>
+              {alternates.map((alt) => (
+                <button
+                  key={alt.id}
+                  type="button"
+                  onClick={() => onPickTemplate(alt.id)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--cream)',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    borderRadius: 4,
+                    fontFamily: 'var(--font-body)',
+                  }}
+                  onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
+                  onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
+                >
+                  {alt.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>{eventName}</span>
       </div>
-      {body}
+
+      {/* Spread canvas at correct aspect ratio */}
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: `${aspect}`,
+          background: 'var(--dark3)',
+          borderRadius: 4,
+          overflow: 'hidden',
+        }}
+      >
+        {tpl.slots.map((slot, i) => {
+          const photo = photoMap.get(spread.photoIds[i])
+          const active = activeSlot === i
+          return (
+            <div
+              key={i}
+              onClick={(e) => {
+                e.stopPropagation()
+                onPhotoClick(i)
+              }}
+              style={{
+                position: 'absolute',
+                left: `${slot.x}%`,
+                top: `${slot.y}%`,
+                width: `${slot.w}%`,
+                height: `${slot.h}%`,
+                cursor: 'pointer',
+                border: active ? `2px solid ${GOLD}` : '0.5px solid rgba(255,255,255,0.05)',
+                overflow: 'hidden',
+                borderRadius: 2,
+                background: 'var(--dark)',
+              }}
+              title={slot.isHero ? 'Hero photo' : 'Photo'}
+            >
+              {photo && (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.preview}
+                    alt=""
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                  {slot.isHero && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 4,
+                        left: 4,
+                        fontSize: 7,
+                        letterSpacing: 1.5,
+                        color: '#0e0c09',
+                        background: GOLD,
+                        padding: '2px 6px',
+                        borderRadius: 30,
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Hero
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })}
+        {showGutter && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              bottom: 0,
+              width: 1,
+              background: 'rgba(0,0,0,0.55)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+      </div>
     </div>
   )
 }
