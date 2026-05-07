@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+
+export const runtime = 'edge'
 
 // Types
 type PhotoUpload = {
@@ -29,12 +31,6 @@ const IconUpload = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-const IconTag = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-  </svg>
-)
-
 const IconStar = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} fill="currentColor" viewBox="0 0 20 20">
     <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -53,21 +49,9 @@ const IconCheck = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
-const IconX = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-)
-
 const IconArrowLeft = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-)
-
-const IconArrowRight = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
   </svg>
 )
 
@@ -77,18 +61,9 @@ export default function SmartDesignerPage() {
   const [photos, setPhotos] = useState<PhotoUpload[]>([])
   const [eventGroups, setEventGroups] = useState<EventGroup[]>([])
   const [pageCount, setPageCount] = useState(15)
-  const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Demo: Load sample wedding photos when path selected
-  useEffect(() => {
-    if (pathType === 'wedding' && photos.length === 0) {
-      loadSampleWeddingPhotos()
-    }
-  }, [pathType])
-
-  const loadSampleWeddingPhotos = async () => {
-    setUploading(true)
+  const loadSampleWeddingPhotos = useCallback(() => {
     const samplePhotos: PhotoUpload[] = []
 
     // Simulate 20 wedding photos from picsum
@@ -107,7 +82,6 @@ export default function SmartDesignerPage() {
     }
 
     setPhotos(samplePhotos)
-    setUploading(false)
 
     // Auto-create event groups
     setEventGroups([
@@ -115,7 +89,14 @@ export default function SmartDesignerPage() {
       { id: 'ceremony', name: 'Ceremony', photos: samplePhotos.slice(5, 12) },
       { id: 'reception', name: 'Reception', photos: samplePhotos.slice(12, 20) }
     ])
-  }
+  }, [])
+
+  // Demo: Load sample wedding photos when path selected
+  useEffect(() => {
+    if (pathType === 'wedding' && photos.length === 0) {
+      loadSampleWeddingPhotos()
+    }
+  }, [pathType, photos.length, loadSampleWeddingPhotos])
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -126,7 +107,6 @@ export default function SmartDesignerPage() {
       return
     }
 
-    setUploading(true)
     const newPhotos: PhotoUpload[] = []
 
     for (let i = 0; i < files.length; i++) {
@@ -150,12 +130,11 @@ export default function SmartDesignerPage() {
     }
 
     setPhotos([...photos, ...newPhotos])
-    setUploading(false)
   }
 
   const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
     return new Promise((resolve) => {
-      const img = new Image()
+      const img = new window.Image()
       img.onload = () => {
         resolve({ width: img.width, height: img.height })
       }
@@ -545,7 +524,7 @@ export default function SmartDesignerPage() {
           </li>
           <li className="flex items-start gap-3">
             <span className="font-bold">3.</span>
-            <span>You'll receive a final PDF proof within 48 hours</span>
+            <span>You&apos;ll receive a final PDF proof within 48 hours</span>
           </li>
           <li className="flex items-start gap-3">
             <span className="font-bold">4.</span>
