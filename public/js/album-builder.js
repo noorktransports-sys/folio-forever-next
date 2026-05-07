@@ -190,7 +190,48 @@
       slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 3 / 4'] },
 
     { id: 'hc_6a', name: '3 Per Page',     cols: 'repeat(4, 1fr)', rows: '1fr 1fr',      slots: 6, photoCount: 6, binding: 'hardcover',
-      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 2 / 4', '2 / 3 / 3 / 4', '1 / 4 / 3 / 5'] }
+      slotAreas: ['1 / 1 / 3 / 2', '1 / 2 / 2 / 3', '2 / 2 / 3 / 3', '1 / 3 / 2 / 4', '2 / 3 / 3 / 4', '1 / 4 / 3 / 5'] },
+
+    /* 4 photos per page (8 total). 2×2 grid on each side, gutter at the
+     * mid-column. Useful for storytelling spreads where each page tells
+     * its own four-shot mini-sequence. */
+    { id: 'hc_8a', name: '4 Per Page · 8 Total',
+      cols: 'repeat(4, 1fr)', rows: 'repeat(2, 1fr)',
+      slots: 8, photoCount: 8, binding: 'hardcover',
+      slotAreas: [
+        '1 / 1 / 2 / 2', '1 / 2 / 2 / 3',   // left page top row
+        '2 / 1 / 3 / 2', '2 / 2 / 3 / 3',   // left page bottom row
+        '1 / 3 / 2 / 4', '1 / 4 / 2 / 5',   // right page top row
+        '2 / 3 / 3 / 4', '2 / 4 / 3 / 5',   // right page bottom row
+      ] },
+
+    /* 1 hero photo on the left, 3×3 mosaic of 9 photos on the right
+     * (10 total). Big-statement portrait paired with a contact-sheet
+     * style memory grid. */
+    { id: 'hc_10a', name: 'Hero Left · 9 Right',
+      cols: 'repeat(6, 1fr)', rows: 'repeat(3, 1fr)',
+      slots: 10, photoCount: 10, binding: 'hardcover',
+      slotAreas: [
+        '1 / 1 / 4 / 4',                                          // left hero (full left page)
+        '1 / 4 / 2 / 5', '1 / 5 / 2 / 6', '1 / 6 / 2 / 7',        // right top row
+        '2 / 4 / 3 / 5', '2 / 5 / 3 / 6', '2 / 6 / 3 / 7',        // right middle row
+        '3 / 4 / 4 / 5', '3 / 5 / 4 / 6', '3 / 6 / 4 / 7',        // right bottom row
+      ] },
+
+    /* 6 photos per page (12 total). 2×3 grid on each side, gutter at the
+     * mid-column. The densest hardcover layout — for "highlights of the
+     * whole night" pages. */
+    { id: 'hc_12a', name: '6 Per Page · 12 Total',
+      cols: 'repeat(4, 1fr)', rows: 'repeat(3, 1fr)',
+      slots: 12, photoCount: 12, binding: 'hardcover',
+      slotAreas: [
+        '1 / 1 / 2 / 2', '1 / 2 / 2 / 3',   // left page top row
+        '2 / 1 / 3 / 2', '2 / 2 / 3 / 3',   // left page middle row
+        '3 / 1 / 4 / 2', '3 / 2 / 4 / 3',   // left page bottom row
+        '1 / 3 / 2 / 4', '1 / 4 / 2 / 5',   // right page top row
+        '2 / 3 / 3 / 4', '2 / 4 / 3 / 5',   // right page middle row
+        '3 / 3 / 4 / 4', '3 / 4 / 4 / 5',   // right page bottom row
+      ] }
   ];
 
   // Quick lookup by id — replaces the old integer-index access pattern.
@@ -702,9 +743,10 @@
     info.textContent = unit + ' ' + currentSpread + ' of ' + contentTotal;
   }
 
-  // Render the photo-count filter tabs above the layout list. Six options
-  // (1–6) plus an "Any" reset. Click flips currentPhotoCountFilter then
-  // re-renders the list below.
+  // Render the photo-count filter tabs above the layout list. We list
+  // every photoCount that at least one layout actually uses — keeps the
+  // strip from showing dead "7" / "9" / "11" buttons that filter to
+  // empty. Order mirrors photoCount ascending; "Any" resets the filter.
   function renderPhotoCountTabs() {
     const tabs = document.getElementById('photoCountTabs');
     if (!tabs) return;
@@ -716,7 +758,10 @@
       { label: '3', val: 3 },
       { label: '4', val: 4 },
       { label: '5', val: 5 },
-      { label: '6', val: 6 }
+      { label: '6', val: 6 },
+      { label: '8', val: 8 },
+      { label: '10', val: 10 },
+      { label: '12', val: 12 },
     ];
     opts.forEach(o => {
       const b = document.createElement('button');
