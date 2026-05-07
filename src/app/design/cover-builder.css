@@ -87,7 +87,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 32px;
+  /* The right controls panel is 380px wide, which pushes everything in
+   * the preview panel ~190px left of the viewport's true horizontal
+   * center. Adding matching left padding rebalances it: the cover now
+   * sits at the visual center of the full viewport, not just the
+   * center of the preview area. The original 32px symmetric padding
+   * is preserved as the breathing-room baseline. */
+  padding: 24px 32px 24px calc(380px + 32px);
   background: linear-gradient(180deg, var(--dark) 0%, var(--dark2) 100%);
   /* hidden (not auto): the preview is a 3D scene, never wants its own
    * scrollbar. The canvas inside scales via width:100% to stay within
@@ -1138,6 +1144,11 @@
   .cover-grid { grid-template-columns: 1fr; }
   .cover-controls-panel { border-left: none; border-top: 0.5px solid rgba(184, 150, 90, 0.15); }
   .cover-stage { max-width: 320px; }
+  /* On the single-column mobile layout the controls panel stacks below
+   * the preview, so the desktop "compensate-for-right-sidebar" left
+   * padding makes the cover look pinned to the right. Reset to symmetric
+   * padding for narrow viewports. */
+  .cover-preview-panel { padding: 24px 16px; }
   .cover-toolbar {
     flex-wrap: wrap;
     gap: 10px;
