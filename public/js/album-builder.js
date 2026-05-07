@@ -440,22 +440,32 @@
         savedAt: new Date().toISOString()
       };
       localStorage.setItem(STATE_KEY(), JSON.stringify(payload));
-      // Keep the album-list index fresh: bump lastEditedAt + name on
-      // every save. Album name comes from cover state (the user's
-      // primary text, e.g. "Sarah & James"). Falls back to "Untitled"
-      // if the cover hasn't been touched yet.
+      // Refresh the album-list index. lastEditedAt always bumps; name
+      // only auto-fills from cover primary text if the user is still on
+      // the placeholder "Untitled" name. A name the user typed at album
+      // creation (or via future rename UI) wins — we don't want their
+      // chosen "John & Sarah Wedding" silently truncated to "John &
+      // Sarah" the moment they touch the cover text input.
       const id = getCurrentAlbumId();
       if (id) {
-        let name = 'Untitled';
-        try {
-          const cov = localStorage.getItem(COVER_STATE_KEY());
-          if (cov) {
-            const parsed = JSON.parse(cov);
-            const t = parsed && parsed.state && parsed.state.primaryText;
-            if (typeof t === 'string' && t.trim()) name = t.trim();
-          }
-        } catch (e) {}
-        upsertAlbumIndex(id, { name });
+        const existing = readAlbumsIndex().find((a) => a.id === id);
+        const stillUntitled =
+          !existing || /^Untitled(\s|$|\s·)/i.test(existing.name || '');
+        if (stillUntitled) {
+          let name = 'Untitled';
+          try {
+            const cov = localStorage.getItem(COVER_STATE_KEY());
+            if (cov) {
+              const parsed = JSON.parse(cov);
+              const t = parsed && parsed.state && parsed.state.primaryText;
+              if (typeof t === 'string' && t.trim()) name = t.trim();
+            }
+          } catch (e) {}
+          upsertAlbumIndex(id, { name });
+        } else {
+          // User has a custom name — preserve it, just touch lastEditedAt.
+          upsertAlbumIndex(id, {});
+        }
       }
     } catch (e) {
       // QuotaExceededError or private mode — fail silently.
