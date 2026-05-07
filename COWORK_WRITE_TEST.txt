@@ -1,0 +1,1 @@
+If you can see this file in GitHub Desktop's "Changes" tab, the Cowork → disk write is working and the issue is just GitHub Desktop refresh / detection. Delete this file when done — it's only here as a smoke test.
