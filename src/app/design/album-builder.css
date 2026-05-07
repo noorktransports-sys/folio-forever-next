@@ -271,6 +271,50 @@ nav {
 .page-mini.active { border-color: var(--gold); }
 .page-mini:hover { border-color: rgba(184, 150, 90, 0.4); }
 .page-mini-num { position: absolute; bottom: -13px; left: 50%; transform: translateX(-50%); font-size: 7px; color: var(--muted); white-space: nowrap; }
+
+/* Subtle dashed border on extras so it's clear which tiles are
+ * removable even before hovering. Soft enough to not compete with the
+ * gold "active" border. */
+.page-mini.is-extra { border-style: dashed; }
+
+/* Delete (×) button — only rendered on .page-mini.is-extra tiles
+ * (spreads added past the included 10). Sits at the top-right corner
+ * and only fades in on hover, so the strip stays clean at rest. The
+ * button stops propagation in JS so clicking it doesn't switch to the
+ * spread first. */
+.page-mini-delete {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0.5px solid rgba(255, 107, 107, 0.5);
+  border-radius: 50%;
+  background: rgba(20, 18, 14, 0.95);
+  color: #ff8a8a;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.15s, transform 0.15s, background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.page-mini.is-extra:hover .page-mini-delete,
+.page-mini-delete:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+.page-mini-delete:hover {
+  background: #ff6b6b;
+  color: var(--dark);
+  border-color: #ff6b6b;
+}
+
 .add-page-btn { flex-shrink: 0; width: 28px; height: 28px; background: none; border: 0.5px dashed rgba(184, 150, 90, 0.3); border-radius: 3px; color: var(--gold); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .add-page-btn:hover { border-color: var(--gold); background: rgba(184, 150, 90, 0.06); }
 
