@@ -237,10 +237,8 @@ function paintFoilCanvas(
   const scale = w / FOIL_CANVAS_REF_PX;
   const titleSize = fontSizePx * scale;
   const subSize = Math.max(14, Math.round(titleSize * 0.30));
-  // Decorative rule width + spacing scale with the title so the layout
-  // stays balanced across the 24..96px range.
-  const ruleW = titleSize * 1.65;
-  const ruleGap = titleSize * 2.55;
+  // Subtitle sits this far below the title, scaled with title size so
+  // the spacing stays balanced across the 24..96px range.
   const subGap = titleSize * 1.15;
 
   // Vertical anchor based on the user's position choice. 18%/50%/82% of
@@ -254,19 +252,12 @@ function paintFoilCanvas(
     default:      cy = h * 0.5;
   }
 
-  // Decorative dashes flanking the title — gets the look of a foil-
-  // stamped wedding album. Skip on cursive fonts where the dashes fight
-  // the script, and on Bebas (a tall sans where they look like underlines).
-  const skipRules = /great vibes|allura|italianno|dancing script|bebas/i.test(fontFamily);
-  if (!skipRules && title) {
-    ctx.lineWidth = Math.max(1.5, titleSize * 0.025);
-    ctx.beginPath();
-    ctx.moveTo(w / 2 - ruleGap, cy);
-    ctx.lineTo(w / 2 - ruleGap + ruleW, cy);
-    ctx.moveTo(w / 2 + ruleGap - ruleW, cy);
-    ctx.lineTo(w / 2 + ruleGap, cy);
-    ctx.stroke();
-  }
+  // Earlier versions of this function painted decorative dashes on
+  // either side of the title at vertical-center cy. Long names ("Sana
+  // & Areeb" on a 45px slider, "Christopher & Alexandra", etc.) ran
+  // wider than the dash gap and overlapped the text — looked like a
+  // strikethrough. Removed entirely; titles read cleaner without the
+  // flourish anyway.
 
   // Title — uses the user-picked font + style.
   // Note: the font must be loaded in the document for canvas to render
