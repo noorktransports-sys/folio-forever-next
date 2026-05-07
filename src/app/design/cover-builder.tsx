@@ -262,13 +262,32 @@ const DRAG_SENSITIVITY = 0.5;
  * Versioning prevents stale shapes from breaking new builds: bump v on
  * incompatible schema changes and reads will fall back to defaults.
  */
-const COVER_LS_KEY = 'folio-cover-v1';
-const COVER_PHOTOS_LS_KEY = 'folio-cover-photos-v1';
+/**
+ * localStorage keys are namespaced by the album-id from the URL
+ * (?album=<uuid>) so a browser can hold multiple parallel album drafts
+ * without the cover designs colliding. Helpers are functions, not
+ * constants, because the album-id isn't known until the page mounts
+ * (and can change if the URL changes via in-app navigation).
+ */
+function _albumIdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = new URLSearchParams(window.location.search).get('album');
+    if (id && /^[a-zA-Z0-9_-]{8,40}$/.test(id)) return id;
+  } catch {}
+  return null;
+}
+function _ns(base: string): string {
+  const id = _albumIdFromUrl();
+  return id ? base + ':' + id : base;
+}
+const COVER_LS_KEY = () => _ns('folio-cover-v1');
+const COVER_PHOTOS_LS_KEY = () => _ns('folio-cover-photos-v1');
 
 function loadCoverState(): CoverState {
   if (typeof window === 'undefined') return initialState;
   try {
-    const raw = window.localStorage.getItem(COVER_LS_KEY);
+    const raw = window.localStorage.getItem(COVER_LS_KEY());
     if (!raw) return initialState;
     const data = JSON.parse(raw);
     if (!data || data.v !== 1 || !data.state) return initialState;
@@ -291,7 +310,7 @@ function loadCoverState(): CoverState {
 function loadCoverPhotos(): { id: string; src: string }[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = window.localStorage.getItem(COVER_PHOTOS_LS_KEY);
+    const raw = window.localStorage.getItem(COVER_PHOTOS_LS_KEY());
     if (!raw) return [];
     const data = JSON.parse(raw);
     if (!data || data.v !== 1 || !Array.isArray(data.photos)) return [];
@@ -337,7 +356,7 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        COVER_LS_KEY,
+        COVER_LS_KEY(),
         JSON.stringify({ v: 1, state, savedAt: new Date().toISOString() }),
       );
     } catch {
@@ -364,7 +383,7 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        COVER_PHOTOS_LS_KEY,
+        COVER_PHOTOS_LS_KEY(),
         JSON.stringify({ v: 1, photos: extraCoverPhotos }),
       );
     } catch {}

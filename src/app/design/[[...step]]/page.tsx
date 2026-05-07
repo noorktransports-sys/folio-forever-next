@@ -76,13 +76,34 @@ function deriveStepFromPath(pathname: string): RouteStep {
  * Once /api/submit-order + KV land (Phase 2) the lock becomes server-side
  * and persists across browsers.
  */
-const SUBMITTED_KEY = 'folio-submitted';
+/**
+ * Multi-album storage. Each album is identified by a UUID held in the URL
+ * (`?album=<uuid>`) and every localStorage key is namespaced by it. A
+ * browser can hold any number of parallel album drafts without their
+ * states colliding. The albumIdFromUrl + ns helpers mirror the ones in
+ * /public/js/album-builder.js — kept locally so the React layer can run
+ * before the legacy script loads.
+ */
+function albumIdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = new URLSearchParams(window.location.search).get('album');
+    if (id && /^[a-zA-Z0-9_-]{8,40}$/.test(id)) return id;
+  } catch { /* ignore */ }
+  return null;
+}
+function ns(base: string): string {
+  const id = albumIdFromUrl();
+  return id ? base + ':' + id : base;
+}
+const SUBMITTED_KEY_BASE = 'folio-submitted';
+const SUBMITTED_KEY = () => ns(SUBMITTED_KEY_BASE);
 type SubmittedRecord = { orderId: string; submittedAt: string };
 
 function readSubmittedFromStorage(): SubmittedRecord | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(SUBMITTED_KEY);
+    const raw = window.localStorage.getItem(SUBMITTED_KEY());
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.orderId === 'string') {
@@ -121,6 +142,49 @@ function fb(name: string, ...args: unknown[]) {
   if (typeof fn === 'function') fn(...args);
 }
 
+/**
+ * Append the current ?album=<uuid> to a navigation path. Use whenever
+ * we need to keep the user inside their current album across step
+ * transitions — going from product picker to build, build to cover, etc.
+ * The intro page (/design) deliberately omits the album-id because that
+ * page is the album picker; carrying an id there would skip the picker.
+ */
+function withAlbum(path: string): string {
+  const id = albumIdFromUrl();
+  if (!id) return path;
+  // Don't tack the id onto the intro page — it's the picker.
+  if (path === '/design' || path === '/design/') return path;
+  const sep = path.indexOf('?') >= 0 ? '&' : '?';
+  return path + sep + 'album=' + id;
+}
+
+/**
+ * Mint a new album-id, register it in the index, then navigate the
+ * given path with the new id appended. Used by "Start new album" and
+ * by the path-card "I'll design it" click — both of which need to
+ * create a fresh album before the user begins designing.
+ */
+function startNewAlbumAndNavigate(router: ReturnType<typeof useRouter>, path: string) {
+  if (typeof window === 'undefined') return;
+  const w = window as unknown as {
+    _folioGenerateAlbumId?: () => string;
+    _folioUpsertAlbumIndex?: (id: string, patch: Record<string, unknown>) => void;
+  };
+  let id: string;
+  if (typeof w._folioGenerateAlbumId === 'function') {
+    id = w._folioGenerateAlbumId();
+  } else {
+    // Fallback if the legacy script hasn't loaded yet (e.g. fast click
+    // before the bundle arrived). Random-string id is fine for v1.
+    id = 'a' + Math.random().toString(36).slice(2, 13);
+  }
+  if (typeof w._folioUpsertAlbumIndex === 'function') {
+    w._folioUpsertAlbumIndex(id, { name: 'Untitled' });
+  }
+  const sep = path.indexOf('?') >= 0 ? '&' : '?';
+  router.push(path + sep + 'album=' + id);
+}
+
 export default function DesignerPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -132,6 +196,62 @@ export default function DesignerPage() {
   // localStorage; we read it inside the first effect). The legacy JS is
   // still loaded on the unlocked render so it can wire up uploads etc.
   const [submitted, setSubmitted] = useState<SubmittedRecord | null>(null);
+
+  /**
+   * My-Albums list shown above the path-choice cards on the intro page.
+   * Read once on mount + after delete. The list is populated by
+   * album-builder.js's _folioReadAlbumsIndex; if the script hasn't
+   * loaded yet we read straight from localStorage as a fallback.
+   */
+  type AlbumIndexEntry = { id: string; name: string; createdAt: string; lastEditedAt: string };
+  const [albums, setAlbums] = useState<AlbumIndexEntry[]>([]);
+  const refreshAlbums = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const w = window as unknown as { _folioReadAlbumsIndex?: () => AlbumIndexEntry[] };
+      if (typeof w._folioReadAlbumsIndex === 'function') {
+        setAlbums(w._folioReadAlbumsIndex());
+        return;
+      }
+      const raw = window.localStorage.getItem('folio-albums-index');
+      if (!raw) { setAlbums([]); return; }
+      const parsed = JSON.parse(raw);
+      setAlbums(Array.isArray(parsed) ? parsed : []);
+    } catch { setAlbums([]); }
+  };
+  // Initial load + refresh whenever we land on the intro step (the
+  // album list is only relevant there).
+  useEffect(() => {
+    if (currentStep === 'intro') {
+      refreshAlbums();
+      // Re-read after the legacy script loads, since it may have
+      // migrated a legacy single-album draft into an indexed entry.
+      const t = setTimeout(refreshAlbums, 600);
+      return () => clearTimeout(t);
+    }
+  }, [currentStep]);
+
+  function deleteAlbumWithConfirm(id: string) {
+    const album = albums.find((a) => a.id === id);
+    const label = album ? album.name : 'this album';
+    if (!window.confirm(`Delete "${label}"?\n\nAll photos, layouts, and the cover for this album will be permanently removed. This cannot be undone.`)) return;
+    const w = window as unknown as { _folioRemoveAlbum?: (id: string) => void };
+    if (typeof w._folioRemoveAlbum === 'function') {
+      w._folioRemoveAlbum(id);
+    } else {
+      // Fallback: clear keys directly.
+      ['folio-design-state-v3', 'folio-cover-v1', 'folio-cover-photos-v1', 'folio-submitted']
+        .forEach((base) => window.localStorage.removeItem(base + ':' + id));
+      try {
+        const raw = window.localStorage.getItem('folio-albums-index');
+        const arr = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(arr)) {
+          window.localStorage.setItem('folio-albums-index', JSON.stringify(arr.filter((a: AlbumIndexEntry) => a.id !== id)));
+        }
+      } catch {}
+    }
+    refreshAlbums();
+  }
 
   useEffect(() => {
     setSubmitted(readSubmittedFromStorage());
@@ -232,7 +352,7 @@ export default function DesignerPage() {
       if (!ok) return;
     }
     try {
-      window.localStorage.removeItem(SUBMITTED_KEY);
+      window.localStorage.removeItem(SUBMITTED_KEY());
       const w = window as unknown as { _folioClearState?: () => void };
       if (typeof w._folioClearState === 'function') w._folioClearState();
     } catch { /* ignore */ }
@@ -251,7 +371,7 @@ export default function DesignerPage() {
       src: typeof val === 'string' ? val : ((val as { src?: string })?.src ?? ''),
     })).filter((p) => p.src);
     setPhotos(list);
-    router.push('/design/cover');
+    router.push(withAlbum('/design/cover'));
   }
 
   function continueFromCover(cover: CoverState) {
@@ -261,7 +381,7 @@ export default function DesignerPage() {
 
   return (
     <>
-      <Script src="/js/album-builder.js?v=20260506-2" strategy="afterInteractive" />
+      <Script src="/js/album-builder.js?v=20260506-3" strategy="afterInteractive" />
 
       <nav>
         <Link href="/" className="nav-logo">
@@ -272,8 +392,8 @@ export default function DesignerPage() {
             type="button"
             className="nav-back nav-back-btn"
             onClick={() => {
-              if (currentStep === 'build') router.push('/design/product');
-              else if (currentStep === 'cover') router.push('/design/build');
+              if (currentStep === 'build') router.push(withAlbum('/design/product'));
+              else if (currentStep === 'cover') router.push(withAlbum('/design/build'));
               else if (currentStep === 'product') router.push('/design');
               else if (currentStep === 'expert') router.push('/design');
               else window.location.href = '/';
@@ -354,8 +474,136 @@ export default function DesignerPage() {
           </p>
         </div>
 
+        {/*
+          MY ALBUMS — only renders when there's at least one album in the
+          index. Each card resumes the album in-progress; the × deletes
+          it (with confirm). The "+" tile mints a new UUID and routes to
+          the product picker — a parallel entry point to the path cards
+          below, useful for users who came back specifically to start
+          another album.
+        */}
+        {albums.length > 0 && (
+          <div className="my-albums" style={{ maxWidth: 900, margin: '0 auto', padding: '0 5% 30px' }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: 14,
+              borderBottom: '0.5px solid rgba(184, 150, 90, 0.15)',
+              paddingBottom: 10,
+            }}>
+              <span style={{
+                fontSize: 10,
+                letterSpacing: 3,
+                textTransform: 'uppercase',
+                color: 'var(--gold)',
+              }}>
+                My Albums · {albums.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => startNewAlbumAndNavigate(router, '/design/product')}
+                style={{
+                  background: 'transparent',
+                  border: '0.5px solid rgba(184, 150, 90, 0.4)',
+                  color: 'var(--gold)',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 9,
+                  fontWeight: 600,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                  padding: '7px 16px',
+                  borderRadius: 30,
+                  cursor: 'pointer',
+                }}
+              >
+                + Start a new album
+              </button>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: 12,
+            }}>
+              {albums.map((album) => {
+                const edited = (() => {
+                  try {
+                    const d = new Date(album.lastEditedAt);
+                    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+                  } catch { return ''; }
+                })();
+                return (
+                  <div
+                    key={album.id}
+                    onClick={() => router.push('/design/build?album=' + album.id)}
+                    style={{
+                      position: 'relative',
+                      background: 'var(--dark2)',
+                      border: '0.5px solid rgba(184, 150, 90, 0.2)',
+                      borderRadius: 8,
+                      padding: '16px 18px',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(184, 150, 90, 0.5)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(184, 150, 90, 0.2)')}
+                  >
+                    <div style={{
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 18,
+                      fontWeight: 400,
+                      color: 'var(--cream)',
+                      marginBottom: 4,
+                      paddingRight: 24,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {album.name || 'Untitled'}
+                    </div>
+                    <div style={{
+                      fontSize: 9,
+                      letterSpacing: 1.5,
+                      color: 'var(--muted2)',
+                      textTransform: 'uppercase',
+                    }}>
+                      {edited ? `Edited ${edited}` : 'Draft'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); deleteAlbumWithConfirm(album.id); }}
+                      title="Delete this album"
+                      aria-label="Delete album"
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        width: 22,
+                        height: 22,
+                        padding: 0,
+                        border: '0.5px solid rgba(255, 107, 107, 0.4)',
+                        borderRadius: '50%',
+                        background: 'transparent',
+                        color: '#ff8a8a',
+                        fontSize: 14,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="path-choice">
-          <div className="path-card" onClick={() => router.push('/design/product')}>
+          <div className="path-card" onClick={() => startNewAlbumAndNavigate(router, '/design/product')}>
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <rect x="2" y="2" width="7" height="7" stroke="#b8965a" strokeWidth="0.8" />
@@ -439,7 +687,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => {
                 fb('selectProduct', 'spread_17x24', 'hardcover');
-                router.push('/design/build');
+                router.push(withAlbum('/design/build'));
               }}
             >
               <div className="binding-thumb binding-thumb-hardcover product-thumb-17" aria-hidden="true">
@@ -466,7 +714,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => {
                 fb('selectProduct', 'spread_17x24', 'layflat');
-                router.push('/design/build');
+                router.push(withAlbum('/design/build'));
               }}
             >
               <div className="binding-thumb binding-thumb-layflat product-thumb-17" aria-hidden="true">
@@ -493,7 +741,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => {
                 fb('selectProduct', 'page_20x30', 'hardcover');
-                router.push('/design/build');
+                router.push(withAlbum('/design/build'));
               }}
             >
               <div className="binding-thumb binding-thumb-hardcover product-thumb-20" aria-hidden="true">
@@ -521,7 +769,7 @@ export default function DesignerPage() {
               className="binding-card product-card"
               onClick={() => {
                 fb('selectProduct', 'page_20x30', 'layflat');
-                router.push('/design/build');
+                router.push(withAlbum('/design/build'));
               }}
             >
               <div className="binding-thumb binding-thumb-layflat product-thumb-20" aria-hidden="true">
@@ -550,7 +798,7 @@ export default function DesignerPage() {
       {currentStep === 'cover' && (
         <CoverBuilder
           uploadedPhotos={photos}
-          onBack={() => router.push('/design/build')}
+          onBack={() => router.push(withAlbum('/design/build'))}
           onContinue={continueFromCover}
         />
       )}

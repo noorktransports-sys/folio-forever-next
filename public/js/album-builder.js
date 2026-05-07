@@ -295,21 +295,134 @@
     });
   }
 
-  // ── PERSISTENCE ──────────────────────────────────────────────
+  // ── MULTI-ALBUM STORAGE ─────────────────────────────────────
+  // Each album has a UUID embedded in the URL as ?album=<uuid>. All
+  // localStorage keys are namespaced by that UUID so a browser can
+  // hold multiple parallel drafts without them stepping on each other.
+  //
+  // Legacy single-album state (no suffix) is migrated to a UUID on
+  // first load — see migrateLegacyAlbumIfNeeded() below. Users who
+  // had work-in-progress before the multi-album rollout get their
+  // album auto-claimed and an entry added to the index.
+  const ALBUMS_INDEX_KEY = 'folio-albums-index';
+
+  function getCurrentAlbumId() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('album');
+      // Sanitize — allow only the characters a UUID would contain so a
+      // crafted URL can't escape and read other localStorage keys.
+      if (id && /^[a-zA-Z0-9_-]{8,40}$/.test(id)) return id;
+    } catch (e) {}
+    return null;
+  }
+
+  function _ns(baseKey) {
+    const id = getCurrentAlbumId();
+    return id ? baseKey + ':' + id : baseKey;
+  }
+  // Wrappers: every persistence read/write goes through these so adding
+  // a new key in the future is one line, not five.
+  function STATE_KEY()        { return _ns('folio-design-state-v3'); }
+  function COVER_STATE_KEY()  { return _ns('folio-cover-v1'); }
+  function COVER_PHOTOS_KEY() { return _ns('folio-cover-photos-v1'); }
+  function SUBMITTED_KEY()    { return _ns('folio-submitted'); }
+
+  /**
+   * Generate a short, URL-safe album id. Crypto-random when available,
+   * Math.random fallback otherwise (the id only needs to be unique
+   * within this browser, not globally). 12 chars matches the photo-id
+   * scheme used elsewhere in the app for visual consistency.
+   */
+  function generateAlbumId() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      }
+    } catch (e) {}
+    return 'a' + Math.random().toString(36).slice(2, 13);
+  }
+
+  /**
+   * Albums-index entry: {id, name, createdAt, lastEditedAt}. The
+   * name comes from the cover's primary text when known, falling back
+   * to "Untitled". Updated on every save so the index stays fresh.
+   */
+  function readAlbumsIndex() {
+    try {
+      const raw = localStorage.getItem(ALBUMS_INDEX_KEY);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      return Array.isArray(data) ? data : [];
+    } catch (e) { return []; }
+  }
+  function writeAlbumsIndex(arr) {
+    try { localStorage.setItem(ALBUMS_INDEX_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+  function upsertAlbumIndex(id, patch) {
+    if (!id) return;
+    const idx = readAlbumsIndex();
+    const existing = idx.find((a) => a.id === id);
+    const now = new Date().toISOString();
+    if (existing) {
+      Object.assign(existing, patch, { lastEditedAt: now });
+    } else {
+      idx.unshift(Object.assign({ id, name: 'Untitled', createdAt: now, lastEditedAt: now }, patch));
+    }
+    writeAlbumsIndex(idx);
+  }
+  function removeAlbumFromIndex(id) {
+    if (!id) return;
+    writeAlbumsIndex(readAlbumsIndex().filter((a) => a.id !== id));
+  }
+
+  /**
+   * One-time migration. If the user had a pre-multi-album draft saved
+   * under the unnamespaced key 'folio-design-state-v3', we mint a UUID
+   * for it, copy every related key over to the namespaced form, delete
+   * the legacy keys, then redirect the URL to ?album=<uuid> so future
+   * loads pick up the namespaced version. Idempotent — safe to call
+   * on every page load.
+   */
+  function migrateLegacyAlbumIfNeeded() {
+    try {
+      // If URL already has an album-id, no migration needed.
+      if (getCurrentAlbumId()) return;
+      // If no legacy state exists, nothing to migrate.
+      const legacyState = localStorage.getItem('folio-design-state-v3');
+      const legacyCover = localStorage.getItem('folio-cover-v1');
+      const legacyPhotos = localStorage.getItem('folio-cover-photos-v1');
+      const legacySubmit = localStorage.getItem('folio-submitted');
+      if (!legacyState && !legacyCover && !legacyPhotos && !legacySubmit) return;
+
+      const newId = generateAlbumId();
+      if (legacyState)  { localStorage.setItem('folio-design-state-v3:' + newId, legacyState); localStorage.removeItem('folio-design-state-v3'); }
+      if (legacyCover)  { localStorage.setItem('folio-cover-v1:' + newId, legacyCover); localStorage.removeItem('folio-cover-v1'); }
+      if (legacyPhotos) { localStorage.setItem('folio-cover-photos-v1:' + newId, legacyPhotos); localStorage.removeItem('folio-cover-photos-v1'); }
+      if (legacySubmit) { localStorage.setItem('folio-submitted:' + newId, legacySubmit); localStorage.removeItem('folio-submitted'); }
+      upsertAlbumIndex(newId, { name: 'Untitled (migrated)' });
+
+      // Reload with the album-id appended. URL-driven album selection
+      // requires the id to be present before any other code reads
+      // STATE_KEY().
+      const url = new URL(window.location.href);
+      url.searchParams.set('album', newId);
+      window.location.replace(url.toString());
+    } catch (e) {
+      console.warn('Folio: legacy album migration failed', e);
+    }
+  }
+  migrateLegacyAlbumIfNeeded();
+
   // Survive refresh. The whole designer state is serialized to
   // localStorage on every meaningful mutation (debounced). On script
   // load we restore it before any DOM is touched.
-  //
-  // Keys are bumped if the schema changes — old versions are ignored
-  // rather than migrated. v3 = current shape (binding, size, layouts,
-  // spreads, uploads).
   //
   // Note: photos uploaded in dev/preview without /api/upload are stored
   // as data URLs which can blow past the 5 MB localStorage quota fast.
   // We catch the QuotaExceededError silently — better to lose the save
   // than to crash the page. Production R2 URLs are tiny strings, so
   // this only ever bites the preview deploy.
-  const STATE_KEY = 'folio-design-state-v3';
   let _saveTimer = null;
 
   function _saveStateNow() {
@@ -326,7 +439,24 @@
         currentSpread: currentSpread,
         savedAt: new Date().toISOString()
       };
-      localStorage.setItem(STATE_KEY, JSON.stringify(payload));
+      localStorage.setItem(STATE_KEY(), JSON.stringify(payload));
+      // Keep the album-list index fresh: bump lastEditedAt + name on
+      // every save. Album name comes from cover state (the user's
+      // primary text, e.g. "Sarah & James"). Falls back to "Untitled"
+      // if the cover hasn't been touched yet.
+      const id = getCurrentAlbumId();
+      if (id) {
+        let name = 'Untitled';
+        try {
+          const cov = localStorage.getItem(COVER_STATE_KEY());
+          if (cov) {
+            const parsed = JSON.parse(cov);
+            const t = parsed && parsed.state && parsed.state.primaryText;
+            if (typeof t === 'string' && t.trim()) name = t.trim();
+          }
+        } catch (e) {}
+        upsertAlbumIndex(id, { name });
+      }
     } catch (e) {
       // QuotaExceededError or private mode — fail silently.
       console.warn('Folio: state save failed', e && e.message);
@@ -342,7 +472,7 @@
 
   function _restoreState() {
     try {
-      const raw = localStorage.getItem(STATE_KEY);
+      const raw = localStorage.getItem(STATE_KEY());
       if (!raw) return false;
       const data = JSON.parse(raw);
       if (!data || data.v !== 3) return false;
@@ -1973,21 +2103,43 @@
   // (or on hot reload of that route) so the DOM gets repainted from
   // current globals. Safe to call repeatedly.
   window.mountBuilder = mountBuilder;
-  // Expose so the "Start fresh" / "Start a new album" flow can clear
-  // EVERY piece of persisted state before reloading. The earlier version
-  // only nuked STATE_KEY, which left the cover design (folio-cover-v1),
-  // cover photos (folio-cover-photos-v1), and submission lock
-  // (folio-submitted) in place — so a "fresh start" still resurrected
-  // the user's old cover and locked them out of the editor. Now we
-  // wipe everything that starts with "folio-" so the page truly
-  // reloads to a clean slate.
+  // Expose so the "Start fresh" navbar flow can erase the CURRENT
+  // album (only) and drop the user back to the album picker. With
+  // multi-album, an unscoped clear would nuke every parallel draft
+  // the user has open across tabs/clients — that's a foot-gun. So
+  // we wipe just the namespaced keys for the album referenced in the
+  // URL plus its index entry. If there's no album-id (legacy session),
+  // fall back to wiping all unnamespaced keys for backwards compat.
   window._folioClearState = function() {
     try {
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf('folio-') === 0) keys.push(k);
+      const id = getCurrentAlbumId();
+      if (id) {
+        ['folio-design-state-v3', 'folio-cover-v1', 'folio-cover-photos-v1', 'folio-submitted']
+          .forEach((base) => localStorage.removeItem(base + ':' + id));
+        removeAlbumFromIndex(id);
+      } else {
+        // Legacy / unnamespaced: clear every folio- key in this storage.
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf('folio-') === 0 && k !== ALBUMS_INDEX_KEY) keys.push(k);
+        }
+        keys.forEach((k) => localStorage.removeItem(k));
       }
-      keys.forEach((k) => localStorage.removeItem(k));
     } catch (e) {}
   };
+
+  // Read-side helper for the React intro page (My Albums section). The
+  // page reads the index and renders cards. Exposed on window so the
+  // React layer doesn't have to duplicate the parsing/sanitization.
+  window._folioReadAlbumsIndex = readAlbumsIndex;
+  window._folioRemoveAlbum = function(id) {
+    if (!id) return;
+    try {
+      ['folio-design-state-v3', 'folio-cover-v1', 'folio-cover-photos-v1', 'folio-submitted']
+        .forEach((base) => localStorage.removeItem(base + ':' + id));
+      removeAlbumFromIndex(id);
+    } catch (e) {}
+  };
+  window._folioGenerateAlbumId = generateAlbumId;
+  window._folioUpsertAlbumIndex = upsertAlbumIndex;
