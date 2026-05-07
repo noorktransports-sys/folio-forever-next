@@ -1,1233 +1,592 @@
-'use client';
+'use client'
 
-/* ============================================================
- * /design/smart  —  Smart Auto-Layout (BETA)
- *
- * Drop-in TypeScript page for folio-forever-next.
- * Lives alongside the legacy /design builder. Doesn't touch it.
- *
- * Stack assumptions matching HANDOFF.md:
- *   - Next.js 15 App Router, edge runtime
- *   - TypeScript strict
- *   - Tailwind (configured in repo)
- *   - No external icon libs (uses inline SVG)
- *
- * What's WIRED:
- *   - Full UI flow path -> upload -> events -> tag -> pages -> generate -> adjust -> submit
- *   - Hard caps (8 heroes, 30 favorites, 100 photos, 25 spreads)
- *   - Resolution gate on Hero tag (3000px min)
- *   - Layout rules engine (heroes -> full spread, favorites paired, others fill)
- *   - "Use sample wedding" demo path with picsum images
- *
- * What's TODO (commented inline, search for "TODO:"):
- *   - Real upload to /api/upload (R2)
- *   - Save design to /api/designs (KV)
- *   - Submit order to /api/submit-order
- *   - Email pre-fill from localStorage 'folio-customer-v1'
- * ============================================================ */
+import { useState, useRef, useEffect } from 'react'
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-
-export const runtime = 'edge';
-
-// ---------- types ----------
-type EventKey = 'prep' | 'ceremony' | 'portraits' | 'reception';
-type TagKind = 'hero' | 'favorite' | null;
-
-interface Photo {
-  id: string;
-  src: string;
-  thumb: string;
-  timestamp: number;
-  event: EventKey;
-  width: number;
-  height: number;
-  isBlurry: boolean;
-  tag: TagKind;
-  hidden: boolean;
+// Types
+type PhotoUpload = {
+  file: File
+  preview: string
+  id: string
+  width: number
+  height: number
+  tagged: 'hero' | 'favorite' | 'none'
 }
 
-type Template = 'full' | 'one' | 'two' | 'three';
+type PathType = 'engagement' | 'wedding' | 'family' | 'custom'
 
-interface Spread {
-  template: Template;
-  photos: Photo[];
-  event: EventKey | undefined;
+type EventGroup = {
+  id: string
+  name: string
+  photos: PhotoUpload[]
 }
 
-type Step =
-  | 'path'
-  | 'upload'
-  | 'events'
-  | 'tag'
-  | 'pages'
-  | 'generate'
-  | 'adjust'
-  | 'submit';
+type Step = 'path' | 'upload' | 'group' | 'tag' | 'pages' | 'adjust' | 'submit'
 
-type Path = 'ai' | 'manual' | 'expert';
+// Icon components
+const IconUpload = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  </svg>
+)
 
-// ---------- constants ----------
-const EVENT_LABELS: Record<EventKey, string> = {
-  prep: 'Getting Ready',
-  ceremony: 'Ceremony',
-  portraits: 'Portraits',
-  reception: 'Reception',
-};
+const IconTag = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+  </svg>
+)
 
-const HERO_CAP = 8;
-const FAV_CAP = 30;
-const UPLOAD_CAP = 100;
-const PAGES_INCLUDED = 10;
-const PAGES_MAX = 25;
-const PRICE_PER_EXTRA_PAGE = 35;
-const MIN_HERO_RES = 3000;
+const IconStar = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="currentColor" viewBox="0 0 20 20">
+    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+  </svg>
+)
 
-// ---------- mock data ----------
-function generateMockPhotos(): Photo[] {
-  const eventOrder: EventKey[] = ['prep', 'ceremony', 'portraits', 'reception'];
-  const eventCounts: Record<EventKey, number> = {
-    prep: 9,
-    ceremony: 11,
-    portraits: 8,
-    reception: 12,
-  };
-  const photos: Photo[] = [];
-  let id = 1;
-  let t = new Date('2024-09-14T08:30:00').getTime();
+const IconHeart = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="currentColor" viewBox="0 0 20 20">
+    <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+  </svg>
+)
 
-  for (const event of eventOrder) {
-    for (let i = 0; i < eventCounts[event]; i++) {
-      const seed = `ff-${event}-${i}-${id}`;
-      const lowRes = id % 9 === 0;
-      const blurry = id % 13 === 0;
-      photos.push({
-        id: `p${id}`,
-        src: `https://picsum.photos/seed/${seed}/900/600`,
-        thumb: `https://picsum.photos/seed/${seed}/300/200`,
-        timestamp: t,
-        event,
-        width: lowRes ? 1200 : 4500,
-        height: lowRes ? 800 : 3000,
-        isBlurry: blurry,
-        tag: null,
-        hidden: false,
-      });
-      t += 1000 * 60 * (4 + Math.floor(Math.random() * 14));
-      id++;
-    }
-  }
-  return photos;
-}
+const IconCheck = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+  </svg>
+)
 
-// ---------- layout rules engine ----------
-function generateLayout(photos: Photo[], numSpreads: number): Spread[] {
-  const visible = photos.filter((p) => !p.hidden);
-  const byTime = (a: Photo, b: Photo) => a.timestamp - b.timestamp;
-  const heroes = visible.filter((p) => p.tag === 'hero').sort(byTime);
-  const favorites = visible.filter((p) => p.tag === 'favorite').sort(byTime);
-  const others = visible.filter((p) => p.tag === null).sort(byTime);
+const IconX = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+)
 
-  const spreads: Spread[] = [];
+const IconArrowLeft = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+)
 
-  for (const h of heroes) {
-    spreads.push({ template: 'full', photos: [h], event: h.event });
-  }
-
-  for (let i = 0; i < favorites.length; i += 2) {
-    const a = favorites[i];
-    const b = favorites[i + 1];
-    const pair = b ? [a, b] : [a];
-    spreads.push({
-      template: pair.length === 2 ? 'two' : 'one',
-      photos: pair,
-      event: pair[0].event,
-    });
-  }
-
-  const pool = [...others];
-  while (spreads.length < numSpreads && pool.length > 0) {
-    const take = Math.min(3, pool.length);
-    const picked = pool.splice(0, take);
-    spreads.push({
-      template: take === 1 ? 'one' : take === 2 ? 'two' : 'three',
-      photos: picked,
-      event: picked[0]?.event,
-    });
-  }
-
-  const order: Record<EventKey, number> = {
-    prep: 0,
-    ceremony: 1,
-    portraits: 2,
-    reception: 3,
-  };
-  spreads.sort((a, b) => {
-    const ea = a.event ? order[a.event] : 99;
-    const eb = b.event ? order[b.event] : 99;
-    if (ea !== eb) return ea - eb;
-    return (a.photos[0]?.timestamp ?? 0) - (b.photos[0]?.timestamp ?? 0);
-  });
-
-  return spreads.slice(0, numSpreads);
-}
-
-// ============================================================
-//                          PAGE
-// ============================================================
+const IconArrowRight = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+  </svg>
+)
 
 export default function SmartDesignerPage() {
-  const [step, setStep] = useState<Step>('path');
-  const [, setPath] = useState<Path | null>(null);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [pages, setPages] = useState(PAGES_INCLUDED);
-  const [spreads, setSpreads] = useState<Spread[]>([]);
-  const [activeSpread, setActiveSpread] = useState(0);
-  const [eventFilter, setEventFilter] = useState<'all' | EventKey>('all');
-  const [warning, setWarning] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>('path')
+  const [pathType, setPathType] = useState<PathType | null>(null)
+  const [photos, setPhotos] = useState<PhotoUpload[]>([])
+  const [eventGroups, setEventGroups] = useState<EventGroup[]>([])
+  const [pageCount, setPageCount] = useState(15)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const stats = useMemo(() => {
-    const visible = photos.filter((p) => !p.hidden);
-    return {
-      heroes: visible.filter((p) => p.tag === 'hero').length,
-      favorites: visible.filter((p) => p.tag === 'favorite').length,
-      total: visible.length,
-      blurry: visible.filter((p) => p.isBlurry).length,
-    };
-  }, [photos]);
-
+  // Demo: Load sample wedding photos when path selected
   useEffect(() => {
-    if (!warning) return;
-    const t = setTimeout(() => setWarning(null), 3500);
-    return () => clearTimeout(t);
-  }, [warning]);
-
-  const setTag = (id: string, tag: Exclude<TagKind, null>) => {
-    const p = photos.find((x) => x.id === id);
-    if (!p) return;
-    if (tag === 'hero') {
-      if (p.tag !== 'hero' && stats.heroes >= HERO_CAP) {
-        setWarning(`Maximum ${HERO_CAP} Heroes. Untag one first.`);
-        return;
-      }
-      if (p.width < MIN_HERO_RES) {
-        setWarning(
-          `Too small to print at full size (need ${MIN_HERO_RES}px+, has ${p.width}px). Tag as Favorite instead.`
-        );
-        return;
-      }
+    if (pathType === 'wedding' && photos.length === 0) {
+      loadSampleWeddingPhotos()
     }
-    if (tag === 'favorite' && p.tag !== 'favorite' && stats.favorites >= FAV_CAP) {
-      setWarning(`Maximum ${FAV_CAP} Favorites. Untag one first.`);
-      return;
+  }, [pathType])
+
+  const loadSampleWeddingPhotos = async () => {
+    setUploading(true)
+    const samplePhotos: PhotoUpload[] = []
+
+    // Simulate 20 wedding photos from picsum
+    for (let i = 0; i < 20; i++) {
+      const id = `sample-${i}`
+      const preview = `https://picsum.photos/seed/wedding${i}/800/600`
+
+      samplePhotos.push({
+        file: new File([], `wedding-${i}.jpg`), // Dummy file
+        preview,
+        id,
+        width: 800,
+        height: 600,
+        tagged: 'none'
+      })
     }
-    setPhotos((prev) =>
-      prev.map((x) =>
-        x.id === id ? { ...x, tag: x.tag === tag ? null : tag } : x
-      )
-    );
-  };
 
-  const toggleHide = (id: string) => {
-    setPhotos((prev) =>
-      prev.map((x) =>
-        x.id === id
-          ? { ...x, hidden: !x.hidden, tag: x.hidden ? x.tag : null }
-          : x
-      )
-    );
-  };
+    setPhotos(samplePhotos)
+    setUploading(false)
 
-  const handleLoadSamples = () => {
-    setPhotos(generateMockPhotos());
-    setStep('events');
-  };
+    // Auto-create event groups
+    setEventGroups([
+      { id: 'prep', name: 'Getting Ready', photos: samplePhotos.slice(0, 5) },
+      { id: 'ceremony', name: 'Ceremony', photos: samplePhotos.slice(5, 12) },
+      { id: 'reception', name: 'Reception', photos: samplePhotos.slice(12, 20) }
+    ])
+  }
 
-  const handleFileUpload = (files: FileList | null) => {
-    if (!files) return;
-    const arr = Array.from(files).slice(0, UPLOAD_CAP);
-    if (!arr.length) return;
-    // TODO: upload each file to /api/upload (R2). For now, browser-only preview.
-    const tasks = arr.map((f, i) => {
-      return new Promise<Photo>((resolve) => {
-        const url = URL.createObjectURL(f);
-        const img = new globalThis.Image();
-        img.onload = () => {
-          resolve({
-            id: `u${Date.now()}-${i}`,
-            src: url,
-            thumb: url,
-            timestamp: f.lastModified,
-            event: 'ceremony',
-            width: img.naturalWidth,
-            height: img.naturalHeight,
-            isBlurry: false,
-            tag: null,
-            hidden: false,
-          });
-        };
-        img.src = url;
-      });
-    });
-    void Promise.all(tasks).then((all) => {
-      setPhotos(all);
-      setStep('events');
-    });
-  };
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
 
-  const handleGenerate = () => {
-    setStep('generate');
-    setTimeout(() => {
-      setSpreads(generateLayout(photos, pages));
-      setStep('adjust');
-    }, 2200);
-  };
+    if (photos.length + files.length > 100) {
+      alert('Maximum 100 photos allowed')
+      return
+    }
 
-  const reshufflePhoto = (spreadIdx: number, photoIdx: number) => {
-    setSpreads((prev) => {
-      const next = [...prev];
-      const used = new Set(next.flatMap((s) => s.photos.map((p) => p.id)));
-      const candidate = photos.find((p) => !p.hidden && !used.has(p.id));
-      if (!candidate) return prev;
-      const cur = next[spreadIdx];
-      const newPhotos = [...cur.photos];
-      newPhotos[photoIdx] = candidate;
-      next[spreadIdx] = { ...cur, photos: newPhotos };
-      return next;
-    });
-  };
+    setUploading(true)
+    const newPhotos: PhotoUpload[] = []
 
-  const handleSubmit = () => {
-    // TODO: POST to /api/submit-order with { spreads, photos, pages, customer }
-    // For now just show confirmation.
-    setStep('submit');
-  };
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
 
-  const extraPages = Math.max(0, pages - PAGES_INCLUDED);
-  const extraCost = extraPages * PRICE_PER_EXTRA_PAGE;
+      // Check resolution
+      const dimensions = await getImageDimensions(file)
+      if (dimensions.width < 3000 || dimensions.height < 3000) {
+        alert(`${file.name} is below 3000x3000px minimum`)
+        continue
+      }
 
-  return (
-    <div className="min-h-screen bg-stone-50 text-stone-900">
-      <header className="border-b border-stone-200 bg-stone-50/80 backdrop-blur sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="font-serif tracking-[0.3em] text-xs text-stone-700">
-            FOLIO &nbsp;&amp;&nbsp; FOREVER
-          </a>
-          <span className="bg-amber-400 text-stone-900 text-[10px] tracking-widest px-2 py-0.5 font-semibold">
-            BETA
-          </span>
-        </div>
-      </header>
+      newPhotos.push({
+        file,
+        preview: URL.createObjectURL(file),
+        id: `${Date.now()}-${i}`,
+        width: dimensions.width,
+        height: dimensions.height,
+        tagged: 'none'
+      })
+    }
 
-      {warning && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-stone-900 text-stone-50 px-5 py-3 rounded shadow-2xl text-sm flex items-center gap-2 max-w-md">
-          <Icon name="alert" className="text-amber-400 shrink-0" />
-          <span>{warning}</span>
-        </div>
-      )}
+    setPhotos([...photos, ...newPhotos])
+    setUploading(false)
+  }
 
-      <main className="max-w-6xl mx-auto px-6 py-12">
-        {step === 'path' && (
-          <PathChoice
-            onChoose={(p) => {
-              setPath(p);
-              if (p === 'ai') setStep('upload');
-              else if (p === 'manual') window.location.href = '/design';
-              else setStep('upload'); // expert path uses same upload then handoff
-            }}
-          />
-        )}
-        {step === 'upload' && (
-          <UploadStep
-            onUseSamples={handleLoadSamples}
-            onUpload={handleFileUpload}
-            onBack={() => setStep('path')}
-          />
-        )}
-        {step === 'events' && (
-          <EventsStep
-            photos={photos}
-            setPhotos={setPhotos}
-            onNext={() => setStep('tag')}
-            onBack={() => setStep('upload')}
-          />
-        )}
-        {step === 'tag' && (
-          <TagStep
-            photos={photos}
-            stats={stats}
-            eventFilter={eventFilter}
-            setEventFilter={setEventFilter}
-            setTag={setTag}
-            toggleHide={toggleHide}
-            onNext={() => setStep('pages')}
-            onBack={() => setStep('events')}
-          />
-        )}
-        {step === 'pages' && (
-          <PagesStep
-            pages={pages}
-            setPages={setPages}
-            stats={stats}
-            extraCost={extraCost}
-            onNext={handleGenerate}
-            onBack={() => setStep('tag')}
-          />
-        )}
-        {step === 'generate' && <GeneratingStep />}
-        {step === 'adjust' && (
-          <AdjustStep
-            spreads={spreads}
-            activeSpread={activeSpread}
-            setActiveSpread={setActiveSpread}
-            reshuffle={reshufflePhoto}
-            onRegenerate={() => {
-              setSpreads(generateLayout(photos, pages));
-              setActiveSpread(0);
-            }}
-            onSubmit={handleSubmit}
-            onBack={() => setStep('pages')}
-          />
-        )}
-        {step === 'submit' && <SubmitStep spreads={spreads} extraCost={extraCost} />}
-      </main>
-    </div>
-  );
-}
+  const getImageDimensions = (file: File): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        resolve({ width: img.width, height: img.height })
+      }
+      img.src = URL.createObjectURL(file)
+    })
+  }
 
-// ============================================================
-//                       SUB-COMPONENTS
-// ============================================================
+  const toggleTag = (photoId: string, tag: 'hero' | 'favorite') => {
+    const heroCount = photos.filter(p => p.tagged === 'hero').length
+    const favCount = photos.filter(p => p.tagged === 'favorite').length
 
-interface PathChoiceProps {
-  onChoose: (p: Path) => void;
-}
-function PathChoice({ onChoose }: PathChoiceProps) {
-  const options: {
-    key: Path;
-    icon: IconName;
-    label: string;
-    desc: string;
-    time: string;
-    price: string;
-    featured?: boolean;
-  }[] = [
-    {
-      key: 'ai',
-      icon: 'wand',
-      label: 'Smart Auto-Layout',
-      desc: 'Tag your favorites. We arrange the album for you. Adjust before ordering.',
-      time: '15–20 minutes',
-      price: 'Included',
-      featured: true,
-    },
-    {
-      key: 'manual',
-      icon: 'pen',
-      label: "I'll design it myself",
-      desc: 'Drag and drop into 12 curated layouts. Full creative control.',
-      time: '1–2 hours',
-      price: 'Included',
-    },
-    {
-      key: 'expert',
-      icon: 'user',
-      label: 'Our team designs it',
-      desc: 'You upload, we design. Proof in 3 business days. One revision included.',
-      time: 'Hands-off',
-      price: '+$150',
-    },
-  ];
+    const photo = photos.find(p => p.id === photoId)
+    if (!photo) return
 
-  return (
-    <div className="max-w-3xl mx-auto pt-8">
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step One</p>
-      <h1 className="font-serif text-5xl md:text-6xl leading-[1.05] mb-6">
-        How would you like  <em className="italic text-stone-700">your monument</em> designed?
-      </h1>
-      <p className="text-stone-600 mb-12 max-w-xl">
-        Three paths. Same archival-quality, 3D tactile, hand-bound result. Switch between them anytime.
-      </p>
-      <div className="grid gap-4">
-        {options.map((o) => (
+    if (tag === 'hero' && photo.tagged !== 'hero' && heroCount >= 8) {
+      alert('Maximum 8 hero photos')
+      return
+    }
+    if (tag === 'favorite' && photo.tagged !== 'favorite' && favCount >= 30) {
+      alert('Maximum 30 favorite photos')
+      return
+    }
+
+    setPhotos(photos.map(p =>
+      p.id === photoId
+        ? { ...p, tagged: p.tagged === tag ? 'none' : tag }
+        : p
+    ))
+  }
+
+  const renderPathSelection = () => (
+    <div className="max-w-4xl mx-auto space-y-8">
+      <div className="text-center space-y-4">
+        <h1 className="text-4xl font-bold">Smart Auto-Layout Designer</h1>
+        <p className="text-lg text-gray-600">AI-powered album generation from your photos</p>
+        <p className="text-sm text-orange-600 font-medium">⚡ BETA: Advanced layout engine in testing</p>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {[
+          { type: 'engagement' as PathType, title: 'Engagement Session', desc: 'Romantic couple photos', icon: '💑' },
+          { type: 'wedding' as PathType, title: 'Wedding Day', desc: 'Full ceremony & reception', icon: '💒' },
+          { type: 'family' as PathType, title: 'Family Portrait', desc: 'Generations together', icon: '👨‍👩‍👧‍👦' },
+          { type: 'custom' as PathType, title: 'Custom Event', desc: 'Any special occasion', icon: '🎉' }
+        ].map((option) => (
           <button
-            key={o.key}
-            onClick={() => onChoose(o.key)}
-            className={`group relative text-left p-6 md:p-8 border transition-all ${
-              o.featured
-                ? 'border-stone-900 bg-stone-900 text-stone-50 hover:bg-stone-800'
-                : 'border-stone-300 bg-white hover:border-stone-900'
-            }`}
+            key={option.type}
+            onClick={() => {
+              setPathType(option.type)
+              setStep('upload')
+            }}
+            className="p-8 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
           >
-            {o.featured && (
-              <span className="absolute -top-2 left-6 bg-amber-400 text-stone-900 text-[10px] tracking-widest px-2 py-0.5 font-semibold">
-                RECOMMENDED
-              </span>
-            )}
-            <div className="flex items-start gap-5">
-              <div className={`p-3 rounded-full ${o.featured ? 'bg-stone-50/10' : 'bg-stone-100'}`}>
-                <Icon name={o.icon} size={22} />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-baseline justify-between flex-wrap gap-2">
-                  <h3 className="font-serif text-2xl">{o.label}</h3>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className={o.featured ? 'text-stone-300' : 'text-stone-500'}>{o.time}</span>
-                    <span className="font-semibold">{o.price}</span>
-                  </div>
-                </div>
-                <p className={`mt-2 text-sm ${o.featured ? 'text-stone-300' : 'text-stone-600'}`}>{o.desc}</p>
-              </div>
-              <Icon name="arrowRight" className="opacity-0 group-hover:opacity-100 transition-opacity mt-2" />
-            </div>
+            <div className="text-4xl mb-4">{option.icon}</div>
+            <h3 className="text-xl font-semibold mb-2 group-hover:text-blue-600">{option.title}</h3>
+            <p className="text-gray-600">{option.desc}</p>
           </button>
         ))}
       </div>
     </div>
-  );
-}
+  )
 
-interface UploadStepProps {
-  onUseSamples: () => void;
-  onUpload: (files: FileList | null) => void;
-  onBack: () => void;
-}
-function UploadStep({ onUseSamples, onUpload, onBack }: UploadStepProps) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  return (
-    <div className="max-w-3xl mx-auto pt-8">
-      <BackBtn onClick={onBack} />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step Two</p>
-      <h1 className="font-serif text-5xl leading-tight mb-6">
-        Pick your favorites <em className="italic text-stone-700">first.</em>
-      </h1>
-      <div className="bg-amber-50 border-l-4 border-amber-700 p-5 mb-10 text-sm text-stone-800">
-        <p className="font-semibold mb-2">Before you upload — a few rules:</p>
-        <ul className="space-y-1.5 text-stone-700">
-          <li>• Maximum <strong>{UPLOAD_CAP} photos</strong>. Cull from your photographer's gallery first.</li>
-          <li>• 30–40 photos is recommended for a {PAGES_INCLUDED}-spread album.</li>
-          <li>• Skip blurry, eyes-closed, and near-duplicate shots — we won't fix them.</li>
-          <li>• Hero photos (full-spread) need to be at least {MIN_HERO_RES.toLocaleString()}px on the long edge.</li>
+  const renderUpload = () => (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={() => setStep('path')} className="p-2 hover:bg-gray-100 rounded-lg">
+          <IconArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <h2 className="text-2xl font-bold">Upload Photos</h2>
+          <p className="text-gray-600">Maximum 100 photos · Min 3000x3000px</p>
+        </div>
+      </div>
+
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        className="border-2 border-dashed border-gray-300 rounded-xl p-16 text-center hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer"
+      >
+        <IconUpload className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+        <p className="text-lg font-medium mb-2">Click to select photos</p>
+        <p className="text-sm text-gray-500">or drag and drop here</p>
+        <p className="text-xs text-gray-400 mt-4">{photos.length} / 100 photos uploaded</p>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {photos.length > 0 && (
+        <div className="grid grid-cols-4 gap-4">
+          {photos.map((photo) => (
+            <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden border-2 border-gray-200">
+              <img src={photo.preview} alt="" className="w-full h-full object-cover" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {photos.length > 0 && (
+        <button
+          onClick={() => setStep('group')}
+          className="w-full bg-blue-600 text-white py-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+        >
+          Continue to Event Grouping →
+        </button>
+      )}
+    </div>
+  )
+
+  const renderGrouping = () => (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={() => setStep('upload')} className="p-2 hover:bg-gray-100 rounded-lg">
+          <IconArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <h2 className="text-2xl font-bold">Group Photos by Event</h2>
+          <p className="text-gray-600">Organize photos into ceremony, reception, etc.</p>
+        </div>
+      </div>
+
+      {eventGroups.map((group) => (
+        <div key={group.id} className="border rounded-xl p-6 space-y-4">
+          <h3 className="text-lg font-semibold">{group.name}</h3>
+          <div className="grid grid-cols-6 gap-2">
+            {group.photos.map((photo) => (
+              <div key={photo.id} className="aspect-square rounded overflow-hidden">
+                <img src={photo.preview} alt="" className="w-full h-full object-cover" />
+              </div>
+            ))}
+          </div>
+          <p className="text-sm text-gray-500">{group.photos.length} photos</p>
+        </div>
+      ))}
+
+      <button
+        onClick={() => setStep('tag')}
+        className="w-full bg-blue-600 text-white py-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+      >
+        Continue to Tagging →
+      </button>
+    </div>
+  )
+
+  const renderTagging = () => {
+    const heroCount = photos.filter(p => p.tagged === 'hero').length
+    const favCount = photos.filter(p => p.tagged === 'favorite').length
+
+    return (
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex items-center gap-4 mb-8">
+          <button onClick={() => setStep('group')} className="p-2 hover:bg-gray-100 rounded-lg">
+            <IconArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold">Tag Your Best Shots</h2>
+            <p className="text-gray-600">AI will prioritize these in the layout</p>
+          </div>
+          <div className="flex gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <IconStar className="w-5 h-5 text-yellow-500" />
+              <span className="font-medium">{heroCount} / 8 Heroes</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <IconHeart className="w-5 h-5 text-red-500" />
+              <span className="font-medium">{favCount} / 30 Favorites</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+          <p className="font-medium mb-1">💡 Tagging Guide:</p>
+          <p><strong>Heroes</strong> (8 max): Full-spread worthy shots (kiss, first dance, family portrait)</p>
+          <p><strong>Favorites</strong> (30 max): Important moments to feature prominently</p>
+          <p><strong>Others</strong>: AI will use these to fill gaps and complete the story</p>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4">
+          {photos.map((photo) => (
+            <div key={photo.id} className="relative group">
+              <div className={`
+                aspect-square rounded-lg overflow-hidden border-2 transition-all
+                ${photo.tagged === 'hero' ? 'border-yellow-500 ring-2 ring-yellow-200' : ''}
+                ${photo.tagged === 'favorite' ? 'border-red-500 ring-2 ring-red-200' : ''}
+                ${photo.tagged === 'none' ? 'border-gray-200' : ''}
+              `}>
+                <img src={photo.preview} alt="" className="w-full h-full object-cover" />
+              </div>
+
+              <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => toggleTag(photo.id, 'hero')}
+                  className={`p-2 rounded-full ${
+                    photo.tagged === 'hero'
+                      ? 'bg-yellow-500 text-white'
+                      : 'bg-white/90 text-gray-700 hover:bg-yellow-100'
+                  }`}
+                >
+                  <IconStar className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => toggleTag(photo.id, 'favorite')}
+                  className={`p-2 rounded-full ${
+                    photo.tagged === 'favorite'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-white/90 text-gray-700 hover:bg-red-100'
+                  }`}
+                >
+                  <IconHeart className="w-4 h-4" />
+                </button>
+              </div>
+
+              {photo.tagged !== 'none' && (
+                <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/70 text-white text-xs rounded-full">
+                  {photo.tagged === 'hero' ? '⭐ Hero' : '❤️ Favorite'}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setStep('pages')}
+          disabled={heroCount === 0}
+          className="w-full bg-blue-600 text-white py-4 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          {heroCount === 0 ? 'Tag at least 1 hero to continue' : 'Continue to Page Count →'}
+        </button>
+      </div>
+    )
+  }
+
+  const renderPageCount = () => {
+    const basePrice = 450 // 10 spreads included
+    const extraSpreads = Math.max(0, pageCount - 10)
+    const extraCost = extraSpreads * 35
+    const totalPrice = basePrice + extraCost
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-8">
+        <div className="flex items-center gap-4 mb-8">
+          <button onClick={() => setStep('tag')} className="p-2 hover:bg-gray-100 rounded-lg">
+            <IconArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h2 className="text-2xl font-bold">Choose Album Length</h2>
+            <p className="text-gray-600">Base price includes 10 spreads (20 pages)</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <label className="text-lg font-medium">Number of Spreads</label>
+            <span className="text-3xl font-bold text-blue-600">{pageCount}</span>
+          </div>
+
+          <input
+            type="range"
+            min="10"
+            max="25"
+            value={pageCount}
+            onChange={(e) => setPageCount(parseInt(e.target.value))}
+            className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            style={{
+              background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((pageCount - 10) / 15) * 100}%, #e5e7eb ${((pageCount - 10) / 15) * 100}%, #e5e7eb 100%)`
+            }}
+          />
+
+          <div className="flex justify-between text-sm text-gray-500">
+            <span>10 spreads</span>
+            <span>25 spreads</span>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-6 space-y-3">
+            <div className="flex justify-between">
+              <span>Base album (10 spreads)</span>
+              <span className="font-medium">${basePrice}</span>
+            </div>
+            {extraSpreads > 0 && (
+              <div className="flex justify-between text-blue-600">
+                <span>{extraSpreads} extra spreads × $35</span>
+                <span className="font-medium">+${extraCost}</span>
+              </div>
+            )}
+            <div className="border-t pt-3 flex justify-between text-lg font-bold">
+              <span>Total</span>
+              <span className="text-blue-600">${totalPrice}</span>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+            <p><strong>AI Layout Rules:</strong></p>
+            <ul className="list-disc list-inside space-y-1 mt-2">
+              <li>Heroes get full-spread layouts (2 pages)</li>
+              <li>Favorites are paired (2 photos per spread)</li>
+              <li>Other photos fill remaining space</li>
+              <li>Algorithm optimizes for visual flow & story arc</li>
+            </ul>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setStep('adjust')}
+          className="w-full bg-blue-600 text-white py-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+        >
+          Generate Layout Preview →
+        </button>
+      </div>
+    )
+  }
+
+  const renderAdjust = () => (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={() => setStep('pages')} className="p-2 hover:bg-gray-100 rounded-lg">
+          <IconArrowLeft className="w-5 h-5" />
+        </button>
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold">Review & Adjust Layout</h2>
+          <p className="text-gray-600">AI-generated preview · Drag to reorder before finalizing</p>
+        </div>
+        <button
+          onClick={() => setStep('submit')}
+          className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"
+        >
+          Looks Great, Submit Order →
+        </button>
+      </div>
+
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-900 mb-6">
+        <p className="font-medium">⚡ BETA Notice:</p>
+        <p>AI layout engine in active testing. Preview shows rule-based placement. Drag-to-reorder coming in next update.</p>
+      </div>
+
+      {/* Mock spread previews */}
+      <div className="space-y-8">
+        {Array.from({ length: Math.min(3, pageCount) }).map((_, i) => (
+          <div key={i} className="border-2 border-gray-300 rounded-lg p-4 bg-white">
+            <div className="text-sm font-medium text-gray-500 mb-4">Spread {i + 1}</div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="aspect-[3/2] bg-gray-200 rounded flex items-center justify-center">
+                <span className="text-gray-400">Page {i * 2 + 1}</span>
+              </div>
+              <div className="aspect-[3/2] bg-gray-200 rounded flex items-center justify-center">
+                <span className="text-gray-400">Page {i * 2 + 2}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {pageCount > 3 && (
+          <div className="text-center text-gray-500 text-sm">
+            ... and {pageCount - 3} more spreads
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  const renderSubmit = () => (
+    <div className="max-w-2xl mx-auto text-center space-y-8 py-16">
+      <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+        <IconCheck className="w-12 h-12 text-green-600" />
+      </div>
+
+      <div>
+        <h2 className="text-3xl font-bold mb-4">Design Submitted!</h2>
+        <p className="text-lg text-gray-600 mb-2">Your Smart Auto-Layout album is now in production queue</p>
+        <p className="text-sm text-gray-500">Order #FF-{Date.now().toString().slice(-6)}</p>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-left space-y-3">
+        <h3 className="font-semibold text-blue-900">What happens next:</h3>
+        <ul className="space-y-2 text-sm text-blue-800">
+          <li className="flex items-start gap-3">
+            <span className="font-bold">1.</span>
+            <span>AI layout engine processes your tags and event groups</span>
+          </li>
+          <li className="flex items-start gap-3">
+            <span className="font-bold">2.</span>
+            <span>Design team reviews the auto-generated layout</span>
+          </li>
+          <li className="flex items-start gap-3">
+            <span className="font-bold">3.</span>
+            <span>You'll receive a final PDF proof within 48 hours</span>
+          </li>
+          <li className="flex items-start gap-3">
+            <span className="font-bold">4.</span>
+            <span>After approval, printing begins (ships in 5-7 business days)</span>
+          </li>
         </ul>
       </div>
-      <div className="grid md:grid-cols-2 gap-4">
+
+      <div className="flex gap-4">
         <button
-          onClick={() => fileRef.current?.click()}
-          className="border-2 border-dashed border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-all p-10 text-center"
+          onClick={() => {
+            setStep('path')
+            setPathType(null)
+            setPhotos([])
+            setEventGroups([])
+            setPageCount(15)
+          }}
+          className="flex-1 border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
         >
-          <Icon name="upload" size={28} className="mx-auto mb-4 text-stone-700" />
-          <div className="font-serif text-xl mb-1">Upload your photos</div>
-          <div className="text-sm text-stone-500">JPG or PNG · up to {UPLOAD_CAP} files</div>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => onUpload(e.target.files)}
-          />
+          Start New Design
         </button>
         <button
-          onClick={onUseSamples}
-          className="border border-stone-300 hover:border-stone-900 hover:bg-stone-100 transition-all p-10 text-center bg-white"
+          onClick={() => window.location.href = '/account/orders'}
+          className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
         >
-          <Icon name="sparkles" size={28} className="mx-auto mb-4 text-stone-700" />
-          <div className="font-serif text-xl mb-1">Use sample wedding</div>
-          <div className="text-sm text-stone-500">40 demo photos · for testing the flow</div>
+          View Order Status
         </button>
       </div>
     </div>
-  );
-}
+  )
 
-interface EventsStepProps {
-  photos: Photo[];
-  setPhotos: React.Dispatch<React.SetStateAction<Photo[]>>;
-  onNext: () => void;
-  onBack: () => void;
-}
-function EventsStep({ photos, setPhotos, onNext, onBack }: EventsStepProps) {
-  const groups = useMemo(() => {
-    const g: Record<EventKey, Photo[]> = { prep: [], ceremony: [], portraits: [], reception: [] };
-    for (const p of photos) g[p.event].push(p);
-    return g;
-  }, [photos]);
-
-  const moveTo = (id: string, event: EventKey) =>
-    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, event } : p)));
-
+  // Main render
   return (
-    <div className="pt-8">
-      <BackBtn onClick={onBack} />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step Three</p>
-      <h1 className="font-serif text-5xl leading-tight mb-3">
-        Group by  <em className="italic text-stone-700">moment.</em>
-      </h1>
-      <p className="text-stone-600 mb-10 max-w-2xl">
-        We've sorted your photos by timestamp into the four chapters of your day. Click any photo to recategorize it.
-      </p>
-      <div className="grid md:grid-cols-2 gap-6 mb-12">
-        {(Object.keys(EVENT_LABELS) as EventKey[]).map((key) => (
-          <div key={key} className="bg-white border border-stone-200 p-5">
-            <div className="flex items-baseline justify-between mb-4">
-              <h3 className="font-serif text-xl">{EVENT_LABELS[key]}</h3>
-              <span className="text-xs text-stone-500">{groups[key].length} photos</span>
-            </div>
-            <div className="grid grid-cols-6 gap-1.5">
-              {groups[key].slice(0, 12).map((p) => (
-                <PhotoCategoryCell key={p.id} photo={p} moveTo={moveTo} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      <NextBtn onClick={onNext} label="Continue to tagging" />
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-12 px-4">
+      {step === 'path' && renderPathSelection()}
+      {step === 'upload' && renderUpload()}
+      {step === 'group' && renderGrouping()}
+      {step === 'tag' && renderTagging()}
+      {step === 'pages' && renderPageCount()}
+      {step === 'adjust' && renderAdjust()}
+      {step === 'submit' && renderSubmit()}
     </div>
-  );
-}
-
-interface PhotoCategoryCellProps {
-  photo: Photo;
-  moveTo: (id: string, event: EventKey) => void;
-}
-function PhotoCategoryCell({ photo, moveTo }: PhotoCategoryCellProps) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative aspect-square">
-      <img
-        src={photo.thumb}
-        alt=""
-        className="w-full h-full object-cover cursor-pointer"
-        onClick={() => setOpen((v) => !v)}
-      />
-      {open && (
-        <div className="absolute inset-0 bg-stone-900/95 text-stone-50 flex flex-col items-stretch justify-center text-[10px] gap-0.5 p-1">
-          {(Object.keys(EVENT_LABELS) as EventKey[]).map((k) => (
-            <button
-              key={k}
-              onClick={(e) => {
-                e.stopPropagation();
-                moveTo(photo.id, k);
-                setOpen(false);
-              }}
-              className={`px-1 py-0.5 ${
-                photo.event === k ? 'bg-amber-400 text-stone-900' : 'hover:bg-stone-700'
-              }`}
-            >
-              {EVENT_LABELS[k]}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface TagStepProps {
-  photos: Photo[];
-  stats: { heroes: number; favorites: number; total: number; blurry: number };
-  eventFilter: 'all' | EventKey;
-  setEventFilter: (e: 'all' | EventKey) => void;
-  setTag: (id: string, tag: Exclude<TagKind, null>) => void;
-  toggleHide: (id: string) => void;
-  onNext: () => void;
-  onBack: () => void;
-}
-function TagStep({
-  photos,
-  stats,
-  eventFilter,
-  setEventFilter,
-  setTag,
-  toggleHide,
-  onNext,
-  onBack,
-}: TagStepProps) {
-  const visible = photos.filter(
-    (p) => !p.hidden && (eventFilter === 'all' || p.event === eventFilter)
-  );
-  const canContinue = stats.heroes + stats.favorites > 0;
-
-  return (
-    <div className="pt-8">
-      <BackBtn onClick={onBack} />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step Four</p>
-      <h1 className="font-serif text-5xl leading-tight mb-3">
-        Mark your <em className="italic text-stone-700">heroes.</em>
-      </h1>
-      <p className="text-stone-600 mb-8 max-w-2xl">
-        Heroes get the full 20×30 spread. Favorites get featured slots. Everything else fills in around them.
-      </p>
-
-      <div className="sticky top-[57px] z-20 bg-stone-50/95 backdrop-blur border-y border-stone-200 -mx-6 px-6 py-3 mb-6 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3 text-sm flex-wrap">
-          <CounterPill icon="crown" label="Heroes" count={stats.heroes} cap={HERO_CAP} />
-          <CounterPill icon="bookmark" label="Favorites" count={stats.favorites} cap={FAV_CAP} />
-          <span className="text-stone-500 hidden md:inline">{stats.total} photos total</span>
-        </div>
-        <div className="flex gap-1.5 text-xs flex-wrap">
-          <FilterBtn active={eventFilter === 'all'} onClick={() => setEventFilter('all')}>
-            All
-          </FilterBtn>
-          {(Object.keys(EVENT_LABELS) as EventKey[]).map((k) => (
-            <FilterBtn key={k} active={eventFilter === k} onClick={() => setEventFilter(k)}>
-              {EVENT_LABELS[k]}
-            </FilterBtn>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-3 mb-12">
-        {visible.map((p) => (
-          <PhotoTagCell key={p.id} photo={p} setTag={setTag} toggleHide={toggleHide} />
-        ))}
-      </div>
-
-      <NextBtn
-        onClick={onNext}
-        disabled={!canContinue}
-        label={canContinue ? 'Choose album size' : 'Tag at least one photo'}
-      />
-    </div>
-  );
-}
-
-interface PhotoTagCellProps {
-  photo: Photo;
-  setTag: (id: string, tag: Exclude<TagKind, null>) => void;
-  toggleHide: (id: string) => void;
-}
-function PhotoTagCell({ photo, setTag, toggleHide }: PhotoTagCellProps) {
-  const isHero = photo.tag === 'hero';
-  const isFav = photo.tag === 'favorite';
-  const isLowRes = photo.width < MIN_HERO_RES;
-
-  return (
-    <div className="relative group">
-      <div className="aspect-[3/2] overflow-hidden bg-stone-200 relative">
-        <img src={photo.thumb} alt="" className="w-full h-full object-cover" />
-        <div className="absolute top-1.5 left-1.5 flex flex-col gap-1">
-          {isHero && (
-            <span className="bg-amber-400 text-stone-900 text-[10px] font-bold px-1.5 py-0.5 tracking-wider flex items-center gap-1">
-              <Icon name="crown" size={10} /> HERO
-            </span>
-          )}
-          {isFav && (
-            <span className="bg-stone-900 text-stone-50 text-[10px] font-bold px-1.5 py-0.5 tracking-wider flex items-center gap-1">
-              <Icon name="bookmark" size={10} /> FAV
-            </span>
-          )}
-          {photo.isBlurry && (
-            <span className="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 tracking-wider flex items-center gap-1">
-              <Icon name="alert" size={10} /> SOFT
-            </span>
-          )}
-          {isLowRes && (
-            <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-1.5 py-0.5 tracking-wider">
-              LOW-RES
-            </span>
-          )}
-        </div>
-        <div className="absolute inset-0 bg-stone-900/0 group-hover:bg-stone-900/60 transition-all flex items-center justify-center gap-1.5 opacity-0 group-hover:opacity-100">
-          <button
-            title="Hero"
-            onClick={() => setTag(photo.id, 'hero')}
-            className={`p-2 rounded-full transition-all ${
-              isHero
-                ? 'bg-amber-400 text-stone-900'
-                : 'bg-stone-50 text-stone-900 hover:bg-amber-400'
-            }`}
-          >
-            <Icon name="crown" size={14} />
-          </button>
-          <button
-            title="Favorite"
-            onClick={() => setTag(photo.id, 'favorite')}
-            className={`p-2 rounded-full transition-all ${
-              isFav
-                ? 'bg-stone-900 text-stone-50'
-                : 'bg-stone-50 text-stone-900 hover:bg-stone-900 hover:text-stone-50'
-            }`}
-          >
-            <Icon name="bookmark" size={14} />
-          </button>
-          <button
-            title="Hide"
-            onClick={() => toggleHide(photo.id)}
-            className="p-2 rounded-full bg-stone-50 text-stone-900 hover:bg-red-200"
-          >
-            <Icon name="eyeOff" size={14} />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface CounterPillProps {
-  icon: IconName;
-  label: string;
-  count: number;
-  cap: number;
-}
-function CounterPill({ icon, label, count, cap }: CounterPillProps) {
-  const isMax = count >= cap;
-  const bg = isMax ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700';
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${bg} text-xs font-medium`}>
-      <Icon name={icon} size={13} />
-      {label}: <span className="font-bold">{count}</span>/{cap}
-    </span>
-  );
-}
-
-interface FilterBtnProps {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}
-function FilterBtn({ active, onClick, children }: FilterBtnProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-2.5 py-1 transition-colors ${
-        active
-          ? 'bg-stone-900 text-stone-50'
-          : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-200'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-interface PagesStepProps {
-  pages: number;
-  setPages: (n: number) => void;
-  stats: { heroes: number; favorites: number; total: number; blurry: number };
-  extraCost: number;
-  onNext: () => void;
-  onBack: () => void;
-}
-function PagesStep({ pages, setPages, stats, extraCost, onNext, onBack }: PagesStepProps) {
-  const fits = pages * 4;
-  const tight = stats.heroes + stats.favorites > pages * 2;
-
-  return (
-    <div className="max-w-3xl mx-auto pt-8">
-      <BackBtn onClick={onBack} />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step Five</p>
-      <h1 className="font-serif text-5xl leading-tight mb-6">
-        How <em className="italic text-stone-700">tall</em> should your monument stand?
-      </h1>
-      <p className="text-stone-600 mb-12 max-w-2xl">
-        {PAGES_INCLUDED} spreads come included. Add up to {PAGES_MAX - PAGES_INCLUDED} more if your story needs them.
-      </p>
-
-      <div className="bg-white border border-stone-200 p-8 mb-8">
-        <div className="flex items-baseline justify-between mb-2">
-          <span className="font-serif text-7xl">{pages}</span>
-          <span className="text-sm text-stone-500">spreads</span>
-        </div>
-        <input
-          type="range"
-          min={PAGES_INCLUDED}
-          max={PAGES_MAX}
-          value={pages}
-          onChange={(e) => setPages(Number(e.target.value))}
-          className="w-full mt-4 accent-stone-900"
-        />
-        <div className="flex justify-between text-xs text-stone-500 mt-1">
-          <span>{PAGES_INCLUDED} included</span>
-          <span>{PAGES_MAX} maximum</span>
-        </div>
-        <div className="mt-8 pt-6 border-t border-stone-200 grid md:grid-cols-3 gap-4 text-sm">
-          <div>
-            <div className="text-stone-500 text-xs uppercase tracking-wider mb-1">Your photos</div>
-            <div className="font-serif text-2xl">{stats.total}</div>
-            <div className="text-stone-500 text-xs">{stats.heroes} hero · {stats.favorites} fav</div>
-          </div>
-          <div>
-            <div className="text-stone-500 text-xs uppercase tracking-wider mb-1">Approx capacity</div>
-            <div className="font-serif text-2xl">{fits} photos</div>
-            <div className={`text-xs ${tight ? 'text-orange-600' : 'text-stone-500'}`}>
-              {tight ? 'Tight — add pages?' : 'Comfortable'}
-            </div>
-          </div>
-          <div>
-            <div className="text-stone-500 text-xs uppercase tracking-wider mb-1">Extra pages</div>
-            <div className="font-serif text-2xl">+${extraCost}</div>
-            <div className="text-stone-500 text-xs">${PRICE_PER_EXTRA_PAGE}/spread over {PAGES_INCLUDED}</div>
-          </div>
-        </div>
-      </div>
-
-      <NextBtn onClick={onNext} label="Generate my album" iconName="sparkles" />
-    </div>
-  );
-}
-
-function GeneratingStep() {
-  const phases = [
-    'Reading your timeline…',
-    'Placing heroes on full spreads…',
-    'Pairing favorites…',
-    'Filling chapters…',
-    'Polishing the layout…',
-  ];
-  const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setPhase((p) => (p + 1) % phases.length), 500);
-    return () => clearInterval(t);
-  }, [phases.length]);
-
-  return (
-    <div className="max-w-xl mx-auto pt-32 text-center">
-      <div className="mx-auto mb-6 w-9 h-9 border-2 border-stone-300 border-t-stone-700 rounded-full animate-spin" />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-2">Designing</p>
-      <h2 className="font-serif text-4xl mb-6">Composing your monument…</h2>
-      <p className="text-stone-600 animate-pulse">{phases[phase]}</p>
-    </div>
-  );
-}
-
-interface AdjustStepProps {
-  spreads: Spread[];
-  activeSpread: number;
-  setActiveSpread: (n: number) => void;
-  reshuffle: (spreadIdx: number, photoIdx: number) => void;
-  onRegenerate: () => void;
-  onSubmit: () => void;
-  onBack: () => void;
-}
-function AdjustStep({
-  spreads,
-  activeSpread,
-  setActiveSpread,
-  reshuffle,
-  onRegenerate,
-  onSubmit,
-  onBack,
-}: AdjustStepProps) {
-  const spread = spreads[activeSpread];
-
-  return (
-    <div className="pt-8">
-      <BackBtn onClick={onBack} />
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Step Six</p>
-      <div className="flex items-baseline justify-between flex-wrap gap-3 mb-3">
-        <h1 className="font-serif text-5xl leading-tight">
-          Your <em className="italic text-stone-700">monument.</em>
-        </h1>
-        <button
-          onClick={onRegenerate}
-          className="text-sm text-stone-700 hover:text-stone-900 flex items-center gap-2 underline-offset-4 hover:underline"
-        >
-          <Icon name="refresh" size={14} /> Regenerate layout
-        </button>
-      </div>
-      <p className="text-stone-600 mb-8">
-        Click any photo on the spread to swap it. Use the strip below to navigate.
-      </p>
-
-      <div className="bg-stone-100 border border-stone-200 p-8 mb-6">
-        <div className="text-xs tracking-widest text-stone-500 mb-3 flex justify-between">
-          <span>SPREAD {activeSpread + 1} OF {spreads.length}</span>
-          <span>{spread?.event ? EVENT_LABELS[spread.event] : ''}</span>
-        </div>
-        <div className="aspect-[2/1] bg-white shadow-2xl">
-          <SpreadRenderer spread={spread} onSwap={(idx) => reshuffle(activeSpread, idx)} />
-        </div>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-3 mb-12">
-        {spreads.map((s, i) => (
-          <button
-            key={i}
-            onClick={() => setActiveSpread(i)}
-            className={`shrink-0 w-32 aspect-[2/1] border-2 transition-all ${
-              i === activeSpread ? 'border-stone-900' : 'border-stone-200 opacity-60 hover:opacity-100'
-            }`}
-          >
-            <SpreadRenderer spread={s} mini />
-          </button>
-        ))}
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4 mb-8">
-        <div className="bg-amber-50 border border-amber-200 p-5">
-          <div className="flex items-start gap-3">
-            <Icon name="user" size={20} className="text-amber-700 mt-0.5" />
-            <div>
-              <h3 className="font-serif text-lg mb-1">Want it perfected?</h3>
-              <p className="text-sm text-stone-700 mb-3">
-                Our designers will refine your layout — your tags are saved, so it's just $99 (regular $150).
-              </p>
-              <button className="text-sm font-semibold text-amber-900 hover:underline">
-                Hand off to our team →
-              </button>
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={onSubmit}
-          className="bg-stone-900 text-stone-50 p-5 hover:bg-stone-800 transition-all flex items-center justify-between gap-3 text-left"
-        >
-          <div>
-            <div className="text-[10px] tracking-widest opacity-70 mb-1">FINALIZE</div>
-            <div className="font-serif text-2xl">Place my order</div>
-          </div>
-          <Icon name="arrowRight" size={20} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface SpreadRendererProps {
-  spread: Spread | undefined;
-  onSwap?: (photoIdx: number) => void;
-  mini?: boolean;
-}
-function SpreadRenderer({ spread, onSwap, mini }: SpreadRendererProps) {
-  if (!spread) return null;
-  const { template, photos } = spread;
-  const cls = mini ? 'cursor-pointer' : 'cursor-pointer hover:opacity-90 transition-opacity';
-
-  if (template === 'full') {
-    return (
-      <img
-        src={photos[0]?.src}
-        alt=""
-        className={`w-full h-full object-cover ${cls}`}
-        onClick={() => onSwap?.(0)}
-      />
-    );
-  }
-  if (template === 'one') {
-    return (
-      <div className="w-full h-full grid grid-cols-2">
-        <div className={mini ? '' : 'p-4 flex items-center justify-center'}>
-          <img
-            src={photos[0]?.src}
-            alt=""
-            className={`w-full h-full object-cover ${cls}`}
-            onClick={() => onSwap?.(0)}
-          />
-        </div>
-        <div className="bg-stone-50" />
-      </div>
-    );
-  }
-  if (template === 'two') {
-    return (
-      <div className={`w-full h-full grid grid-cols-2 ${mini ? 'gap-0.5' : 'gap-1'}`}>
-        {photos.map((p, i) => (
-          <img
-            key={p.id}
-            src={p.src}
-            alt=""
-            className={`w-full h-full object-cover ${cls}`}
-            onClick={() => onSwap?.(i)}
-          />
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className={`w-full h-full grid grid-cols-3 ${mini ? 'gap-0.5' : 'gap-1'}`}>
-      {photos.map((p, i) => (
-        <img
-          key={p.id}
-          src={p.src}
-          alt=""
-          className={`w-full h-full object-cover ${cls}`}
-          onClick={() => onSwap?.(i)}
-        />
-      ))}
-    </div>
-  );
-}
-
-interface SubmitStepProps {
-  spreads: Spread[];
-  extraCost: number;
-}
-function SubmitStep({ spreads, extraCost }: SubmitStepProps) {
-  return (
-    <div className="max-w-2xl mx-auto pt-16 text-center">
-      <div className="inline-flex p-4 bg-stone-900 text-stone-50 rounded-full mb-8">
-        <Icon name="check" size={28} />
-      </div>
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Order Received</p>
-      <h1 className="font-serif text-5xl leading-tight mb-6">
-        Your <em className="italic text-stone-700">monument</em><br />is being made.
-      </h1>
-      <p className="text-stone-600 mb-10 max-w-md mx-auto">
-        Confirmation and invoice on the way to your inbox. Hand-bound and shipped within 12–16 days.
-      </p>
-      <div className="bg-white border border-stone-200 p-6 inline-block text-left text-sm">
-        <div className="grid grid-cols-2 gap-x-12 gap-y-2">
-          <span className="text-stone-500">Album size</span><span>17 × 24" closed</span>
-          <span className="text-stone-500">Spreads</span><span>{spreads.length}</span>
-          <span className="text-stone-500">Extra pages</span><span>${extraCost}</span>
-          <span className="text-stone-500">Delivery</span><span>12–16 days</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------- shared buttons ----------
-interface NextBtnProps {
-  onClick: () => void;
-  label: string;
-  disabled?: boolean;
-  iconName?: IconName;
-}
-function NextBtn({ onClick, label, disabled, iconName = 'arrowRight' }: NextBtnProps) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`group inline-flex items-center gap-3 px-8 py-4 transition-all ${
-        disabled
-          ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
-          : 'bg-stone-900 text-stone-50 hover:bg-stone-800'
-      }`}
-    >
-      <span className="font-serif text-lg">{label}</span>
-      <Icon name={iconName} size={18} className="group-hover:translate-x-0.5 transition-transform" />
-    </button>
-  );
-}
-
-function BackBtn({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-sm text-stone-500 hover:text-stone-900 mb-6 flex items-center gap-2"
-    >
-      <Icon name="arrowLeft" size={14} /> Back
-    </button>
-  );
-}
-
-// ============================================================
-//                      INLINE SVG ICONS
-//   (no lucide-react, no external deps)
-// ============================================================
-type IconName =
-  | 'wand'
-  | 'pen'
-  | 'user'
-  | 'upload'
-  | 'sparkles'
-  | 'crown'
-  | 'bookmark'
-  | 'eyeOff'
-  | 'alert'
-  | 'arrowRight'
-  | 'arrowLeft'
-  | 'refresh'
-  | 'check';
-
-interface IconProps {
-  name: IconName;
-  size?: number;
-  className?: string;
-}
-function Icon({ name, size = 18, className = '' }: IconProps) {
-  const props = {
-    width: size,
-    height: size,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 2,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    className,
-  };
-  switch (name) {
-    case 'wand':
-      return (
-        <svg {...props}>
-          <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M15 9h0M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" />
-        </svg>
-      );
-    case 'pen':
-      return (
-        <svg {...props}>
-          <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-        </svg>
-      );
-    case 'user':
-      return (
-        <svg {...props}>
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      );
-    case 'upload':
-      return (
-        <svg {...props}>
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-        </svg>
-      );
-    case 'sparkles':
-      return (
-        <svg {...props}>
-          <path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3z" />
-        </svg>
-      );
-    case 'crown':
-      return (
-        <svg {...props}>
-          <path d="M2 6l4 12h12l4-12-6 4-4-8-4 8-6-4z" />
-        </svg>
-      );
-    case 'bookmark':
-      return (
-        <svg {...props}>
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-        </svg>
-      );
-    case 'eyeOff':
-      return (
-        <svg {...props}>
-          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22" />
-        </svg>
-      );
-    case 'alert':
-      return (
-        <svg {...props}>
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
-        </svg>
-      );
-    case 'arrowRight':
-      return (
-        <svg {...props}>
-          <path d="M5 12h14M12 5l7 7-7 7" />
-        </svg>
-      );
-    case 'arrowLeft':
-      return (
-        <svg {...props}>
-          <path d="M19 12H5M12 19l-7-7 7-7" />
-        </svg>
-      );
-    case 'refresh':
-      return (
-        <svg {...props}>
-          <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-        </svg>
-      );
-    case 'check':
-      return (
-        <svg {...props}>
-          <path d="M20 6L9 17l-5-5" />
-        </svg>
-      );
-  }
+  )
 }
