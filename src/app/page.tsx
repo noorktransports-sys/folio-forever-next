@@ -76,7 +76,7 @@ export default function HomePage() {
             </em>
           </h1>
           <p className="hero-subtitle">
-            Up to 20×60 inches open. 3D tactile printing you can feel.<br />
+            Up to 20×30 inches open. 3D tactile printing you can feel.<br />
             A scale and quality no online printer comes close to.
           </p>
           <div className="hero-btns">
@@ -134,9 +134,9 @@ export default function HomePage() {
               lineHeight: 1.9,
             }}
           >
-            When fully open, our largest album stretches 20×60 inches — wider
-            than most dining tables. This is not a photo book. This is a
-            statement piece.
+            When fully open, our largest album stretches 20×30 inches — bigger
+            than most coffee table books and built to be displayed, not
+            shelved. This is not a photo book. This is a statement piece.
           </p>
 
           {/* Real WebGL Album3D hero — Three.js with PBR materials,
@@ -179,7 +179,7 @@ export default function HomePage() {
             </div>
             <div className="size-card featured">
               <div className="badge">Most Popular</div>
-              <span className="size-dims">20 × 60&quot;</span>
+              <span className="size-dims">20 × 30&quot;</span>
               <span className="size-name">Open · The Full Statement</span>
               <p
                 style={{
@@ -188,12 +188,12 @@ export default function HomePage() {
                   lineHeight: 1.8,
                 }}
               >
-                Fully open at 20×60 inches. Wider than most dining tables. Pure
-                wow factor.
+                Fully open at 20×30 inches; folds to 20×15 closed. Bigger than
+                most coffee table books — pure wow factor.
               </p>
               <div className="size-bar-wrap">
                 <div className="size-bar" style={{ width: '98%', margin: '0 auto' }}>
-                  <span>20 × 60&quot; — wider than most dining tables</span>
+                  <span>20 × 30&quot; open · 20 × 15&quot; closed</span>
                 </div>
               </div>
             </div>

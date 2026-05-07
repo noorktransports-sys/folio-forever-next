@@ -15,7 +15,7 @@
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
  *   - Max 30 MB per photo. Client compresses most uploads to ~5 MB before
- *     sending; the 30 MB ceiling exists for full-bleed 20×60 spreads where
+ *     sending; the 30 MB ceiling exists for full-bleed 20×30 spreads where
  *     the photographer opts out of optimization.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
@@ -34,7 +34,7 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-const MAX_BYTES = 30 * 1024 * 1024; // 30 MB hard cap; client compresses most uploads to ~5 MB before sending. The 30 MB ceiling exists for the rare case where a photographer opts out of optimization for a full-bleed 20×60 spread.
+const MAX_BYTES = 30 * 1024 * 1024; // 30 MB hard cap; client compresses most uploads to ~5 MB before sending. The 30 MB ceiling exists for the rare case where a photographer opts out of optimization for a full-bleed 20×30 spread.
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',

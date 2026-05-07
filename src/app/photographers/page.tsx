@@ -317,8 +317,8 @@ export default function PhotographersPage() {
             <span className="pricing-num">$229</span>
             <span className="pricing-sub">per album · trade price</span>
             <ul className="pricing-features">
-              <li>20×30 inches closed</li>
-              <li>Opens to 20×60&quot;</li>
+              <li>20×15 inches closed</li>
+              <li>Opens to 20×30&quot;</li>
               <li>3D tactile printing</li>
               <li>Premium lay-flat binding</li>
               <li>Luxury cover options</li>
