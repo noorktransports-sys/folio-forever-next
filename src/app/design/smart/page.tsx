@@ -2,8 +2,74 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export const runtime = 'edge'
+
+// ============== ALBUM STORAGE ==============
+// Smart albums share the `folio-albums-index` localStorage key with the
+// manual builder so they appear in the same "My Albums" list on /design.
+// The `mode: 'smart'` field on each entry tells the picker to route
+// back to /design/smart instead of /design/build on resume.
+
+const ALBUMS_INDEX_KEY = 'folio-albums-index'
+const SMART_STATE_PREFIX = 'folio-smart-state'
+
+type AlbumIndexEntry = {
+  id: string
+  name: string
+  createdAt: string
+  lastEditedAt: string
+  mode?: 'smart' | 'manual'
+}
+
+function readAlbumsIndex(): AlbumIndexEntry[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(ALBUMS_INDEX_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeAlbumsIndex(list: AlbumIndexEntry[]) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(ALBUMS_INDEX_KEY, JSON.stringify(list))
+  } catch {
+    /* quota or disabled — ignore */
+  }
+}
+
+function upsertAlbumIndex(id: string, patch: Partial<AlbumIndexEntry>) {
+  const list = readAlbumsIndex()
+  const existing = list.find((a) => a.id === id)
+  const now = new Date().toISOString()
+  if (existing) {
+    Object.assign(existing, patch, { lastEditedAt: now })
+  } else {
+    list.unshift({
+      id,
+      name: 'Untitled',
+      createdAt: now,
+      lastEditedAt: now,
+      ...patch,
+    })
+  }
+  writeAlbumsIndex(list)
+}
+
+function generateAlbumId(): string {
+  return 'a' + Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 6)
+}
+
+// What we persist per album. We always save metadata; photo previews are
+// kept too — sample photos use stable HTTPS URLs (survive refresh), while
+// uploaded photos use blob: URLs which are invalidated on reload. We
+// fall back gracefully if a preview won't load.
 
 // ============== CONSTANTS ==============
 
@@ -735,6 +801,13 @@ const IconBlur = (props: React.SVGProps<SVGSVGElement>) => (
 // ============== MAIN ==============
 
 export default function SmartDesignerPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlAlbumId = searchParams?.get('album') ?? null
+
+  const [albumId, setAlbumId] = useState<string | null>(urlAlbumId)
+  const [albumName, setAlbumName] = useState<string>('')
+  const [hydrated, setHydrated] = useState(false) // true once we've read localStorage on mount
   const [step, setStep] = useState<Step>('setup')
   const [size, setSize] = useState<AlbumSize | null>(null)
   const [type, setType] = useState<AlbumType | null>(null)
@@ -751,6 +824,100 @@ export default function SmartDesignerPage() {
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
   const [uploadProgress, setUploadProgress] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // -------- Album hydrate / mint on mount --------
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (urlAlbumId) {
+      // Resume an existing smart album: load saved state.
+      const indexEntry = readAlbumsIndex().find((a) => a.id === urlAlbumId)
+      if (indexEntry) {
+        setAlbumName(indexEntry.name)
+      }
+      try {
+        const raw = window.localStorage.getItem(`${SMART_STATE_PREFIX}:${urlAlbumId}`)
+        if (raw) {
+          const s = JSON.parse(raw) as Partial<{
+            size: AlbumSize
+            type: AlbumType
+            pageCount: number
+            step: Step
+            photos: Photo[]
+            spreads: Spread[]
+            adjusts: Record<string, PhotoAdjust>
+          }>
+          if (s.size) setSize(s.size)
+          if (s.type) setType(s.type)
+          if (typeof s.pageCount === 'number') setPageCount(s.pageCount)
+          if (s.step) setStep(s.step)
+          if (Array.isArray(s.photos)) setPhotos(s.photos)
+          if (Array.isArray(s.spreads)) setSpreads(s.spreads)
+          if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
+        }
+      } catch {
+        /* ignore corrupt state */
+      }
+      setHydrated(true)
+      return
+    }
+
+    // No album in URL — mint a new one. Prompt for name first.
+    const raw = window.prompt(
+      'Name this album (you can rename later from the My Albums list):',
+      '',
+    )
+    if (raw === null) {
+      // User cancelled — return to design picker
+      router.push('/design')
+      return
+    }
+    const trimmed = raw.trim().slice(0, 80)
+    const fallback = (() => {
+      try {
+        return 'Smart · ' + new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      } catch {
+        return 'Smart album'
+      }
+    })()
+    const name = trimmed || fallback
+    const newId = generateAlbumId()
+    upsertAlbumIndex(newId, { name, mode: 'smart' })
+    setAlbumId(newId)
+    setAlbumName(name)
+    // Push the album id into the URL so refresh resumes correctly
+    router.replace(`/design/smart?album=${newId}`)
+    setHydrated(true)
+  }, [urlAlbumId, router])
+
+  // -------- Auto-save on state changes --------
+  useEffect(() => {
+    if (!hydrated || !albumId || typeof window === 'undefined') return
+    try {
+      const payload = {
+        size,
+        type,
+        pageCount,
+        step: step === 'generate' ? 'pages' : step, // don't get stuck mid-generate
+        photos,
+        spreads,
+        adjusts,
+      }
+      window.localStorage.setItem(`${SMART_STATE_PREFIX}:${albumId}`, JSON.stringify(payload))
+      upsertAlbumIndex(albumId, {})
+    } catch {
+      /* quota exceeded or disabled — silently drop */
+    }
+  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts])
+
+  const renameAlbum = () => {
+    if (!albumId) return
+    const next = window.prompt('Rename album:', albumName)
+    if (next === null) return
+    const trimmed = next.trim().slice(0, 80)
+    if (!trimmed || trimmed === albumName) return
+    upsertAlbumIndex(albumId, { name: trimmed })
+    setAlbumName(trimmed)
+  }
 
   const heroCount = photos.filter((p) => p.tagged === 'hero').length
   const favCount = photos.filter((p) => p.tagged === 'favorite').length
@@ -1879,9 +2046,31 @@ export default function SmartDesignerPage() {
         <Link href="/" style={css.logo}>
           Folio &amp; Forever
         </Link>
-        <Link href="/design" style={css.navBack}>
-          ← Back to Design
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          {albumName && (
+            <button
+              type="button"
+              onClick={renameAlbum}
+              title="Click to rename this album"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--cream)',
+                fontFamily: 'var(--font-display)',
+                fontSize: 16,
+                cursor: 'pointer',
+                fontStyle: 'italic',
+                padding: 0,
+                borderBottom: '0.5px dashed rgba(184,150,90,0.4)',
+              }}
+            >
+              {albumName} ✎
+            </button>
+          )}
+          <Link href="/design" style={css.navBack}>
+            ← Back to Design
+          </Link>
+        </div>
       </nav>
 
       {step === 'setup' && renderSetup()}
