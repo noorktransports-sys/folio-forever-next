@@ -105,6 +105,7 @@ type AlbumSize = '17x24' | '20x30'
 type AlbumType = 'standard' | 'layflat'
 
 type EventId =
+  | 'unassigned'
   | 'mehndi'
   | 'haldi'
   | 'prep'
@@ -1209,7 +1210,7 @@ export default function SmartDesignerPage() {
         width: dim.width,
         height: dim.height,
         tagged: 'none',
-        eventId: 'other1',
+        eventId: 'unassigned',
         blurry: false,
       })
       // Persist the blob to IndexedDB so it survives a refresh.
@@ -1536,7 +1537,7 @@ export default function SmartDesignerPage() {
         width: dim.width,
         height: dim.height,
         tagged: 'none',
-        eventId: 'other1',
+        eventId: 'unassigned',
         blurry: false,
       })
       if (albumId) saveBlob(albumId, photoId, file)
@@ -1901,6 +1902,7 @@ export default function SmartDesignerPage() {
 
   const renderGroup = () => {
     const RECAT_MIME = 'application/x-folio-recat'
+    const unassignedCount = photos.filter((p) => p.eventId === 'unassigned').length
     return (
       <div style={{ ...css.container, maxWidth: 1280 }}>
         {renderStepIndicator()}
@@ -1908,70 +1910,13 @@ export default function SmartDesignerPage() {
           Group by <em style={css.titleEm}>event</em>
         </h2>
         <p style={{ ...css.subtitle, marginBottom: 18 }}>
-          Sort each photo into the right tag — Mehndi, Haldi, Wedding, etc.
+          Drag each photo onto its tag. Tagged photos get a label so you can re-assign them anytime.
         </p>
 
-        {/* Animated guide banner — photo slides toward folder, repeats */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            padding: '12px 18px',
-            marginBottom: 20,
-            background: 'rgba(184,150,90,0.06)',
-            border: `0.5px solid rgba(184,150,90,0.35)`,
-            borderRadius: 10,
-            fontSize: 12,
-            color: 'var(--cream)',
-            lineHeight: 1.6,
-          }}
-        >
-          <div style={{ position: 'relative', width: 56, height: 22, flexShrink: 0 }}>
-            <span
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: -2,
-                fontSize: 18,
-                animation: 'recatHint 2.2s ease-in-out infinite',
-              }}
-              aria-hidden
-            >
-              🖼️
-            </span>
-            <span
-              style={{ position: 'absolute', right: 0, top: -2, fontSize: 18 }}
-              aria-hidden
-            >
-              📂
-            </span>
-          </div>
-          <span>
-            <strong style={{ color: GOLD }}>Drag any photo onto a tag</strong> to recategorize.
-            Or click a photo for a quick list.
-          </span>
-          <style>{`
-            @keyframes recatHint {
-              0% { transform: translateX(0); opacity: 1; }
-              60% { transform: translateX(34px); opacity: 0.2; }
-              61% { transform: translateX(0); opacity: 0; }
-              100% { transform: translateX(0); opacity: 1; }
-            }
-          `}</style>
-        </div>
-
-        {/* 5-column responsive grid — 9 tags fit in 2 rows on a normal desktop.
-            Falls back to fewer columns on narrow screens via auto-fill minmax. */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: 8,
-          }}
-        >
+        {/* TAG CHIPS — small, single-line pills. Each is a drop target. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
           {EVENTS.map((ev) => {
-            const inEvent = photos.filter((p) => p.eventId === ev.id)
+            const count = photos.filter((p) => p.eventId === ev.id).length
             const isDropTarget = recatDragOverEvent === ev.id
             return (
               <div
@@ -1992,138 +1937,202 @@ export default function SmartDesignerPage() {
                   setRecatDragOverEvent(null)
                 }}
                 style={{
-                  background: isDropTarget ? 'rgba(184,150,90,0.1)' : 'var(--dark2)',
-                  border: `0.5px solid ${isDropTarget ? GOLD : 'rgba(184,150,90,0.18)'}`,
-                  borderRadius: 6,
-                  padding: 8,
-                  transition: 'border-color 0.15s, background 0.15s',
-                  // Fixed height so empty cards don't stretch to match a populated one.
-                  // Populated cards scroll their thumbnail grid internally.
-                  height: 180,
-                  display: 'flex',
-                  flexDirection: 'column',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 14px',
+                  borderRadius: 30,
+                  border: `1px solid ${isDropTarget ? GOLD : 'rgba(184,150,90,0.3)'}`,
+                  background: isDropTarget ? 'rgba(184,150,90,0.18)' : 'var(--dark2)',
+                  color: isDropTarget ? GOLD : 'var(--cream)',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 13,
+                  transition: 'all 0.15s',
+                  transform: isDropTarget ? 'scale(1.05)' : 'scale(1)',
                 }}
               >
-                <p
+                <span>{ev.name}</span>
+                <span
                   style={{
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    justifyContent: 'space-between',
-                    gap: 6,
-                    marginBottom: 6,
-                    flexShrink: 0,
+                    fontFamily: 'var(--font-body)',
+                    fontSize: 10,
+                    letterSpacing: 0.5,
+                    background: count > 0 ? GOLD : 'rgba(184,150,90,0.15)',
+                    color: count > 0 ? '#0e0c09' : 'var(--muted2)',
+                    padding: '2px 8px',
+                    borderRadius: 30,
+                    minWidth: 22,
+                    textAlign: 'center',
+                    fontWeight: 600,
                   }}
                 >
-                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--cream)' }}>
-                    {ev.name}
-                  </span>
-                  <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', flexShrink: 0 }}>
-                    {inEvent.length}
-                  </span>
-                </p>
+                  {count}
+                </span>
+              </div>
+            )
+          })}
+        </div>
 
-                {inEvent.length === 0 ? (
-                  <div
+        {/* HAND GUIDANCE — animated finger pointing UP at the chips */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            padding: '10px 18px',
+            marginBottom: 18,
+            background: 'rgba(184,150,90,0.06)',
+            border: `0.5px solid rgba(184,150,90,0.35)`,
+            borderRadius: 10,
+            fontSize: 12,
+            color: 'var(--cream)',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 24,
+              animation: 'handPointUp 1.6s ease-in-out infinite',
+              display: 'inline-block',
+            }}
+            aria-hidden
+          >
+            👆
+          </span>
+          <span>
+            <strong style={{ color: GOLD }}>Drag any photo</strong> from below up to one of the tags above.
+            {unassignedCount > 0 && (
+              <span style={{ color: 'var(--muted2)' }}> · {unassignedCount} photo{unassignedCount === 1 ? '' : 's'} still untagged</span>
+            )}
+          </span>
+          <style>{`
+            @keyframes handPointUp {
+              0%, 100% { transform: translateY(0); }
+              50% { transform: translateY(-8px); }
+            }
+          `}</style>
+        </div>
+
+        {/* BIG PHOTO GRID — all photos, large thumbs. Tagged photos show a small badge. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {photos.length === 0 && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                textAlign: 'center',
+                padding: 60,
+                color: 'var(--muted2)',
+                fontSize: 12,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+              }}
+            >
+              No photos to tag
+            </div>
+          )}
+          {photos.map((p) => {
+            const isAssigned = p.eventId !== 'unassigned'
+            const tagName = isAssigned ? EVENTS.find((e) => e.id === p.eventId)?.name : null
+            return (
+              <div key={p.id} style={{ position: 'relative' }}>
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(RECAT_MIME, p.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setRecatId(p.id === recatId ? null : p.id)
+                  }}
+                  style={{
+                    aspectRatio: '1',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    cursor: 'grab',
+                    border:
+                      recatId === p.id
+                        ? `1.5px solid ${GOLD}`
+                        : isAssigned
+                        ? '0.5px solid rgba(184,150,90,0.35)'
+                        : '0.5px solid rgba(184,150,90,0.15)',
+                    opacity: isAssigned ? 0.65 : 1,
+                    transition: 'opacity 0.2s',
+                  }}
+                  title={isAssigned ? `Tagged ${tagName} — drag to retag, or click for list` : 'Drag onto a tag, or click for a list'}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.preview}
+                    alt=""
+                    draggable={false}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                  />
+                </div>
+                {isAssigned && tagName && (
+                  <span
                     style={{
-                      border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
-                      borderRadius: 3,
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 8,
-                      letterSpacing: 1.2,
-                      color: isDropTarget ? GOLD : 'var(--muted2)',
+                      position: 'absolute',
+                      bottom: 6,
+                      left: 6,
+                      background: 'rgba(0,0,0,0.7)',
+                      color: GOLD,
+                      fontSize: 9,
+                      letterSpacing: 1,
+                      padding: '3px 8px',
+                      borderRadius: 30,
                       textTransform: 'uppercase',
+                      fontWeight: 600,
+                      pointerEvents: 'none',
                     }}
                   >
-                    Drop
-                  </div>
-                ) : (
+                    {tagName}
+                  </span>
+                )}
+                {recatId === p.id && (
                   <div
+                    onClick={(e) => e.stopPropagation()}
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
-                      gap: 3,
-                      flex: 1,
-                      overflowY: 'auto',
-                      // Subtle scrollbar styling
-                      scrollbarWidth: 'thin',
-                      scrollbarColor: 'rgba(184,150,90,0.4) transparent',
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      zIndex: 10,
+                      background: 'var(--dark3)',
+                      border: `0.5px solid ${GOLD}`,
+                      borderRadius: 8,
+                      padding: 6,
+                      minWidth: 160,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                     }}
                   >
-                    {inEvent.map((p) => (
-                      <div key={p.id} style={{ position: 'relative' }}>
-                        <div
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData(RECAT_MIME, p.id)
-                            e.dataTransfer.effectAllowed = 'move'
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setRecatId(p.id === recatId ? null : p.id)
-                          }}
-                          style={{
-                            aspectRatio: '1',
-                            borderRadius: 4,
-                            overflow: 'hidden',
-                            cursor: 'grab',
-                            border: recatId === p.id ? `1.5px solid ${GOLD}` : '0.5px solid transparent',
-                          }}
-                          title="Drag to a tag, or click for list"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={p.preview}
-                            alt=""
-                            draggable={false}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
-                          />
-                        </div>
-                        {recatId === p.id && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            style={{
-                              position: 'absolute',
-                              top: 'calc(100% + 4px)',
-                              left: 0,
-                              zIndex: 10,
-                              background: 'var(--dark3)',
-                              border: `0.5px solid ${GOLD}`,
-                              borderRadius: 8,
-                              padding: 6,
-                              minWidth: 140,
-                              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                            }}
-                          >
-                            {EVENTS.filter((e) => e.id !== p.eventId).map((e) => (
-                              <button
-                                key={e.id}
-                                type="button"
-                                onClick={() => recategorize(p.id, e.id)}
-                                style={{
-                                  display: 'block',
-                                  width: '100%',
-                                  textAlign: 'left',
-                                  padding: '8px 12px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: 'var(--cream)',
-                                  fontSize: 11,
-                                  cursor: 'pointer',
-                                  borderRadius: 4,
-                                  fontFamily: 'var(--font-body)',
-                                }}
-                                onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
-                                onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
-                              >
-                                Move to {e.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                    {EVENTS.filter((e) => e.id !== p.eventId).map((e) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => recategorize(p.id, e.id)}
+                        style={{
+                          display: 'block',
+                          width: '100%',
+                          textAlign: 'left',
+                          padding: '8px 12px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--cream)',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          fontFamily: 'var(--font-body)',
+                        }}
+                        onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
+                        onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
+                      >
+                        Move to {e.name}
+                      </button>
                     ))}
                   </div>
                 )}
@@ -2137,7 +2146,7 @@ export default function SmartDesignerPage() {
             ← Back
           </button>
           <button type="button" style={css.btnPrimary} onClick={() => setStep('tag')}>
-            Continue →
+            {unassignedCount > 0 ? `Continue (${unassignedCount} untagged) →` : 'Continue →'}
           </button>
         </div>
       </div>
