@@ -1997,6 +1997,11 @@ export default function SmartDesignerPage() {
                   borderRadius: 6,
                   padding: 8,
                   transition: 'border-color 0.15s, background 0.15s',
+                  // Fixed height so empty cards don't stretch to match a populated one.
+                  // Populated cards scroll their thumbnail grid internally.
+                  height: 180,
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
                 <p
@@ -2006,6 +2011,7 @@ export default function SmartDesignerPage() {
                     justifyContent: 'space-between',
                     gap: 6,
                     marginBottom: 6,
+                    flexShrink: 0,
                   }}
                 >
                   <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--cream)' }}>
@@ -2021,8 +2027,10 @@ export default function SmartDesignerPage() {
                     style={{
                       border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
                       borderRadius: 3,
-                      padding: '6px',
-                      textAlign: 'center',
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       fontSize: 8,
                       letterSpacing: 1.2,
                       color: isDropTarget ? GOLD : 'var(--muted2)',
@@ -2037,6 +2045,11 @@ export default function SmartDesignerPage() {
                       display: 'grid',
                       gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
                       gap: 3,
+                      flex: 1,
+                      overflowY: 'auto',
+                      // Subtle scrollbar styling
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: 'rgba(184,150,90,0.4) transparent',
                     }}
                   >
                     {inEvent.map((p) => (
