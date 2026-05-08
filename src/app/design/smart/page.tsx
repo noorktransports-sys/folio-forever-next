@@ -1902,16 +1902,73 @@ export default function SmartDesignerPage() {
   const renderGroup = () => {
     const RECAT_MIME = 'application/x-folio-recat'
     return (
-      <div style={css.container}>
+      <div style={{ ...css.container, maxWidth: 1280 }}>
         {renderStepIndicator()}
-        <h2 style={css.title}>
+        <h2 style={{ ...css.title, marginBottom: 8 }}>
           Group by <em style={css.titleEm}>event</em>
         </h2>
-        <p style={css.subtitle}>
-          Drag any photo onto a tag to recategorize, or click for a list of options. Empty tags accept drops too.
+        <p style={{ ...css.subtitle, marginBottom: 18 }}>
+          Sort each photo into the right tag — Mehndi, Haldi, Wedding, etc.
         </p>
 
-        <div style={{ display: 'grid', gap: 20 }}>
+        {/* Animated guide banner — photo slides toward folder, repeats */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            padding: '12px 18px',
+            marginBottom: 20,
+            background: 'rgba(184,150,90,0.06)',
+            border: `0.5px solid rgba(184,150,90,0.35)`,
+            borderRadius: 10,
+            fontSize: 12,
+            color: 'var(--cream)',
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ position: 'relative', width: 56, height: 22, flexShrink: 0 }}>
+            <span
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: -2,
+                fontSize: 18,
+                animation: 'recatHint 2.2s ease-in-out infinite',
+              }}
+              aria-hidden
+            >
+              🖼️
+            </span>
+            <span
+              style={{ position: 'absolute', right: 0, top: -2, fontSize: 18 }}
+              aria-hidden
+            >
+              📂
+            </span>
+          </div>
+          <span>
+            <strong style={{ color: GOLD }}>Drag any photo onto a tag</strong> to recategorize.
+            Or click a photo for a quick list.
+          </span>
+          <style>{`
+            @keyframes recatHint {
+              0% { transform: translateX(0); opacity: 1; }
+              60% { transform: translateX(34px); opacity: 0.2; }
+              61% { transform: translateX(0); opacity: 0; }
+              100% { transform: translateX(0); opacity: 1; }
+            }
+          `}</style>
+        </div>
+
+        {/* 2-column responsive grid — minmax keeps cards usable on narrow screens */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
+            gap: 10,
+          }}
+        >
           {EVENTS.map((ev) => {
             const inEvent = photos.filter((p) => p.eventId === ev.id)
             const isDropTarget = recatDragOverEvent === ev.id
@@ -1934,25 +1991,26 @@ export default function SmartDesignerPage() {
                   setRecatDragOverEvent(null)
                 }}
                 style={{
-                  ...css.card,
-                  borderColor: isDropTarget ? GOLD : 'rgba(184,150,90,0.2)',
-                  background: isDropTarget ? 'rgba(184,150,90,0.08)' : 'var(--dark2)',
+                  background: isDropTarget ? 'rgba(184,150,90,0.1)' : 'var(--dark2)',
+                  border: `0.5px solid ${isDropTarget ? GOLD : 'rgba(184,150,90,0.18)'}`,
+                  borderRadius: 8,
+                  padding: 10,
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
               >
                 <p
                   style={{
                     fontFamily: 'var(--font-display)',
-                    fontSize: 22,
+                    fontSize: 16,
                     color: 'var(--cream)',
-                    marginBottom: 14,
+                    marginBottom: 8,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'baseline',
                   }}
                 >
                   <span>{ev.name}</span>
-                  <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+                  <span style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase' }}>
                     {inEvent.length} {inEvent.length === 1 ? 'photo' : 'photos'}
                   </span>
                 </p>
@@ -1961,19 +2019,25 @@ export default function SmartDesignerPage() {
                   <div
                     style={{
                       border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
-                      borderRadius: 6,
-                      padding: '24px 12px',
+                      borderRadius: 4,
+                      padding: '8px',
                       textAlign: 'center',
-                      fontSize: 10,
-                      letterSpacing: 1.5,
-                      color: 'var(--muted2)',
+                      fontSize: 9,
+                      letterSpacing: 1.4,
+                      color: isDropTarget ? GOLD : 'var(--muted2)',
                       textTransform: 'uppercase',
                     }}
                   >
-                    Drag photos here
+                    Drop here
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
+                      gap: 4,
+                    }}
+                  >
                     {inEvent.map((p) => (
                       <div key={p.id} style={{ position: 'relative' }}>
                         <div
@@ -1988,7 +2052,7 @@ export default function SmartDesignerPage() {
                           }}
                           style={{
                             aspectRatio: '1',
-                            borderRadius: 6,
+                            borderRadius: 4,
                             overflow: 'hidden',
                             cursor: 'grab',
                             border: recatId === p.id ? `1.5px solid ${GOLD}` : '0.5px solid transparent',
@@ -2054,7 +2118,7 @@ export default function SmartDesignerPage() {
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+        <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
           <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
             ← Back
           </button>
