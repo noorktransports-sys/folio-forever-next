@@ -104,16 +104,58 @@ const FAV_CAP = 30
 type AlbumSize = '17x24' | '20x30'
 type AlbumType = 'standard' | 'layflat'
 
-type EventId = 'prep' | 'ceremony' | 'portraits' | 'reception' | 'other'
+type EventId =
+  | 'mehndi'
+  | 'haldi'
+  | 'prep'
+  | 'nikkah'
+  | 'wedding'
+  | 'reception'
+  | 'valima'
+  | 'other1'
+  | 'other2'
+  // Legacy values from older saved albums — kept in the union so
+  // hydration doesn't trip on them. migrateLegacyEvent maps these
+  // to current EventIds.
+  | 'ceremony'
+  | 'portraits'
+  | 'other'
+
 type EventDef = { id: EventId; name: string }
 
+// Tag list shown in the Group step + used by the layout engine's
+// chronological ordering. Order matches typical Pakistani / Indian
+// wedding flow (Mehndi → Haldi → Getting Ready → Nikkah → Wedding →
+// Reception → Valima → spillover slots).
 const EVENTS: EventDef[] = [
+  { id: 'mehndi', name: 'Mehndi' },
+  { id: 'haldi', name: 'Haldi' },
   { id: 'prep', name: 'Getting Ready' },
-  { id: 'ceremony', name: 'Ceremony' },
-  { id: 'portraits', name: 'Portraits' },
+  { id: 'nikkah', name: 'Nikkah' },
+  { id: 'wedding', name: 'Wedding' },
   { id: 'reception', name: 'Reception' },
-  { id: 'other', name: 'Other' },
+  { id: 'valima', name: 'Valima' },
+  { id: 'other1', name: 'Other 1' },
+  { id: 'other2', name: 'Other 2' },
 ]
+
+/**
+ * Map any legacy EventId (from albums saved with the old 5-tag list)
+ * to a current one. Run on hydrated photos so the Group step doesn't
+ * end up with photos in a no-longer-rendered bucket.
+ */
+function migrateLegacyEvent(eid: EventId): EventId {
+  switch (eid) {
+    case 'ceremony':
+      return 'wedding'
+    case 'portraits':
+      return 'other1'
+    case 'other':
+      return 'other1'
+    default:
+      return eid
+  }
+}
 
 type Photo = {
   id: string
@@ -531,7 +573,17 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
 
-  const eventOrder: EventId[] = ['prep', 'ceremony', 'portraits', 'reception', 'other']
+  const eventOrder: EventId[] = [
+    'mehndi',
+    'haldi',
+    'prep',
+    'nikkah',
+    'wedding',
+    'reception',
+    'valima',
+    'other1',
+    'other2',
+  ]
   const buckets = eventOrder
     .map((eid) => ({
       eid,
@@ -753,11 +805,14 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
 
 function buildSampleWeddingPhotos(): Photo[] {
   const eventMap: EventId[] = [
-    'prep', 'prep', 'prep', 'prep', 'prep', 'prep',
-    'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony', 'ceremony',
-    'portraits', 'portraits', 'portraits', 'portraits',
-    'reception', 'reception', 'reception', 'reception', 'reception', 'reception', 'reception', 'reception',
-    'other', 'other', 'other', 'other',
+    'mehndi', 'mehndi', 'mehndi',
+    'haldi', 'haldi',
+    'prep', 'prep', 'prep', 'prep',
+    'nikkah', 'nikkah', 'nikkah',
+    'wedding', 'wedding', 'wedding', 'wedding', 'wedding', 'wedding', 'wedding',
+    'reception', 'reception', 'reception', 'reception', 'reception',
+    'valima', 'valima',
+    'other1', 'other1', 'other2', 'other2',
   ]
   const blurryIdxs = new Set([4, 13, 22])
   return eventMap.map((eventId, i) => ({
@@ -959,6 +1014,9 @@ export default function SmartDesignerPage() {
   const [unusedPhotoIds, setUnusedPhotoIds] = useState<string[]>([])
   const [eventFilter, setEventFilter] = useState<EventId | 'all'>('all')
   const [recatId, setRecatId] = useState<string | null>(null)
+  // Tracks which event card is currently a drag-over target (for the
+  // gold-highlight feedback while the user drags a photo onto a tag).
+  const [recatDragOverEvent, setRecatDragOverEvent] = useState<EventId | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
@@ -1011,8 +1069,15 @@ export default function SmartDesignerPage() {
           if (typeof s.pageCount === 'number') setPageCount(s.pageCount)
           if (s.step) setStep(s.step)
           if (Array.isArray(s.photos)) {
-            loadedPhotos = s.photos
-            setPhotos(s.photos)
+            // Migrate any legacy eventIds (ceremony / portraits / other)
+            // from albums saved with the old 5-tag list.
+            const migrated = s.photos.map((p) =>
+              p.eventId !== migrateLegacyEvent(p.eventId)
+                ? { ...p, eventId: migrateLegacyEvent(p.eventId) }
+                : p,
+            )
+            loadedPhotos = migrated
+            setPhotos(migrated)
           }
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
@@ -1834,115 +1899,172 @@ export default function SmartDesignerPage() {
     )
   }
 
-  const renderGroup = () => (
-    <div style={css.container}>
-      {renderStepIndicator()}
-      <h2 style={css.title}>
-        Group by <em style={css.titleEm}>event</em>
-      </h2>
-      <p style={css.subtitle}>Auto-grouped to start. Click any photo to recategorize.</p>
+  const renderGroup = () => {
+    const RECAT_MIME = 'application/x-folio-recat'
+    return (
+      <div style={css.container}>
+        {renderStepIndicator()}
+        <h2 style={css.title}>
+          Group by <em style={css.titleEm}>event</em>
+        </h2>
+        <p style={css.subtitle}>
+          Drag any photo onto a tag to recategorize, or click for a list of options. Empty tags accept drops too.
+        </p>
 
-      <div style={{ display: 'grid', gap: 20 }}>
-        {EVENTS.map((ev) => {
-          const inEvent = photos.filter((p) => p.eventId === ev.id)
-          if (inEvent.length === 0) return null
-          return (
-            <div key={ev.id} style={css.card}>
-              <p
+        <div style={{ display: 'grid', gap: 20 }}>
+          {EVENTS.map((ev) => {
+            const inEvent = photos.filter((p) => p.eventId === ev.id)
+            const isDropTarget = recatDragOverEvent === ev.id
+            return (
+              <div
+                key={ev.id}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes(RECAT_MIME)) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    if (recatDragOverEvent !== ev.id) setRecatDragOverEvent(ev.id)
+                  }
+                }}
+                onDragLeave={() => setRecatDragOverEvent(null)}
+                onDrop={(e) => {
+                  if (!e.dataTransfer.types.includes(RECAT_MIME)) return
+                  e.preventDefault()
+                  const photoId = e.dataTransfer.getData(RECAT_MIME)
+                  if (photoId) recategorize(photoId, ev.id)
+                  setRecatDragOverEvent(null)
+                }}
                 style={{
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 22,
-                  color: 'var(--cream)',
-                  marginBottom: 14,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'baseline',
+                  ...css.card,
+                  borderColor: isDropTarget ? GOLD : 'rgba(184,150,90,0.2)',
+                  background: isDropTarget ? 'rgba(184,150,90,0.08)' : 'var(--dark2)',
+                  transition: 'border-color 0.15s, background 0.15s',
                 }}
               >
-                <span>{ev.name}</span>
-                <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-                  {inEvent.length} photos
-                </span>
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 }}>
-                {inEvent.map((p) => (
-                  <div key={p.id} style={{ position: 'relative' }}>
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setRecatId(p.id === recatId ? null : p.id)
-                      }}
-                      style={{
-                        aspectRatio: '1',
-                        borderRadius: 6,
-                        overflow: 'hidden',
-                        cursor: 'pointer',
-                        border: recatId === p.id ? `1.5px solid ${GOLD}` : '0.5px solid transparent',
-                      }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </div>
-                    {recatId === p.id && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          position: 'absolute',
-                          top: 'calc(100% + 4px)',
-                          left: 0,
-                          zIndex: 10,
-                          background: 'var(--dark3)',
-                          border: `0.5px solid ${GOLD}`,
-                          borderRadius: 8,
-                          padding: 6,
-                          minWidth: 140,
-                          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                        }}
-                      >
-                        {EVENTS.filter((e) => e.id !== p.eventId).map((e) => (
-                          <button
-                            key={e.id}
-                            type="button"
-                            onClick={() => recategorize(p.id, e.id)}
-                            style={{
-                              display: 'block',
-                              width: '100%',
-                              textAlign: 'left',
-                              padding: '8px 12px',
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--cream)',
-                              fontSize: 11,
-                              cursor: 'pointer',
-                              borderRadius: 4,
-                              fontFamily: 'var(--font-body)',
-                            }}
-                            onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
-                            onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
-                          >
-                            Move to {e.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    color: 'var(--cream)',
+                    marginBottom: 14,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span>{ev.name}</span>
+                  <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+                    {inEvent.length} {inEvent.length === 1 ? 'photo' : 'photos'}
+                  </span>
+                </p>
 
-      <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-        <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
-          ← Back
-        </button>
-        <button type="button" style={css.btnPrimary} onClick={() => setStep('tag')}>
-          Continue →
-        </button>
+                {inEvent.length === 0 ? (
+                  <div
+                    style={{
+                      border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
+                      borderRadius: 6,
+                      padding: '24px 12px',
+                      textAlign: 'center',
+                      fontSize: 10,
+                      letterSpacing: 1.5,
+                      color: 'var(--muted2)',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Drag photos here
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 }}>
+                    {inEvent.map((p) => (
+                      <div key={p.id} style={{ position: 'relative' }}>
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData(RECAT_MIME, p.id)
+                            e.dataTransfer.effectAllowed = 'move'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setRecatId(p.id === recatId ? null : p.id)
+                          }}
+                          style={{
+                            aspectRatio: '1',
+                            borderRadius: 6,
+                            overflow: 'hidden',
+                            cursor: 'grab',
+                            border: recatId === p.id ? `1.5px solid ${GOLD}` : '0.5px solid transparent',
+                          }}
+                          title="Drag to a tag, or click for list"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={p.preview}
+                            alt=""
+                            draggable={false}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                          />
+                        </div>
+                        {recatId === p.id && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              position: 'absolute',
+                              top: 'calc(100% + 4px)',
+                              left: 0,
+                              zIndex: 10,
+                              background: 'var(--dark3)',
+                              border: `0.5px solid ${GOLD}`,
+                              borderRadius: 8,
+                              padding: 6,
+                              minWidth: 140,
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                            }}
+                          >
+                            {EVENTS.filter((e) => e.id !== p.eventId).map((e) => (
+                              <button
+                                key={e.id}
+                                type="button"
+                                onClick={() => recategorize(p.id, e.id)}
+                                style={{
+                                  display: 'block',
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  padding: '8px 12px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--cream)',
+                                  fontSize: 11,
+                                  cursor: 'pointer',
+                                  borderRadius: 4,
+                                  fontFamily: 'var(--font-body)',
+                                }}
+                                onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
+                                onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
+                              >
+                                Move to {e.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
+            ← Back
+          </button>
+          <button type="button" style={css.btnPrimary} onClick={() => setStep('tag')}>
+            Continue →
+          </button>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const renderTag = () => {
     const visible = photos.filter((p) => eventFilter === 'all' || p.eventId === eventFilter)
