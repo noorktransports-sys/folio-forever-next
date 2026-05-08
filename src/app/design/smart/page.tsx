@@ -1245,8 +1245,12 @@ export default function SmartDesignerPage() {
     setTimeout(() => setUploadProgress(0), 600)
   }
 
+  // Functional update so the helper composes correctly when called in a
+  // loop (e.g. multi-drag drop on a tag fires recategorize once per id).
+  // The old version read `photos` from closure → only the last call won
+  // → user saw "only one photo moved" with multi-select.
   const recategorize = (photoId: string, eventId: EventId) => {
-    setPhotos(photos.map((p) => (p.id === photoId ? { ...p, eventId } : p)))
+    setPhotos((prev) => prev.map((p) => (p.id === photoId ? { ...p, eventId } : p)))
     setRecatId(null)
   }
 
