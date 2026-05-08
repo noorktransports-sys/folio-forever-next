@@ -191,7 +191,10 @@ type LayoutTemplate = {
 type Spread = {
   id: string
   templateId: string
-  photoIds: string[]
+  // (string | null)[] so a slot can be empty after layout-grow / remove.
+  // Empty slots show a "+ Add" button — the engine never inserts nulls
+  // automatically, only the user does via the layout-switch flow.
+  photoIds: (string | null)[]
   eventId: EventId
 }
 
@@ -787,7 +790,7 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
   }
 
   // Final orphan-safety pass
-  const placed = new Set(spreads.flatMap((s) => s.photoIds))
+  const placed = new Set(spreads.flatMap((s) => s.photoIds).filter((id): id is string => Boolean(id)))
   const orphans = useable.filter((p) => !placed.has(p.id))
   if (orphans.length > 0 && spreads.length > 0) {
     const last = spreads[spreads.length - 1]
@@ -1021,6 +1024,12 @@ export default function SmartDesignerPage() {
   // from the EVENTS array.
   const [customEventNames, setCustomEventNames] = useState<Record<string, string>>({})
   const [editingTagId, setEditingTagId] = useState<EventId | null>(null)
+  // Empty-slot picker — when a user clicks a "+ Add" empty slot in the
+  // adjust step, this opens a small popover with two options:
+  //   1. Pick from unused photos
+  //   2. Upload a new file
+  const [emptySlotPicker, setEmptySlotPicker] = useState<{ spreadId: string; slotIdx: number } | null>(null)
+  const emptySlotFileInputRef = useRef<HTMLInputElement>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
@@ -1362,20 +1371,22 @@ export default function SmartDesignerPage() {
     const newTpl = TEMPLATE_BY_ID.get(newTemplateId)
     if (!newTpl) return
 
-    let newIds = [...current.photoIds]
+    let newIds: (string | null)[] = [...current.photoIds]
     let nextUnused = [...unusedPhotoIds]
 
     if (newTpl.slots.length < newIds.length) {
-      // shrink: surplus photos go to unused
-      const surplus = newIds.slice(newTpl.slots.length)
+      // shrink: surplus photos go BACK to unused (so user doesn't lose them)
+      const surplus = newIds
+        .slice(newTpl.slots.length)
+        .filter((id): id is string => Boolean(id))
       newIds = newIds.slice(0, newTpl.slots.length)
       nextUnused = [...nextUnused, ...surplus]
     } else if (newTpl.slots.length > newIds.length) {
-      // grow: pull from unused
-      const need = newTpl.slots.length - newIds.length
-      const pulled = nextUnused.slice(0, need)
-      nextUnused = nextUnused.slice(need)
-      newIds = [...newIds, ...pulled]
+      // grow: leave new slots EMPTY (per owner's spec — don't auto-fill).
+      // User clicks the empty slot's + Add button to fill it manually.
+      while (newIds.length < newTpl.slots.length) {
+        newIds.push(null)
+      }
     }
 
     const op = makeLayoutVariantOp(
@@ -1405,6 +1416,46 @@ export default function SmartDesignerPage() {
       ...prev,
       [key]: { ...(prev[key] ?? DEFAULT_ADJUST), ...patch },
     }))
+  }
+
+  // ---------- Empty-slot fillers (called from SpreadView's "+ Add" overlay) ----------
+  /** Place a specific photo id into an empty slot. Used by both pick-from-unused
+   *  and upload-new flows. */
+  const fillEmptySlot = useCallback(
+    (spreadId: string, slotIdx: number, photoId: string) => {
+      setSpreads((prev) =>
+        prev.map((s) => {
+          if (s.id !== spreadId) return s
+          const newIds = [...s.photoIds]
+          newIds[slotIdx] = photoId
+          return { ...s, photoIds: newIds }
+        }),
+      )
+      setUnusedPhotoIds((prev) => prev.filter((id) => id !== photoId))
+      setEmptySlotPicker(null)
+    },
+    [],
+  )
+
+  const onEmptySlotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!emptySlotPicker) return
+    const file = e.target.files?.[0]
+    if (!file) return
+    const dim = await getImageDimensions(file)
+    const photoId = `${Date.now()}-empty-${Math.random().toString(36).slice(2, 8)}`
+    const newPhoto: Photo = {
+      id: photoId,
+      preview: URL.createObjectURL(file),
+      width: dim.width,
+      height: dim.height,
+      tagged: 'none',
+      eventId: 'unassigned',
+      blurry: false,
+    }
+    setPhotos((prev) => [...prev, newPhoto])
+    if (albumId) saveBlob(albumId, photoId, file)
+    fillEmptySlot(emptySlotPicker.spreadId, emptySlotPicker.slotIdx, photoId)
+    e.target.value = ''
   }
 
   // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
@@ -2677,6 +2728,7 @@ export default function SmartDesignerPage() {
                 slotDragHandlers={slotDrag.slotHandlers}
                 spreadDropHandlers={slotDrag.spreadDropHandlers}
                 onPhotoCountChange={(n) => handlePhotoCountChange(s.id, n)}
+                onEmptySlotClick={(slotIdx) => setEmptySlotPicker({ spreadId: s.id, slotIdx })}
                 photoMap={photoMap}
                 albumSize={size}
                 albumType={type}
@@ -2897,6 +2949,121 @@ export default function SmartDesignerPage() {
             Submit Order · ${albumPrice} →
           </button>
         </div>
+
+        {/* Empty-slot picker modal — opens when user clicks "+ Add" on an empty slot */}
+        {emptySlotPicker && (
+          <div
+            onClick={() => setEmptySlotPicker(null)}
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10000,
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--dark2)',
+                border: `0.5px solid ${GOLD}`,
+                borderRadius: 12,
+                padding: 24,
+                maxWidth: 720,
+                width: '100%',
+                maxHeight: '80vh',
+                overflow: 'auto',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--cream)', margin: 0 }}>
+                  Add a photo
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEmptySlotPicker(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--cream)',
+                    fontSize: 24,
+                    cursor: 'pointer',
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Upload from computer */}
+              <button
+                type="button"
+                onClick={() => emptySlotFileInputRef.current?.click()}
+                style={{
+                  ...css.btnSecondary,
+                  width: '100%',
+                  marginBottom: 16,
+                }}
+              >
+                ↑ Upload from computer
+              </button>
+              <input
+                ref={emptySlotFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={onEmptySlotUpload}
+                style={{ display: 'none' }}
+              />
+
+              {/* Pick from unused */}
+              <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 10 }}>
+                Or pick from unused ({unusedPhotos.length})
+              </p>
+              {unusedPhotos.length === 0 ? (
+                <p style={{ fontSize: 12, color: 'var(--muted2)', lineHeight: 1.7, padding: '20px 0', textAlign: 'center' }}>
+                  No unused photos right now. Upload a new one above, or shrink another spread to free some up.
+                </p>
+              ) : (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
+                    gap: 6,
+                  }}
+                >
+                  {unusedPhotos.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => fillEmptySlot(emptySlotPicker.spreadId, emptySlotPicker.slotIdx, p.id)}
+                      style={{
+                        aspectRatio: '1',
+                        padding: 0,
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        border: '0.5px solid rgba(184,150,90,0.25)',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.preview}
+                        alt=""
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -3042,6 +3209,7 @@ function SpreadView({
   slotDragHandlers,
   spreadDropHandlers,
   onPhotoCountChange,
+  onEmptySlotClick,
   photoMap,
   albumSize,
   albumType,
@@ -3068,6 +3236,7 @@ function SpreadView({
   slotDragHandlers: SlotDragHandlers
   spreadDropHandlers: SpreadDropHandlers
   onPhotoCountChange: (n: number) => void
+  onEmptySlotClick: (slotIdx: number) => void
   photoMap: Map<string, Photo>
   albumSize: AlbumSize
   albumType: AlbumType
@@ -3297,7 +3466,7 @@ function SpreadView({
               }}
               title={slot.isHero ? 'Hero photo · drag to swap' : 'Photo · drag to swap'}
             >
-              {photo && (
+              {photo ? (
                 <>
                   <SlotImage
                     src={photo.preview}
@@ -3330,6 +3499,38 @@ function SpreadView({
                     </span>
                   )}
                 </>
+              ) : (
+                // Empty slot: dashed gold border + "+ Add" hint.
+                // Drop targets work the same as filled slots (above).
+                // Click → opens picker (parent handles file upload + unused list).
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEmptySlotClick(i)
+                  }}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: '#f5f0e8',
+                    border: `1.5px dashed rgba(184,150,90,0.5)`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    color: GOLD,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = '#ede5d3')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = '#f5f0e8')}
+                  title="Click to upload or pick from unused · Or drag a photo here"
+                >
+                  <span style={{ fontSize: 28, fontWeight: 300, lineHeight: 1 }}>+</span>
+                  <span style={{ fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 600 }}>
+                    Add photo
+                  </span>
+                </div>
               )}
             </div>
           )
@@ -3440,7 +3641,7 @@ function PhotoToolbar({
           </button>
         </div>
 
-        {/* ZOOM */}
+        {/* ZOOM (100-200%) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={groupLabel}>Zoom</span>
           <button type="button" style={btn} onClick={() => onChange({ zoom: Math.max(1, +(adj.zoom - 0.1).toFixed(2)) })}>
@@ -3449,13 +3650,13 @@ function PhotoToolbar({
           <input
             type="range"
             min="100"
-            max="500"
+            max="200"
             step="5"
             value={Math.round(adj.zoom * 100)}
             onChange={(e) => onChange({ zoom: parseInt(e.target.value) / 100 })}
             style={{ width: 100, accentColor: GOLD }}
           />
-          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.min(5, +(adj.zoom + 0.1).toFixed(2)) })}>
+          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.min(2, +(adj.zoom + 0.1).toFixed(2)) })}>
             +
           </button>
           <span style={{ fontSize: 10, color: GOLD, minWidth: 42, textAlign: 'center' }}>
@@ -3507,7 +3708,8 @@ function PhotoToolbar({
         </div>
       </div>
 
-      {/* PAN sliders (only meaningful when fit=fill) */}
+      {/* PAN sliders (only meaningful when fit=fill).
+          Tip: drag the photo directly inside the slot — same effect, more natural. */}
       {adj.fit === 'fill' && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
           <span style={groupLabel}>Pan</span>
@@ -3517,11 +3719,14 @@ function PhotoToolbar({
               type="range"
               min="0"
               max="100"
-              value={adj.panX}
+              step="1"
+              value={Math.round(adj.panX)}
               onChange={(e) => onChange({ panX: parseInt(e.target.value) })}
               style={{ width: 100, accentColor: GOLD }}
             />
-            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 30 }}>{adj.panX}%</span>
+            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
+              {Math.round(adj.panX)}%
+            </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Y</span>
@@ -3529,12 +3734,18 @@ function PhotoToolbar({
               type="range"
               min="0"
               max="100"
-              value={adj.panY}
+              step="1"
+              value={Math.round(adj.panY)}
               onChange={(e) => onChange({ panY: parseInt(e.target.value) })}
               style={{ width: 100, accentColor: GOLD }}
             />
-            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 30 }}>{adj.panY}%</span>
+            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
+              {Math.round(adj.panY)}%
+            </span>
           </div>
+          <span style={{ fontSize: 10, color: 'var(--muted2)', fontStyle: 'italic' }}>
+            tip: drag the photo directly to slide
+          </span>
         </div>
       )}
 
