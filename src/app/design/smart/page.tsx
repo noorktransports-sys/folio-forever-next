@@ -1961,12 +1961,13 @@ export default function SmartDesignerPage() {
           `}</style>
         </div>
 
-        {/* 2-column responsive grid — minmax keeps cards usable on narrow screens */}
+        {/* 5-column responsive grid — 9 tags fit in 2 rows on a normal desktop.
+            Falls back to fewer columns on narrow screens via auto-fill minmax. */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
-            gap: 10,
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 8,
           }}
         >
           {EVENTS.map((ev) => {
@@ -1993,25 +1994,25 @@ export default function SmartDesignerPage() {
                 style={{
                   background: isDropTarget ? 'rgba(184,150,90,0.1)' : 'var(--dark2)',
                   border: `0.5px solid ${isDropTarget ? GOLD : 'rgba(184,150,90,0.18)'}`,
-                  borderRadius: 8,
-                  padding: 10,
+                  borderRadius: 6,
+                  padding: 8,
                   transition: 'border-color 0.15s, background 0.15s',
                 }}
               >
                 <p
                   style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 16,
-                    color: 'var(--cream)',
-                    marginBottom: 8,
                     display: 'flex',
-                    justifyContent: 'space-between',
                     alignItems: 'baseline',
+                    justifyContent: 'space-between',
+                    gap: 6,
+                    marginBottom: 6,
                   }}
                 >
-                  <span>{ev.name}</span>
-                  <span style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-                    {inEvent.length} {inEvent.length === 1 ? 'photo' : 'photos'}
+                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--cream)' }}>
+                    {ev.name}
+                  </span>
+                  <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', flexShrink: 0 }}>
+                    {inEvent.length}
                   </span>
                 </p>
 
@@ -2019,23 +2020,23 @@ export default function SmartDesignerPage() {
                   <div
                     style={{
                       border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
-                      borderRadius: 4,
-                      padding: '8px',
+                      borderRadius: 3,
+                      padding: '6px',
                       textAlign: 'center',
-                      fontSize: 9,
-                      letterSpacing: 1.4,
+                      fontSize: 8,
+                      letterSpacing: 1.2,
                       color: isDropTarget ? GOLD : 'var(--muted2)',
                       textTransform: 'uppercase',
                     }}
                   >
-                    Drop here
+                    Drop
                   </div>
                 ) : (
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))',
-                      gap: 4,
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
+                      gap: 3,
                     }}
                   >
                     {inEvent.map((p) => (
