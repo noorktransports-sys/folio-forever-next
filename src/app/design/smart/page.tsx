@@ -11,6 +11,7 @@ import {
   makeCrossSwapOp,
   makeRemoveOp,
   makeLayoutVariantOp,
+  makeReorderSpreadOp,
   type Spread as OpSpread,
 } from './edit/operations'
 import { SlotImage, type SlotAdjust } from './edit/PanSlider'
@@ -1296,6 +1297,90 @@ export default function SmartDesignerPage() {
     }))
   }
 
+  // ---------- Drag-to-reorder spreads ----------
+  // Lightweight HTML5 drag. The dragged spread's index is stashed in
+  // dataTransfer; the drop target computes the new index.
+  const [draggingSpreadIdx, setDraggingSpreadIdx] = useState<number | null>(null)
+  const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null)
+
+  const onSpreadDragStart = (idx: number) => (e: React.DragEvent) => {
+    e.dataTransfer.setData('application/x-folio-spread', String(idx))
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggingSpreadIdx(idx)
+  }
+  const onSpreadDragOver = (idx: number) => (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-folio-spread')) {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDropTargetIdx(idx)
+    }
+  }
+  const onSpreadDrop = (idx: number) => (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-folio-spread')) return
+    e.preventDefault()
+    const fromIdx = parseInt(e.dataTransfer.getData('application/x-folio-spread'), 10)
+    if (Number.isNaN(fromIdx) || fromIdx === idx) {
+      setDraggingSpreadIdx(null)
+      setDropTargetIdx(null)
+      return
+    }
+    // Insert-before semantics: dragging FROM index X TO index Y means
+    // "remove from X, insert at Y". If X < Y, that's "after Y-1"; we
+    // pass `idx` as-is and the op handles it correctly (splice + insert).
+    const targetIdx = fromIdx < idx ? idx - 1 : idx
+    const op = makeReorderSpreadOp(
+      { spreads: spreads as unknown as OpSpread[] },
+      fromIdx,
+      targetIdx,
+    )
+    undoApi.record(op)
+    setDraggingSpreadIdx(null)
+    setDropTargetIdx(null)
+  }
+  const onSpreadDragEnd = () => {
+    setDraggingSpreadIdx(null)
+    setDropTargetIdx(null)
+  }
+
+  // ---------- Add more photos (from the unused-panel sidebar) ----------
+  // Adds new uploads straight into the unused pool with default tags.
+  // User is past the group/tag steps so we don't ask for an event —
+  // photos go to 'other' and the user can drag/swap them in. Honors
+  // the global PHOTO_CAP.
+  const addMorePhotosInputRef = useRef<HTMLInputElement>(null)
+  const onAddMorePhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    const remaining = PHOTO_CAP - photos.length
+    if (remaining <= 0) {
+      alert(`You're at the ${PHOTO_CAP}-photo limit.`)
+      return
+    }
+    const toProcess = Array.from(files).slice(0, remaining)
+    if (files.length > remaining) {
+      alert(`Only ${remaining} more photos can fit. Adding the first ${remaining}.`)
+    }
+    const newPhotos: Photo[] = []
+    for (let i = 0; i < toProcess.length; i++) {
+      const file = toProcess[i]
+      const dim = await getImageDimensions(file)
+      newPhotos.push({
+        id: `${Date.now()}-add-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        preview: URL.createObjectURL(file),
+        width: dim.width,
+        height: dim.height,
+        tagged: 'none',
+        eventId: 'other',
+        blurry: false,
+      })
+    }
+    setPhotos((prev) => [...prev, ...newPhotos])
+    setUnusedPhotoIds((prev) => [...prev, ...newPhotos.map((p) => p.id)])
+    showToast(`Added ${newPhotos.length} photo${newPhotos.length === 1 ? '' : 's'} to unused pool`)
+    // Reset input so selecting the same files again would re-trigger
+    if (addMorePhotosInputRef.current) addMorePhotosInputRef.current.value = ''
+  }
+
   const reset = () => {
     setStep('setup')
     setSize(null)
@@ -2077,6 +2162,12 @@ export default function SmartDesignerPage() {
                 key={s.id}
                 spread={s}
                 index={i}
+                isDragging={draggingSpreadIdx === i}
+                isDropTarget={dropTargetIdx === i && draggingSpreadIdx !== null && draggingSpreadIdx !== i}
+                onDragStart={onSpreadDragStart(i)}
+                onDragOver={onSpreadDragOver(i)}
+                onDrop={onSpreadDrop(i)}
+                onDragEnd={onSpreadDragEnd}
                 photoMap={photoMap}
                 albumSize={size}
                 albumType={type}
@@ -2159,51 +2250,98 @@ export default function SmartDesignerPage() {
               </p>
             </div>
 
-            {unusedPhotos.length > 0 && (
-              <div style={css.card}>
+            <div style={css.card}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  marginBottom: 10,
+                  gap: 8,
+                }}
+              >
                 <p
                   style={{
                     fontSize: 10,
                     letterSpacing: 2,
-                    color: '#ff8a8a',
+                    color: unusedPhotos.length > 0 ? '#ff8a8a' : 'var(--muted2)',
                     textTransform: 'uppercase',
-                    marginBottom: 10,
                   }}
                 >
                   Unused ({unusedPhotos.length})
                 </p>
-                <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
-                  {swapSlot ? 'Click one to drop into the selected slot.' : 'Add more spreads or use Swap to include these.'}
-                </p>
-                <div
+                <button
+                  type="button"
+                  onClick={() => addMorePhotosInputRef.current?.click()}
+                  disabled={photos.length >= PHOTO_CAP}
+                  title={
+                    photos.length >= PHOTO_CAP
+                      ? `Photo limit reached (${PHOTO_CAP})`
+                      : `Add more photos to the album (${PHOTO_CAP - photos.length} slots left)`
+                  }
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))',
-                    gap: 4,
-                    maxHeight: 360,
-                    overflowY: 'auto',
+                    background: 'transparent',
+                    border: `0.5px solid ${photos.length >= PHOTO_CAP ? 'rgba(184,150,90,0.2)' : GOLD}`,
+                    color: photos.length >= PHOTO_CAP ? 'var(--muted2)' : GOLD,
+                    fontSize: 9,
+                    letterSpacing: 1.5,
+                    padding: '5px 10px',
+                    borderRadius: 30,
+                    cursor: photos.length >= PHOTO_CAP ? 'not-allowed' : 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    textTransform: 'uppercase',
                   }}
                 >
-                  {unusedPhotos.map((p) => (
-                    <div
-                      key={p.id}
-                      onClick={() => swapSlot && swapPhoto(p.id)}
-                      style={{
-                        aspectRatio: '1',
-                        borderRadius: 4,
-                        overflow: 'hidden',
-                        cursor: swapSlot ? 'pointer' : 'default',
-                        border: '0.5px solid rgba(184,150,90,0.2)',
-                      }}
-                      title={swapSlot ? 'Click to use as replacement' : undefined}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    </div>
-                  ))}
-                </div>
+                  + Add photos
+                </button>
               </div>
-            )}
+              <input
+                ref={addMorePhotosInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={onAddMorePhotos}
+                style={{ display: 'none' }}
+              />
+              {unusedPhotos.length === 0 ? (
+                <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7 }}>
+                  All your photos are placed. Click <strong style={{ color: GOLD }}>+ Add photos</strong> above to upload more.
+                </p>
+              ) : (
+                <>
+                  <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
+                    {swapSlot ? 'Click one to drop into the selected slot.' : 'Use Swap on a photo to bring these in, or add more spreads.'}
+                  </p>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))',
+                      gap: 4,
+                      maxHeight: 360,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {unusedPhotos.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => swapSlot && swapPhoto(p.id)}
+                        style={{
+                          aspectRatio: '1',
+                          borderRadius: 4,
+                          overflow: 'hidden',
+                          cursor: swapSlot ? 'pointer' : 'default',
+                          border: '0.5px solid rgba(184,150,90,0.2)',
+                        }}
+                        title={swapSlot ? 'Click to use as replacement' : undefined}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </aside>
         </div>
 
@@ -2369,6 +2507,12 @@ function getImageDimensions(file: File): Promise<{ width: number; height: number
 function SpreadView({
   spread,
   index,
+  isDragging,
+  isDropTarget,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
   photoMap,
   albumSize,
   albumType,
@@ -2386,6 +2530,12 @@ function SpreadView({
 }: {
   spread: Spread
   index: number
+  isDragging: boolean
+  isDropTarget: boolean
+  onDragStart: (e: React.DragEvent) => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent) => void
+  onDragEnd: () => void
   photoMap: Map<string, Photo>
   albumSize: AlbumSize
   albumType: AlbumType
@@ -2414,6 +2564,32 @@ function SpreadView({
 
   return (
     <div
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      style={{
+        position: 'relative',
+        opacity: isDragging ? 0.4 : 1,
+        transition: 'opacity 0.15s',
+      }}
+    >
+      {/* Drop indicator (gold line above the spread when this is the drop target) */}
+      {isDropTarget && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -6,
+            left: 0,
+            right: 0,
+            height: 3,
+            background: GOLD,
+            borderRadius: 2,
+            pointerEvents: 'none',
+            boxShadow: `0 0 8px ${GOLD}`,
+          }}
+        />
+      )}
+
+    <div
       style={{
         background: 'var(--dark2)',
         border: '0.5px solid rgba(184,150,90,0.2)',
@@ -2422,7 +2598,26 @@ function SpreadView({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 9, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+        <span
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          title="Drag to reorder this spread"
+          style={{
+            fontSize: 9,
+            letterSpacing: 2,
+            color: 'var(--muted2)',
+            textTransform: 'uppercase',
+            cursor: 'grab',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            userSelect: 'none',
+          }}
+          onMouseDown={(e) => (e.currentTarget.style.cursor = 'grabbing')}
+          onMouseUp={(e) => (e.currentTarget.style.cursor = 'grab')}
+        >
+          <span style={{ color: GOLD, fontSize: 11, fontWeight: 700 }}>⋮⋮</span>
           Spread {index + 1} · {ALBUM_SPECS[albumSize].label}
         </span>
         <div style={{ position: 'relative' }}>
@@ -2611,6 +2806,7 @@ function SpreadView({
           inSwapMode={swappingSlot === editingSlot}
         />
       )}
+    </div>
     </div>
   )
 }

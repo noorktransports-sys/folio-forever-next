@@ -51,6 +51,11 @@ export interface Op {
   ts: number                 // Date.now(), for debugging
   spreads: SpreadDelta[]     // can be 1 (in-spread swap) or 2 (cross-spread swap)
   unused?: UnusedDelta       // present when unused pool changed
+  /**
+   * Reorder ops (kind 'reorder-spread') store the full spread-id order
+   * before and after. applyOp reorders state.spreads to match.
+   */
+  spreadOrder?: { before: string[]; after: string[] }
 }
 
 export type OpKind =
@@ -60,6 +65,7 @@ export type OpKind =
   | 'add'               // photo dragged from unused → spread (template grows by 1)
   | 'photo-count'       // user changed dropdown 2→3, etc.
   | 'layout-variant'    // user picked alternate template at same count
+  | 'reorder-spread'    // user dragged a spread to a new position
 
 // ─── Apply / Undo ─────────────────────────────────────────────────────────
 
@@ -75,12 +81,27 @@ export function applyOp(
   const target = direction === 'forward' ? 'after' : 'before'
 
   // Apply spread deltas
-  const nextSpreads = state.spreads.map(s => {
+  let nextSpreads = state.spreads.map(s => {
     const delta = op.spreads.find(d => d.spreadId === s.id)
     if (!delta) return s
     const snap = delta[target]
     return { ...s, templateId: snap.templateId, photoIds: [...snap.photoIds] }
   })
+
+  // Apply spread order (reorder ops)
+  if (op.spreadOrder) {
+    const orderTarget = op.spreadOrder[target]
+    const byId = new Map(nextSpreads.map(s => [s.id, s] as const))
+    const reordered = orderTarget
+      .map(id => byId.get(id))
+      .filter((s): s is Spread => Boolean(s))
+    // Append any spreads not in the order list (shouldn't happen, but
+    // keeps spreads from disappearing if state drifts).
+    nextSpreads.forEach(s => {
+      if (!orderTarget.includes(s.id)) reordered.push(s)
+    })
+    nextSpreads = reordered
+  }
 
   // Apply unused delta (if any)
   const nextUnused = op.unused
@@ -283,5 +304,48 @@ export function makeLayoutVariantOp(
     label: `Change layout on Spread ${spreadIndex(state, spreadId)}`,
     ts: Date.now(),
     spreads: [{ spreadId, before, after }],
+  }
+}
+
+/**
+ * User dragged a spread from one position to another.
+ *
+ * `fromIndex` and `toIndex` are the visible (1-based for label, but
+ * 0-based for the array math). The op records the full id order before
+ * and after so undo / redo restore exactly.
+ *
+ * Move semantics: the dragged spread is removed from `fromIndex` and
+ * inserted at `toIndex` (insert-before, not swap). If toIndex is past
+ * the original position the insert visually "skips over" itself; the
+ * caller can pass toIndex - 1 in that case if pure-insert semantics is
+ * preferred. We don't auto-correct here so the caller decides.
+ */
+export function makeReorderSpreadOp(
+  state: { spreads: Spread[] },
+  fromIndex: number,
+  toIndex: number,
+): Op {
+  const before = state.spreads.map(s => s.id)
+  const after = [...before]
+  const [movedId] = after.splice(fromIndex, 1)
+  if (movedId == null) {
+    // No-op fallback; return an empty op that won't affect state.
+    return {
+      id: uuid(),
+      kind: 'reorder-spread',
+      label: 'No-op reorder',
+      ts: Date.now(),
+      spreads: [],
+      spreadOrder: { before, after: before },
+    }
+  }
+  after.splice(toIndex, 0, movedId)
+  return {
+    id: uuid(),
+    kind: 'reorder-spread',
+    label: `Move Spread ${fromIndex + 1} → position ${toIndex + 1}`,
+    ts: Date.now(),
+    spreads: [],
+    spreadOrder: { before, after },
   }
 }

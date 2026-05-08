@@ -98,12 +98,14 @@ The `src/app/design/smart/edit/` folder contains a 9-file integration package th
 
 ### ✅ Wired and working
 
-1. **Undo / redo system (5-deep, per-album, persisted)**. Every swap, remove, and template-switch goes through an `Op` that captures before/after snapshots. The stack lives at `localStorage` key `folio-smart-undo:<id>`. Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z work. Buttons in the adjust-step header.
-2. **Toast announcements** when an op resolves ("Undid: Swap on Spread 7").
+1. **Undo / redo system (5-deep, per-album, persisted)**. Every swap, remove, template-switch, **and spread reorder** goes through an `Op` that captures before/after snapshots. The stack lives at `localStorage` key `folio-smart-undo:<id>`. Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z work. Buttons in the adjust-step header.
+2. **Toast announcements** when an op resolves ("Undid: Swap on Spread 7", "Move Spread 1 → position 3", "Added 5 photos to unused pool").
 3. **Generate-with-confirm**: regenerating now warns and clears the undo stack if the user has edits.
 4. **Pan fix** (`SlotImage`): photos render via `objectPosition: X% Y%` instead of `transform: translate(px)`. Sliders work AND the user can drag the photo directly inside the slot to reposition it.
 5. **Fit Fill / Fit Original** mode passed through to `SlotImage`.
 6. **`unusedPhotoIds` is now an explicit state slice** (not just derived). This is what lets ops move photos in and out of the unused pool without recomputing.
+7. **Drag-to-reorder spreads**. Each spread header has a `⋮⋮` grip on the "Spread N · 17×24" label — drag from there to a different spread to reposition (insert-before semantics). Gold drop-indicator line appears above the target. Recorded as a `reorder-spread` op so undo works.
+8. **Add more photos** button in the unused-panel sidebar. Opens a file picker; new photos go straight into the unused pool with `eventId: 'other'`, ready to be swapped into a spread. Honors the 100-photo cap.
 
 ### ⏸ Deferred (see commit history + `edit/INTEGRATION.md` for full guide)
 
