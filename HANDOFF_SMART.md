@@ -61,7 +61,16 @@ The 9 steps inside the wizard:
 
 | File | Purpose |
 |------|---------|
-| [`src/app/design/smart/page.tsx`](src/app/design/smart/page.tsx) | The whole wizard. ~1700 lines. Single-file React component with inline styles. |
+| [`src/app/design/smart/page.tsx`](src/app/design/smart/page.tsx) | The whole wizard. ~2000 lines. Single-file React component with inline styles. |
+| [`src/app/design/smart/edit/operations.ts`](src/app/design/smart/edit/operations.ts) | Op types + op constructors (`makeSwapOp`, `makeRemoveOp`, etc.) + `applyOp` for the undo stack. Each op carries before/after snapshots so apply / undo is a snapshot restore — no recomputation. |
+| [`src/app/design/smart/edit/stack.ts`](src/app/design/smart/edit/stack.ts) | `OperationStack` (5-deep) with localStorage persistence per album. |
+| [`src/app/design/smart/edit/use-undo.ts`](src/app/design/smart/edit/use-undo.ts) | `useUndo` hook: wraps the stack, dispatches state updates via `applyOp`, wires Cmd/Ctrl+Z keyboard shortcuts. |
+| [`src/app/design/smart/edit/UndoButtons.tsx`](src/app/design/smart/edit/UndoButtons.tsx) | Header undo/redo buttons + `useToast` for op announcements. |
+| [`src/app/design/smart/edit/PanSlider.tsx`](src/app/design/smart/edit/PanSlider.tsx) | `SlotImage` component (the pan-fix: `objectPosition: panX% panY%` is the canonical way to pan a fitted image — translate(px) was the bug). Also includes drag-to-pan when `onAdjustChange` is wired. |
+| [`src/app/design/smart/edit/swap.tsx`](src/app/design/smart/edit/swap.tsx) | **NOT YET WIRED.** Hooks for tap-to-swap, drag-and-drop swap, and modal swap picker. See "Deferred features" §1. |
+| [`src/app/design/smart/edit/photo-count.ts`](src/app/design/smart/edit/photo-count.ts) | **NOT YET WIRED.** Builders for photo-count dropdown + drag-to-add. Needs my engine's `templatesForCount` signature changed first. See "Deferred features" §2. |
+| [`src/app/design/smart/edit/PhotoCountDropdown.tsx`](src/app/design/smart/edit/PhotoCountDropdown.tsx) | **NOT YET WIRED.** "2 PHOTOS ▾" dropdown component. See "Deferred features" §2. |
+| [`src/app/design/smart/edit/INTEGRATION.md`](src/app/design/smart/edit/INTEGRATION.md) | The integration guide that came bundled with this `edit/` package. Reference doc for wiring the deferred features. |
 | [`src/app/design/[[...step]]/page.tsx`](src/app/design/[[...step]]/page.tsx) | Existing `/design` path-picker. Modified: `AlbumIndexEntry` type extended with `mode: 'smart' \| 'manual'`; My Albums click handler routes smart albums to `/design/smart`; smart-mode entries show a "Smart" pill. |
 | [`src/app/design/album-builder.css`](src/app/design/album-builder.css) | Existing styles for the manual builder. Smart wizard does NOT use these — it uses CSS variables from `globals.css` plus inline styles. |
 | [`src/app/globals.css`](src/app/globals.css) | Brand tokens: `--dark`, `--gold`, `--cream`, font families. Smart wizard reads these. |
@@ -82,6 +91,36 @@ Lines 872–end  SmartDesignerPage (main component) + SpreadView + PhotoToolbar
 ```
 
 ---
+
+## Edit features (`edit/` package) — what's wired vs deferred
+
+The `src/app/design/smart/edit/` folder contains a 9-file integration package that adds an undo/redo system, multiple swap gestures, photo-count editing, and a pan fix. **Not all of it is wired yet.**
+
+### ✅ Wired and working
+
+1. **Undo / redo system (5-deep, per-album, persisted)**. Every swap, remove, and template-switch goes through an `Op` that captures before/after snapshots. The stack lives at `localStorage` key `folio-smart-undo:<id>`. Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z work. Buttons in the adjust-step header.
+2. **Toast announcements** when an op resolves ("Undid: Swap on Spread 7").
+3. **Generate-with-confirm**: regenerating now warns and clears the undo stack if the user has edits.
+4. **Pan fix** (`SlotImage`): photos render via `objectPosition: X% Y%` instead of `transform: translate(px)`. Sliders work AND the user can drag the photo directly inside the slot to reposition it.
+5. **Fit Fill / Fit Original** mode passed through to `SlotImage`.
+6. **`unusedPhotoIds` is now an explicit state slice** (not just derived). This is what lets ops move photos in and out of the unused pool without recomputing.
+
+### ⏸ Deferred (see commit history + `edit/INTEGRATION.md` for full guide)
+
+1. **Tap-to-swap and drag-and-drop** (`edit/swap.tsx`)
+   - Not wired because the existing UI uses click-to-open-toolbar. The integration's tap-to-swap conflicts with that.
+   - Suggested fix from `INTEGRATION.md`: add a "Swap mode" header toggle. When OFF, click = open toolbar. When ON, click = arm/swap.
+   - Drag-and-drop has a separate touch caveat: works on desktop, breaks on iOS Safari without `react-dnd-touch-backend`.
+
+2. **Per-spread photo-count dropdown** (`edit/PhotoCountDropdown.tsx`, `edit/photo-count.ts`)
+   - Needs my engine's `templatesForCount` signature changed from `(count, type)` to `(count, { type, hasHero })` because the integration picker chooses hero vs non-hero templates differently.
+   - About 30 lines of engine refactor + 30 lines of UI wiring.
+
+3. **Modal swap picker** (`SwapPicker` in `edit/swap.tsx`)
+   - Works as-is, but adding it alongside the existing "click photo → swap → pick from sidebar" gives 4 ways to swap. Pick a primary UX before adding.
+
+4. **Drag-to-grow-spread** (drop unused photo on spread background → +1 layout)
+   - Bundled with item #1's drag-and-drop. Same conflict.
 
 ## Known bugs (priority order)
 
@@ -108,13 +147,9 @@ Library suggestions: `idb` (lightweight IndexedDB wrapper) or write raw IndexedD
 
 **Note**: Sample wedding photos persist fine because they're stable HTTPS URLs (picsum). Only matters for real uploads.
 
-### 2. No active drag-to-pan on photo crops
+### 2. ~~No active drag-to-pan on photo crops~~ ✅ FIXED
 
-**Symptom**: Pan X / Pan Y sliders work, but you can't click-and-drag the photo inside its slot to reposition.
-
-**Root cause**: Not implemented. Sliders are the only pan input.
-
-**Fix**: Wire `onMouseDown` / `onMouseMove` on the photo `<img>` to update `panX/panY` based on movement deltas. Account for the current `zoom` factor.
+The `SlotImage` component from the `edit/` package now handles drag-to-pan when the user is editing a slot. Cursor shows `grab` / `grabbing`. Sliders still work too.
 
 ### 3. Edge case in template downgrade after Remove
 
@@ -195,7 +230,8 @@ Album state lives in **localStorage**, keyed per album by UUID.
 | Key | Value | Owner |
 |-----|-------|-------|
 | `folio-albums-index` | `AlbumIndexEntry[]` — the My Albums list, shared with the manual builder. Smart entries have `mode: 'smart'`. | Both wizards |
-| `folio-smart-state:<id>` | The serialised wizard state: size, type, pageCount, step, photos, spreads, adjusts. | Smart wizard only |
+| `folio-smart-state:<id>` | The serialised wizard state: size, type, pageCount, step, photos, spreads, adjusts, **unusedPhotoIds**. | Smart wizard only |
+| `folio-smart-undo:<id>` | The 5-deep undo stack (forward + backward ops). Per-album. | Smart wizard only |
 | `folio-design-state-v3:<id>` | Manual builder state. | Manual builder only |
 | `folio-cover-v1:<id>`, `folio-cover-photos-v1:<id>` | Manual builder cover. | Manual builder only |
 | `folio-submitted:<id>` | Order submission marker (locks the album from edits). | Both wizards |

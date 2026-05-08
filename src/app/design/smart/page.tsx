@@ -3,6 +3,17 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useUndo } from './edit/use-undo'
+import { UndoButtons, useToast } from './edit/UndoButtons'
+import {
+  makeSwapOp,
+  makeSwapWithUnusedOp,
+  makeCrossSwapOp,
+  makeRemoveOp,
+  makeLayoutVariantOp,
+  type Spread as OpSpread,
+} from './edit/operations'
+import { SlotImage, type SlotAdjust } from './edit/PanSlider'
 
 export const runtime = 'edge'
 
@@ -933,6 +944,10 @@ export default function SmartDesignerPage() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [pageCount, setPageCount] = useState(15)
   const [spreads, setSpreads] = useState<Spread[]>([])
+  // Unused-pool state — explicit (not derived) so undo/redo ops can move
+  // photos between spreads and unused without recomputing. Initialized
+  // when generateLayout runs; maintained by ops afterwards.
+  const [unusedPhotoIds, setUnusedPhotoIds] = useState<string[]>([])
   const [eventFilter, setEventFilter] = useState<EventId | 'all'>('all')
   const [recatId, setRecatId] = useState<string | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
@@ -943,6 +958,21 @@ export default function SmartDesignerPage() {
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
   const [uploadProgress, setUploadProgress] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ----- Undo / redo (5-deep, per-album, persisted) -----
+  const { show: showToast, Toast } = useToast()
+  const undoApi = useUndo({
+    albumId,
+    state: {
+      spreads: spreads as unknown as OpSpread[],
+      unusedPhotoIds,
+    },
+    setState: ({ spreads: nextSpreads, unusedPhotoIds: nextUnused }) => {
+      setSpreads(nextSpreads as unknown as Spread[])
+      setUnusedPhotoIds(nextUnused)
+    },
+    onAnnounce: showToast,
+  })
 
   // -------- Album hydrate / mint on mount --------
   useEffect(() => {
@@ -964,6 +994,7 @@ export default function SmartDesignerPage() {
             photos: Photo[]
             spreads: Spread[]
             adjusts: Record<string, PhotoAdjust>
+            unusedPhotoIds: string[]
           }>
           if (s.size) setSize(s.size)
           if (s.type) setType(s.type)
@@ -972,6 +1003,7 @@ export default function SmartDesignerPage() {
           if (Array.isArray(s.photos)) setPhotos(s.photos)
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
+          if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
         }
       } catch {
         /* ignore corrupt state */
@@ -1020,13 +1052,14 @@ export default function SmartDesignerPage() {
         photos,
         spreads,
         adjusts,
+        unusedPhotoIds,
       }
       window.localStorage.setItem(`${SMART_STATE_PREFIX}:${albumId}`, JSON.stringify(payload))
       upsertAlbumIndex(albumId, {})
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts])
+  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, unusedPhotoIds])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -1128,58 +1161,82 @@ export default function SmartDesignerPage() {
     )
   }
 
+  /**
+   * After running generateLayout, install the spreads AND recompute the
+   * unused pool as photos that didn't make it into any spread (blurry
+   * photos are deliberately excluded from both layouts and the pool).
+   */
+  const installLayout = useCallback(
+    (newSpreads: Spread[]) => {
+      const placed = new Set(newSpreads.flatMap((s) => s.photoIds))
+      const newUnused = photos.filter((p) => !p.blurry && !placed.has(p.id)).map((p) => p.id)
+      setSpreads(newSpreads)
+      setUnusedPhotoIds(newUnused)
+    },
+    [photos],
+  )
+
   const runGenerate = useCallback(() => {
     if (!type) return
+    if (undoApi.canUndo || undoApi.canRedo) {
+      const ok = window.confirm('Regenerating will clear your edit history. Continue?')
+      if (!ok) return
+    }
+    undoApi.clearStack()
     setGenerating(true)
     setStep('generate')
-    setAdjusts({}) // reset per-photo zoom/pan when regenerating
+    setAdjusts({})
     setTimeout(() => {
-      setSpreads(generateLayout(photos, pageCount, type))
+      installLayout(generateLayout(photos, pageCount, type))
       setGenerating(false)
       setStep('adjust')
     }, 1400)
-  }, [photos, pageCount, type])
+  }, [photos, pageCount, type, undoApi, installLayout])
 
   const regenerate = () => {
     if (!type) return
-    setSpreads(generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type))
+    if (undoApi.canUndo || undoApi.canRedo) {
+      const ok = window.confirm('Regenerating will clear your edit history. Continue?')
+      if (!ok) return
+    }
+    undoApi.clearStack()
+    installLayout(generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type))
     setAdjusts({})
   }
 
+  // Swap a slot photo with a replacement (could be from another spread,
+  // could be from unused pool). Records the right Op so it goes on the
+  // undo stack.
   const swapPhoto = (newPhotoId: string) => {
     if (!swapSlot) return
     const replacingSpreadId = swapSlot.spreadId
     const replacingIdx = swapSlot.idx
-    setSpreads((prev) => {
-      const next = prev.map((s) => {
-        if (s.id !== replacingSpreadId) return s
-        const newIds = [...s.photoIds]
-        newIds[replacingIdx] = newPhotoId
-        return { ...s, photoIds: newIds }
-      })
-      // Maintain "all photos placed": if newPhotoId was already in another spread,
-      // backfill that spread with an unused photo.
-      const counts = new Map<string, number>()
-      next.forEach((s) => s.photoIds.forEach((pid) => counts.set(pid, (counts.get(pid) ?? 0) + 1)))
-      const used = new Set(next.flatMap((s) => s.photoIds))
-      const unused = photos.filter((p) => !p.blurry && !used.has(p.id))
-      if (unused.length === 0) return next
-      let ui = 0
-      return next.map((s) => ({
-        ...s,
-        photoIds: s.photoIds.map((pid, i) => {
-          // duplicate at this position?
-          const totalForPid = counts.get(pid) ?? 0
-          if (totalForPid > 1 && unused[ui] && !(s.id === replacingSpreadId && i === replacingIdx)) {
-            counts.set(pid, totalForPid - 1)
-            const replacement = unused[ui++]
-            return replacement.id
-          }
-          return pid
-        }),
-      }))
-    })
-    // Reset adjustment for this slot since photo changed
+
+    const opState = {
+      spreads: spreads as unknown as OpSpread[],
+      unusedPhotoIds,
+    }
+
+    if (unusedPhotoIds.includes(newPhotoId)) {
+      // Swap with unused
+      undoApi.record(makeSwapWithUnusedOp(opState, replacingSpreadId, replacingIdx, newPhotoId))
+    } else {
+      // Cross-spread swap: find which spread/slot the new photo currently lives in
+      const sourceSpread = spreads.find((s) => s.photoIds.includes(newPhotoId))
+      if (sourceSpread) {
+        const sourceIdx = sourceSpread.photoIds.indexOf(newPhotoId)
+        if (sourceSpread.id === replacingSpreadId) {
+          // In-spread reorder
+          undoApi.record(makeSwapOp(opState, replacingSpreadId, sourceIdx, replacingIdx))
+        } else {
+          // Cross-spread swap
+          undoApi.record(
+            makeCrossSwapOp(opState, sourceSpread.id, sourceIdx, replacingSpreadId, replacingIdx),
+          )
+        }
+      }
+    }
+    // Reset adjustment for this slot since the photo changed
     setAdjusts((prev) => {
       const next = { ...prev }
       delete next[adjustKey(replacingSpreadId, replacingIdx)]
@@ -1189,25 +1246,40 @@ export default function SmartDesignerPage() {
   }
 
   const swapTemplate = (spreadId: string, newTemplateId: string) => {
-    setSpreads(
-      spreads.map((s) => {
-        if (s.id !== spreadId) return s
-        const newTpl = TEMPLATE_BY_ID.get(newTemplateId)
-        if (!newTpl) return s
-        let newIds = [...s.photoIds]
-        if (newTpl.slots.length < newIds.length) newIds = newIds.slice(0, newTpl.slots.length)
-        if (newTpl.slots.length > newIds.length) {
-          const used = new Set(spreads.flatMap((sp) => sp.photoIds))
-          const fillers = photos.filter((p) => !p.blurry && !used.has(p.id))
-          while (newIds.length < newTpl.slots.length && fillers.length > 0) {
-            newIds.push(fillers.shift()!.id)
-          }
-        }
-        return { ...s, templateId: newTemplateId, photoIds: newIds }
-      }),
+    const current = spreads.find((s) => s.id === spreadId)
+    if (!current) return
+    const newTpl = TEMPLATE_BY_ID.get(newTemplateId)
+    if (!newTpl) return
+
+    let newIds = [...current.photoIds]
+    let nextUnused = [...unusedPhotoIds]
+
+    if (newTpl.slots.length < newIds.length) {
+      // shrink: surplus photos go to unused
+      const surplus = newIds.slice(newTpl.slots.length)
+      newIds = newIds.slice(0, newTpl.slots.length)
+      nextUnused = [...nextUnused, ...surplus]
+    } else if (newTpl.slots.length > newIds.length) {
+      // grow: pull from unused
+      const need = newTpl.slots.length - newIds.length
+      const pulled = nextUnused.slice(0, need)
+      nextUnused = nextUnused.slice(need)
+      newIds = [...newIds, ...pulled]
+    }
+
+    const op = makeLayoutVariantOp(
+      { spreads: spreads as unknown as OpSpread[] },
+      spreadId,
+      newTemplateId,
+      newIds,
     )
+    // Layout variant op only knows about the spread; if we shifted the
+    // unused pool above, sync it manually after recording.
+    undoApi.record(op)
+    if (nextUnused.length !== unusedPhotoIds.length) {
+      setUnusedPhotoIds(nextUnused)
+    }
     setLayoutMenuId(null)
-    // Adjustment indices may now point to wrong slot — clear adjustments for this spread
     setAdjusts((prev) => {
       const next: Record<string, PhotoAdjust> = {}
       Object.entries(prev).forEach(([k, v]) => {
@@ -1230,6 +1302,8 @@ export default function SmartDesignerPage() {
     setType(null)
     setPhotos([])
     setSpreads([])
+    setUnusedPhotoIds([])
+    undoApi.clearStack()
     setPageCount(15)
     setEventFilter('all')
     setAdjusts({})
@@ -1241,11 +1315,33 @@ export default function SmartDesignerPage() {
     return m
   }, [photos])
 
-  const usedPhotoIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds)), [spreads])
+  // usedPhotoIds and unusedPhotos are now derived from explicit
+  // unusedPhotoIds state (maintained via ops) rather than computed
+  // from spreads. This is what lets undo/redo move photos in and out
+  // of the unused pool cleanly.
+  const usedPhotoIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds.filter(Boolean))), [spreads])
   const unusedPhotos = useMemo(
-    () => photos.filter((p) => !p.blurry && !usedPhotoIds.has(p.id)),
-    [photos, usedPhotoIds],
+    () =>
+      unusedPhotoIds
+        .map((id) => photos.find((p) => p.id === id))
+        .filter((p): p is Photo => Boolean(p) && !p.blurry),
+    [unusedPhotoIds, photos],
   )
+
+  // Hydrate-time backfill: if we restored saved state but unusedPhotoIds
+  // is empty (because the persistence format was older or got out of
+  // sync), recompute it from photos minus used. Only runs once after
+  // hydration.
+  useEffect(() => {
+    if (!hydrated) return
+    if (spreads.length === 0) return
+    if (unusedPhotoIds.length > 0) return
+    const used = new Set(spreads.flatMap((s) => s.photoIds.filter(Boolean) as string[]))
+    const computed = photos.filter((p) => !p.blurry && !used.has(p.id)).map((p) => p.id)
+    if (computed.length > 0) setUnusedPhotoIds(computed)
+    // Only run once per hydration — empty stays empty after intentional clears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated])
 
   // ============== RENDERS ==============
 
@@ -1935,13 +2031,23 @@ export default function SmartDesignerPage() {
           <h2 style={{ ...css.title, marginBottom: 0 }}>
             Review &amp; <em style={css.titleEm}>adjust</em>
           </h2>
-          <button type="button" style={css.btnGhost} onClick={regenerate}>
-            ↻ Regenerate
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <UndoButtons
+              canUndo={undoApi.canUndo}
+              canRedo={undoApi.canRedo}
+              nextUndoLabel={undoApi.nextUndoLabel}
+              nextRedoLabel={undoApi.nextRedoLabel}
+              onUndo={undoApi.undo}
+              onRedo={undoApi.redo}
+            />
+            <button type="button" style={css.btnGhost} onClick={regenerate}>
+              ↻ Regenerate
+            </button>
+          </div>
         </div>
         <p style={css.subtitle}>
           {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard (with gutter)' : 'Layflat (flush)'} · click any photo
-          for swap or zoom controls; click the layout pill to switch templates.
+          for swap or zoom controls; click the layout pill to switch templates. Drag the photo to pan, or use the sliders.
         </p>
 
         {swapSlot && (
@@ -2007,16 +2113,24 @@ export default function SmartDesignerPage() {
                   })
                 }}
                 onRemovePhoto={(idx) => {
-                  // Photo returns to the unused pool: clear the slot's
-                  // photo id (template stays intact, slot shows empty
-                  // placeholder).
-                  setSpreads((prev) =>
-                    prev.map((sp) => {
-                      if (sp.id !== s.id) return sp
-                      const newIds = [...sp.photoIds]
-                      newIds.splice(idx, 1)
-                      return { ...sp, photoIds: newIds, templateId: pickFitTemplate(sp.templateId, newIds.length, type) }
-                    }),
+                  // Photo returns to the unused pool. Records a Remove op
+                  // so it goes on the undo stack.
+                  const newIds = [...s.photoIds]
+                  newIds.splice(idx, 1)
+                  if (newIds.length === 0) {
+                    // Don't allow removing the last photo on a spread
+                    showToast('Spread must have at least 1 photo')
+                    return
+                  }
+                  const newTplId = pickFitTemplate(s.templateId, newIds.length, type)
+                  undoApi.record(
+                    makeRemoveOp(
+                      { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+                      s.id,
+                      idx,
+                      newTplId,
+                      newIds,
+                    ),
                   )
                   setAdjusts((prev) => {
                     const next = { ...prev }
@@ -2232,6 +2346,9 @@ export default function SmartDesignerPage() {
       {step === 'generate' && renderGenerate()}
       {step === 'adjust' && renderAdjust()}
       {step === 'submit' && renderSubmit()}
+
+      {/* Toast for op announcements (undo/redo/etc.) */}
+      {Toast}
     </div>
   )
 }
@@ -2393,11 +2510,22 @@ function SpreadView({
         }}
       >
         {tpl.slots.map((slot, i) => {
-          const photo = photoMap.get(spread.photoIds[i])
+          const id = spread.photoIds[i]
+          const photo = id ? photoMap.get(id) : undefined
           const editing = editingSlot === i
           const adj = adjusts[adjustKey(spread.id, i)] ?? DEFAULT_ADJUST
-          const scaleX = (adj.flipH ? -1 : 1) * adj.zoom
-          const scaleY = (adj.flipV ? -1 : 1) * adj.zoom
+          // SlotImage uses object-position for pan (the pan-fix). It also
+          // supports drag-to-pan, but only when onAdjustChange is wired —
+          // we wire it only for the slot the user is currently editing
+          // so casual clicks elsewhere don't accidentally pan.
+          const slotAdjust: SlotAdjust = {
+            panX: adj.panX,
+            panY: adj.panY,
+            zoom: adj.zoom,
+            rotate: adj.rotate,
+            flipH: adj.flipH,
+            flipV: adj.flipV,
+          }
           return (
             <div
               key={i}
@@ -2415,26 +2543,21 @@ function SpreadView({
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,
                 overflow: 'hidden',
-                background: '#0e0c09',
+                background: '#f5f0e8',
               }}
               title={slot.isHero ? 'Hero photo' : 'Photo'}
             >
               {photo && (
                 <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <SlotImage
                     src={photo.preview}
-                    alt=""
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: adj.fit === 'contain' ? 'contain' : 'cover',
-                      objectPosition: `${adj.panX}% ${adj.panY}%`,
-                      transform: `scale(${scaleX}, ${scaleY}) rotate(${adj.rotate}deg)`,
-                      transition: editing ? 'none' : 'transform 0.2s',
-                      display: 'block',
-                      background: adj.fit === 'contain' ? '#ffffff' : 'transparent',
-                    }}
+                    adjust={slotAdjust}
+                    fit={adj.fit}
+                    onAdjustChange={
+                      editing
+                        ? (next) => onAdjustChange(i, next as Partial<PhotoAdjust>)
+                        : undefined
+                    }
                   />
                   {slot.isHero && (
                     <span
@@ -2450,6 +2573,7 @@ function SpreadView({
                         borderRadius: 30,
                         textTransform: 'uppercase',
                         fontWeight: 700,
+                        pointerEvents: 'none',
                       }}
                     >
                       Hero
