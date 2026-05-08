@@ -14,7 +14,9 @@
       "Bash(cp HANDOFF_SMART.md \"C:/Users/fufck/Documents/GitHub/folio-forever-next/HANDOFF_SMART.md\" && ls -lh \"C:/Users/fufck/Documents/GitHub/folio-forever-next/HANDOFF_SMART.md\")",
       "Bash(unzip -o files.zip)",
       "Bash(npm install *)",
-      "Bash(node_modules/.bin/next build *)"
+      "Bash(node_modules/.bin/next build *)",
+      "Bash(curl -s -L \"https://folioforever.com/design/smart\")",
+      "Bash(curl -s \"https://folioforever.com/_next/static/chunks/app/design/smart/page-b19f193cd72fd6ca.js\")"
     ]
   }
 }

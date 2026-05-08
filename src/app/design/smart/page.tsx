@@ -1511,10 +1511,14 @@ export default function SmartDesignerPage() {
   // of the unused pool cleanly.
   const usedPhotoIds = useMemo(() => new Set(spreads.flatMap((s) => s.photoIds.filter(Boolean))), [spreads])
   const unusedPhotos = useMemo(
-    () =>
-      unusedPhotoIds
-        .map((id) => photos.find((p) => p.id === id))
-        .filter((p): p is Photo => Boolean(p) && !p.blurry),
+    () => {
+      const result: Photo[] = []
+      for (const id of unusedPhotoIds) {
+        const p = photos.find((x) => x.id === id)
+        if (p && !p.blurry) result.push(p)
+      }
+      return result
+    },
     [unusedPhotoIds, photos],
   )
 
