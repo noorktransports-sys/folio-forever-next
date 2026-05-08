@@ -67,6 +67,7 @@ The 9 steps inside the wizard:
 | [`src/app/design/smart/edit/use-undo.ts`](src/app/design/smart/edit/use-undo.ts) | `useUndo` hook: wraps the stack, dispatches state updates via `applyOp`, wires Cmd/Ctrl+Z keyboard shortcuts. |
 | [`src/app/design/smart/edit/UndoButtons.tsx`](src/app/design/smart/edit/UndoButtons.tsx) | Header undo/redo buttons + `useToast` for op announcements. |
 | [`src/app/design/smart/edit/PanSlider.tsx`](src/app/design/smart/edit/PanSlider.tsx) | `SlotImage` component (the pan-fix: `objectPosition: panX% panY%` is the canonical way to pan a fitted image — translate(px) was the bug). Also includes drag-to-pan when `onAdjustChange` is wired. |
+| [`src/app/design/smart/edit/photo-blob-store.ts`](src/app/design/smart/edit/photo-blob-store.ts) | IndexedDB helpers for storing uploaded photo `File` blobs so they survive a refresh. Per-album scoped via composite keys. `saveBlob`, `loadAlbumBlobs`, `deleteBlob`, `clearAlbumBlobs`. |
 | [`src/app/design/smart/edit/swap.tsx`](src/app/design/smart/edit/swap.tsx) | **NOT YET WIRED.** Hooks for tap-to-swap, drag-and-drop swap, and modal swap picker. See "Deferred features" §1. |
 | [`src/app/design/smart/edit/photo-count.ts`](src/app/design/smart/edit/photo-count.ts) | **NOT YET WIRED.** Builders for photo-count dropdown + drag-to-add. Needs my engine's `templatesForCount` signature changed first. See "Deferred features" §2. |
 | [`src/app/design/smart/edit/PhotoCountDropdown.tsx`](src/app/design/smart/edit/PhotoCountDropdown.tsx) | **NOT YET WIRED.** "2 PHOTOS ▾" dropdown component. See "Deferred features" §2. |
@@ -106,6 +107,7 @@ The `src/app/design/smart/edit/` folder contains a 9-file integration package th
 6. **`unusedPhotoIds` is now an explicit state slice** (not just derived). This is what lets ops move photos in and out of the unused pool without recomputing.
 7. **Drag-to-reorder spreads**. Each spread header has a `⋮⋮` grip on the "Spread N · 17×24" label — drag from there to a different spread to reposition (insert-before semantics). Gold drop-indicator line appears above the target. Recorded as a `reorder-spread` op so undo works.
 8. **Add more photos** button in the unused-panel sidebar. Opens a file picker; new photos go straight into the unused pool with `eventId: 'other'`, ready to be swapped into a spread. Honors the 100-photo cap.
+9. **IndexedDB photo persistence**. Uploaded blobs survive page refresh (was Bug #1). Saved per-album under `folio-smart-photos / blobs` IDB store with composite key `<albumId>::<photoId>`. On hydrate, fresh object URLs are minted and patched into the photos array. Cleared on Start New / reset.
 
 ### ⏸ Deferred (see commit history + `edit/INTEGRATION.md` for full guide)
 
@@ -126,28 +128,13 @@ The `src/app/design/smart/edit/` folder contains a 9-file integration package th
 
 ## Known bugs (priority order)
 
-### 1. Uploaded photos vanish after refresh ⚠ HIGH
+### 1. ~~Uploaded photos vanish after refresh~~ ✅ FIXED
 
-**Symptom**: User uploads photos → tags them → refreshes → photos broken.
+Each uploaded `File` is now persisted to IndexedDB (database `folio-smart-photos`, store `blobs`, key `${albumId}::${photoId}`). On hydrate, the wizard reads every blob belonging to the current album, creates fresh object URLs, and patches the `preview` field on the photos that had stale `blob:` URLs.
 
-**Root cause**: Uploaded files are referenced by blob URLs (`URL.createObjectURL(file)`). Browsers invalidate these on reload, so the saved URL no longer points to anything. The state is correctly persisted to localStorage; only the photo blob is lost.
+Helpers live in [`src/app/design/smart/edit/photo-blob-store.ts`](src/app/design/smart/edit/photo-blob-store.ts) — `saveBlob`, `loadAlbumBlobs`, `deleteBlob`, `clearAlbumBlobs`. All silent-fail if IndexedDB is unavailable (private browsing modes etc.). `clearAlbumBlobs` runs on Start New / reset() so storage doesn't leak.
 
-**Fix**: Store the actual `File` blobs in IndexedDB (keyed by photo id), not just metadata. On hydrate, recreate object URLs from the stored blobs. Quota allows ~50MB+ depending on browser.
-
-Suggested approach:
-```ts
-// Save:
-const db = await openDB('folio-photos', 1, { upgrade(db) { db.createObjectStore('files') } })
-await db.put('files', file, photoId)
-
-// Load:
-const file = await db.get('files', photoId)
-photo.preview = URL.createObjectURL(file)
-```
-
-Library suggestions: `idb` (lightweight IndexedDB wrapper) or write raw IndexedDB.
-
-**Note**: Sample wedding photos persist fine because they're stable HTTPS URLs (picsum). Only matters for real uploads.
+Sample wedding photos (stable HTTPS URLs from picsum) bypass IDB entirely.
 
 ### 2. ~~No active drag-to-pan on photo crops~~ ✅ FIXED
 
@@ -171,7 +158,7 @@ The `SlotImage` component from the `edit/` package now handles drag-to-pan when 
 
 | # | Feature | Estimated size | Notes |
 |---|---------|---------------|-------|
-| 1 | **IndexedDB photo persistence** | ~200 lines | Fixes Bug #1. Highest user value. |
+| 1 | ~~IndexedDB photo persistence~~ | — | ✅ Done — see "Known bugs §1". |
 | 2 | **Filter strip** | ~80 lines | B&W, Sepia, Bright, Vivid, Moody, Warm, Cool, Fade. CSS `filter` per slot. Already present in manual builder's album-builder.js — port the values. |
 | 3 | **Background color picker per spread** | ~60 lines | Currently spread bg is fixed white. Manual builder lets you change it per page. |
 | 4 | **Add-text overlay** | ~150 lines | Manual builder has `addTextOverlay`. User adds text, drags it on a spread, sets font/size/colour. |
@@ -234,6 +221,7 @@ Album state lives in **localStorage**, keyed per album by UUID.
 | `folio-albums-index` | `AlbumIndexEntry[]` — the My Albums list, shared with the manual builder. Smart entries have `mode: 'smart'`. | Both wizards |
 | `folio-smart-state:<id>` | The serialised wizard state: size, type, pageCount, step, photos, spreads, adjusts, **unusedPhotoIds**. | Smart wizard only |
 | `folio-smart-undo:<id>` | The 5-deep undo stack (forward + backward ops). Per-album. | Smart wizard only |
+| **IndexedDB** `folio-smart-photos` / `blobs` / key `<id>::<photoId>` | The actual `File` blob for each uploaded photo. Restored on refresh. | Smart wizard only |
 | `folio-design-state-v3:<id>` | Manual builder state. | Manual builder only |
 | `folio-cover-v1:<id>`, `folio-cover-photos-v1:<id>` | Manual builder cover. | Manual builder only |
 | `folio-submitted:<id>` | Order submission marker (locks the album from edits). | Both wizards |

@@ -15,6 +15,11 @@ import {
   type Spread as OpSpread,
 } from './edit/operations'
 import { SlotImage, type SlotAdjust } from './edit/PanSlider'
+import {
+  saveBlob,
+  loadAlbumBlobs,
+  clearAlbumBlobs,
+} from './edit/photo-blob-store'
 
 export const runtime = 'edge'
 
@@ -984,6 +989,7 @@ export default function SmartDesignerPage() {
       if (indexEntry) {
         setAlbumName(indexEntry.name)
       }
+      let loadedPhotos: Photo[] | null = null
       try {
         const raw = window.localStorage.getItem(`${SMART_STATE_PREFIX}:${urlAlbumId}`)
         if (raw) {
@@ -1001,7 +1007,10 @@ export default function SmartDesignerPage() {
           if (s.type) setType(s.type)
           if (typeof s.pageCount === 'number') setPageCount(s.pageCount)
           if (s.step) setStep(s.step)
-          if (Array.isArray(s.photos)) setPhotos(s.photos)
+          if (Array.isArray(s.photos)) {
+            loadedPhotos = s.photos
+            setPhotos(s.photos)
+          }
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
@@ -1009,6 +1018,24 @@ export default function SmartDesignerPage() {
       } catch {
         /* ignore corrupt state */
       }
+
+      // Restore uploaded photo blobs from IndexedDB.
+      // Saved blob: URLs are invalidated by the browser on reload, so we
+      // look them up by photoId in IDB and replace with fresh object URLs.
+      // Sample photos (https://picsum.photos/...) keep their stable URLs.
+      if (loadedPhotos && loadedPhotos.some((p) => p.preview.startsWith('blob:'))) {
+        loadAlbumBlobs(urlAlbumId).then((blobMap) => {
+          if (blobMap.size === 0) return
+          setPhotos((prev) =>
+            prev.map((p) => {
+              if (!p.preview.startsWith('blob:')) return p
+              const fresh = blobMap.get(p.id)
+              return fresh ? { ...p, preview: fresh } : p
+            }),
+          )
+        })
+      }
+
       setHydrated(true)
       return
     }
@@ -1107,8 +1134,9 @@ export default function SmartDesignerPage() {
     for (let i = 0; i < toProcess.length; i++) {
       const file = toProcess[i]
       const dim = await getImageDimensions(file)
+      const photoId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`
       newPhotos.push({
-        id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        id: photoId,
         preview: URL.createObjectURL(file),
         width: dim.width,
         height: dim.height,
@@ -1116,6 +1144,9 @@ export default function SmartDesignerPage() {
         eventId: 'other',
         blurry: false,
       })
+      // Persist the blob to IndexedDB so it survives a refresh.
+      // Fire-and-forget; failure is handled inside saveBlob.
+      if (albumId) saveBlob(albumId, photoId, file)
       setUploadProgress((i + 1) / toProcess.length)
     }
     setPhotos([...photos, ...newPhotos])
@@ -1366,8 +1397,9 @@ export default function SmartDesignerPage() {
     for (let i = 0; i < toProcess.length; i++) {
       const file = toProcess[i]
       const dim = await getImageDimensions(file)
+      const photoId = `${Date.now()}-add-${i}-${Math.random().toString(36).slice(2, 8)}`
       newPhotos.push({
-        id: `${Date.now()}-add-${i}-${Math.random().toString(36).slice(2, 8)}`,
+        id: photoId,
         preview: URL.createObjectURL(file),
         width: dim.width,
         height: dim.height,
@@ -1375,6 +1407,7 @@ export default function SmartDesignerPage() {
         eventId: 'other',
         blurry: false,
       })
+      if (albumId) saveBlob(albumId, photoId, file)
     }
     setPhotos((prev) => [...prev, ...newPhotos])
     setUnusedPhotoIds((prev) => [...prev, ...newPhotos.map((p) => p.id)])
@@ -1384,6 +1417,9 @@ export default function SmartDesignerPage() {
   }
 
   const reset = () => {
+    // Clear stored photo blobs for this album so storage doesn't leak.
+    // Fire-and-forget — don't block the reset.
+    if (albumId) clearAlbumBlobs(albumId)
     setStep('setup')
     setSize(null)
     setType(null)
