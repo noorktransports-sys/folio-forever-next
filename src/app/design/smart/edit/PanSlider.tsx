@@ -82,8 +82,10 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style, fit = 
     // → object-position decreases), scale by zoom (more zoom = same drag has less effect on pan%).
     const dxPct = ((e.clientX - ds.startX) / ds.rect.width) * 100 / Math.max(1, adjust.zoom)
     const dyPct = ((e.clientY - ds.startY) / ds.rect.height) * 100 / Math.max(1, adjust.zoom)
-    const nextX = Math.max(0, Math.min(100, ds.startPanX - dxPct))
-    const nextY = Math.max(0, Math.min(100, ds.startPanY - dyPct))
+    // Round to integers so toolbar display doesn't show 56.61231503%.
+    // Visual pan still feels smooth — users won't notice 1% snapping.
+    const nextX = Math.round(Math.max(0, Math.min(100, ds.startPanX - dxPct)))
+    const nextY = Math.round(Math.max(0, Math.min(100, ds.startPanY - dyPct)))
     onAdjustChange({ ...adjust, panX: nextX, panY: nextY })
   }, [adjust, onAdjustChange])
 
