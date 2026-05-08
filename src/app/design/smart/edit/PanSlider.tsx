@@ -97,6 +97,13 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style, fit = 
   // Build the transform. Order matters: rotate, then scale, then flip.
   const flipScale = `${adjust.flipH ? -1 : 1}, ${adjust.flipV ? -1 : 1}`
   const transform = `rotate(${adjust.rotate}deg) scale(${adjust.zoom}) scale(${flipScale})`
+  // Anchor scaling to the pan point. At zoom=1 this has no effect (no
+  // scaling), so object-position alone handles the crop. At zoom > 1,
+  // shifting the pivot means panX=0 scales out from the LEFT edge
+  // (showing the left of the image), panX=100 from the right, etc.
+  // This is what makes "pan freely while zoomed" feel right — without
+  // it, scale always pivots on center and pan range never increases.
+  const transformOrigin = `${adjust.panX}% ${adjust.panY}%`
 
   return (
     <div
@@ -120,11 +127,9 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style, fit = 
         style={{
           width: '100%', height: '100%',
           objectFit: fit === 'contain' ? 'contain' : 'cover',
-          // ─── This is the line your bug is on ─────────────────────────
           objectPosition: `${adjust.panX}% ${adjust.panY}%`,
-          // ─────────────────────────────────────────────────────────────
           transform,
-          transformOrigin: 'center center',
+          transformOrigin,
           userSelect: 'none',
           pointerEvents: 'none', // let the container handle drag
           background: fit === 'contain' ? '#ffffff' : 'transparent',

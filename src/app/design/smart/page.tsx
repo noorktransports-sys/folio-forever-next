@@ -1501,26 +1501,59 @@ export default function SmartDesignerPage() {
     },
     [type, spreads, unusedPhotoIds, isHeroPhoto, templatesForCountAdapter, undoApi, showToast],
   )
+  // Custom count-change that mirrors swapTemplate's "leave-empty" behavior:
+  //   - GROW: keep current photos, pad with null slots (user fills via + button or drag)
+  //   - SHRINK: keep first N photos, push surplus back to unused
+  // The integration's buildPhotoCountOp blocks growing without unused photos,
+  // which the owner explicitly does NOT want — they want to grow even with
+  // an empty pool and fill manually.
   const handlePhotoCountChange = useCallback(
     (spreadId: string, newCount: number) => {
       if (!type) return
-      const result = buildPhotoCountOp(
-        { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
-        spreadId,
-        newCount,
-        { albumType: type, isHeroPhoto, templatesForCount: templatesForCountAdapter },
+      const spread = spreads.find((s) => s.id === spreadId)
+      if (!spread) return
+      const filled = spread.photoIds.filter((id): id is string => Boolean(id))
+      const currentCount = filled.length
+      if (newCount === currentCount) return
+
+      // Pick a template with the new slot count. Prefer same hero/non-hero kind.
+      const currentTpl = TEMPLATE_BY_ID.get(spread.templateId)
+      const wantsHero = currentTpl?.slots.some((s) => s.isHero) && newCount >= 2
+      const candidates = TEMPLATES.filter(
+        (t) => t.compat.includes(type) && t.slots.length === newCount,
       )
-      if ('op' in result) {
-        undoApi.record(result.op)
-      } else if (result.error === 'no-unused') {
-        showToast('Not enough unused photos to grow this spread')
-      } else if (result.error === 'count-unchanged') {
-        // silent — same count picked
+      const newTpl =
+        candidates.find((t) => t.slots.some((s) => s.isHero) === wantsHero) ?? candidates[0]
+      if (!newTpl) {
+        showToast(`No layout available for ${newCount} photos`)
+        return
+      }
+
+      let newIds: (string | null)[]
+      let nextUnused = [...unusedPhotoIds]
+      if (newCount > currentCount) {
+        // Grow: keep filled + pad with nulls (empty slots show "+ Add")
+        newIds = [...filled]
+        while (newIds.length < newCount) newIds.push(null)
       } else {
-        showToast(`Couldn't change count: ${result.error}`)
+        // Shrink: keep first N, push surplus back to unused pool
+        newIds = filled.slice(0, newCount)
+        const surplus = filled.slice(newCount)
+        nextUnused = [...nextUnused, ...surplus]
+      }
+
+      const op = makeLayoutVariantOp(
+        { spreads: spreads as unknown as OpSpread[] },
+        spreadId,
+        newTpl.id,
+        newIds,
+      )
+      undoApi.record(op)
+      if (nextUnused.length !== unusedPhotoIds.length) {
+        setUnusedPhotoIds(nextUnused)
       }
     },
-    [type, spreads, unusedPhotoIds, isHeroPhoto, templatesForCountAdapter, undoApi, showToast],
+    [type, spreads, unusedPhotoIds, undoApi, showToast],
   )
   // useSlotDrag gives us slot draggability + drop targets + spread-bg
   // drop handler. record + state are passed in; the hooks call our op
@@ -2744,16 +2777,36 @@ export default function SmartDesignerPage() {
                 albumType={type}
                 adjusts={adjusts}
                 onPhotoClick={(idx) => {
-                  // Always reveal the toolbar on click. If we were in swap
-                  // mode for a different slot, switch the active slot.
+                  // Swap mode: clicking ANOTHER slot performs the swap.
+                  // Clicking the SAME slot (the armed one) cancels the swap.
+                  if (swapSlot) {
+                    if (swapSlot.spreadId === s.id && swapSlot.idx === idx) {
+                      // Same slot tapped twice — cancel
+                      setSwapSlot(null)
+                    } else {
+                      // Different slot — perform cross-slot swap via op
+                      const opState = {
+                        spreads: spreads as unknown as OpSpread[],
+                        unusedPhotoIds,
+                      }
+                      if (swapSlot.spreadId === s.id) {
+                        undoApi.record(makeSwapOp(opState, s.id, swapSlot.idx, idx))
+                      } else {
+                        undoApi.record(
+                          makeCrossSwapOp(opState, swapSlot.spreadId, swapSlot.idx, s.id, idx),
+                        )
+                      }
+                      setSwapSlot(null)
+                      setEditSlot({ spreadId: s.id, idx })
+                    }
+                    return
+                  }
+                  // Normal click — open the toolbar (or close if same slot already open)
                   setEditSlot(
                     editSlot && editSlot.spreadId === s.id && editSlot.idx === idx
                       ? null
                       : { spreadId: s.id, idx },
                   )
-                  if (swapSlot && (swapSlot.spreadId !== s.id || swapSlot.idx !== idx)) {
-                    setSwapSlot(null)
-                  }
                 }}
                 editingSlot={editSlot && editSlot.spreadId === s.id ? editSlot.idx : -1}
                 swappingSlot={swapSlot && swapSlot.spreadId === s.id ? swapSlot.idx : -1}
