@@ -285,6 +285,12 @@ approve a plan.
 ## Recent commits on this branch (newest first)
 
 ```
+6e7a10f  feat(design/smart): wire DnD swap, drag-to-add, and per-spread count dropdown
+a08a935  fix(design/smart): persist uploaded photos in IndexedDB across refresh
+733192e  fix(design/smart): cap at 5 photos per spread, fix guidance copy
+0b394cb  feat(design/smart): drag-to-reorder spreads + add-more-photos sidebar
+d0988a5  feat(design/smart): apply edit/ package — undo/redo, pan-fix, ops architecture
+16104fd  docs: add HANDOFF_SMART.md for cold-pickup of /design/smart wizard
 f16330f  fix(design/smart): pacing rule, white gaps, full photo toolbar, swap fix
 c986252  feat(design/smart): album persistence — name prompt, save, resume
 88e4756  fix(design/smart): tighter gaps, strict events, hero+4, layout swap, photo zoom/pan
@@ -296,7 +302,7 @@ e7bae52  feat(design): add Smart Auto-Layout as third path option
 b6edd54  feat(design/smart): replace Smart Auto-Layout page with new wizard UI
 ```
 
-For full history: `git log --oneline src/app/design/smart/page.tsx`
+For full history: `git log --oneline src/app/design/smart/`
 
 ---
 
@@ -308,4 +314,4 @@ For full history: `git log --oneline src/app/design/smart/page.tsx`
 - **About what was deferred and why**: this doc, "Deferred features" section
 - **About anything else**: open a PR with your question in the description; the owner can review
 
-Last updated: 2026-05-07
+Last updated: 2026-05-08
