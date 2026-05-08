@@ -20,6 +20,9 @@ import {
   loadAlbumBlobs,
   clearAlbumBlobs,
 } from './edit/photo-blob-store'
+import { useSlotDrag } from './edit/swap'
+import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
+import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 
 export const runtime = 'edge'
 
@@ -1330,6 +1333,70 @@ export default function SmartDesignerPage() {
     }))
   }
 
+  // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
+  // Adapter so templatesForCount matches the integration's signature
+  // (count, { type, hasHero }).
+  const templatesForCountAdapter = useCallback(
+    (count: number, opts: { type: AlbumType; hasHero: boolean }) =>
+      templatesForCount(count, opts.type).filter((t) =>
+        opts.hasHero ? t.slots.some((s) => s.isHero) : !t.slots.some((s) => s.isHero),
+      ),
+    [],
+  )
+  const isHeroPhoto = useCallback(
+    (id: string) => photos.find((p) => p.id === id)?.tagged === 'hero',
+    [photos],
+  )
+  const handleAddUnusedToSpread = useCallback(
+    (spreadId: string, photoId: string) => {
+      if (!type) return
+      const result = buildAddOp(
+        { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+        spreadId,
+        photoId,
+        { albumType: type, isHeroPhoto, templatesForCount: templatesForCountAdapter, maxPhotosPerSpread: 5 },
+      )
+      if ('op' in result) {
+        undoApi.record(result.op)
+      } else if (result.error === 'at-capacity') {
+        showToast('Spread is at the 5-photo cap')
+      } else {
+        showToast(`Couldn't add: ${result.error}`)
+      }
+    },
+    [type, spreads, unusedPhotoIds, isHeroPhoto, templatesForCountAdapter, undoApi, showToast],
+  )
+  const handlePhotoCountChange = useCallback(
+    (spreadId: string, newCount: number) => {
+      if (!type) return
+      const result = buildPhotoCountOp(
+        { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+        spreadId,
+        newCount,
+        { albumType: type, isHeroPhoto, templatesForCount: templatesForCountAdapter },
+      )
+      if ('op' in result) {
+        undoApi.record(result.op)
+      } else if (result.error === 'no-unused') {
+        showToast('Not enough unused photos to grow this spread')
+      } else if (result.error === 'count-unchanged') {
+        // silent — same count picked
+      } else {
+        showToast(`Couldn't change count: ${result.error}`)
+      }
+    },
+    [type, spreads, unusedPhotoIds, isHeroPhoto, templatesForCountAdapter, undoApi, showToast],
+  )
+  // useSlotDrag gives us slot draggability + drop targets + spread-bg
+  // drop handler. record + state are passed in; the hooks call our op
+  // constructors directly for the simple swap cases. The +1 layout case
+  // routes through onAddRequested → handleAddUnusedToSpread.
+  const slotDrag = useSlotDrag({
+    state: { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+    record: undoApi.record,
+    onAddRequested: handleAddUnusedToSpread,
+  })
+
   // ---------- Drag-to-reorder spreads ----------
   // Lightweight HTML5 drag. The dragged spread's index is stashed in
   // dataTransfer; the drop target computes the new index.
@@ -2169,8 +2236,9 @@ export default function SmartDesignerPage() {
           </div>
         </div>
         <p style={css.subtitle}>
-          {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard (with gutter)' : 'Layflat (flush)'} · click any photo
-          for swap or zoom controls; click the layout pill to switch templates. Drag the photo to pan, or use the sliders.
+          {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard (with gutter)' : 'Layflat (flush)'} · click a photo for tools ·
+          drag photos between slots to swap · drag from Unused onto a spread to add a photo · use the count pill to grow / shrink ·
+          Cmd+Z to undo.
         </p>
 
         {swapSlot && (
@@ -2206,6 +2274,9 @@ export default function SmartDesignerPage() {
                 onDragOver={onSpreadDragOver(i)}
                 onDrop={onSpreadDrop(i)}
                 onDragEnd={onSpreadDragEnd}
+                slotDragHandlers={slotDrag.slotHandlers}
+                spreadDropHandlers={slotDrag.spreadDropHandlers}
+                onPhotoCountChange={(n) => handlePhotoCountChange(s.id, n)}
                 photoMap={photoMap}
                 albumSize={size}
                 albumType={type}
@@ -2348,7 +2419,9 @@ export default function SmartDesignerPage() {
               ) : (
                 <>
                   <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
-                    {swapSlot ? 'Click one to drop into the selected slot.' : 'Use Swap on a photo to bring these in, or add more spreads.'}
+                    {swapSlot
+                      ? 'Click one to drop into the selected slot.'
+                      : 'Drag a photo onto a slot to swap, or onto a spread for +1 layout.'}
                   </p>
                   <div
                     style={{
@@ -2362,18 +2435,30 @@ export default function SmartDesignerPage() {
                     {unusedPhotos.map((p) => (
                       <div
                         key={p.id}
+                        draggable
+                        onDragStart={slotDrag.unusedHandlers(p.id).onDragStart}
+                        onDragEnd={slotDrag.unusedHandlers(p.id).onDragEnd}
                         onClick={() => swapSlot && swapPhoto(p.id)}
                         style={{
                           aspectRatio: '1',
                           borderRadius: 4,
                           overflow: 'hidden',
-                          cursor: swapSlot ? 'pointer' : 'default',
+                          cursor: 'grab',
                           border: '0.5px solid rgba(184,150,90,0.2)',
                         }}
-                        title={swapSlot ? 'Click to use as replacement' : undefined}
+                        title={
+                          swapSlot
+                            ? 'Click to use as replacement, or drag to a slot'
+                            : 'Drag onto a slot to swap, or onto a spread for +1 layout'
+                        }
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img
+                          src={p.preview}
+                          alt=""
+                          draggable={false}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                        />
                       </div>
                     ))}
                   </div>
@@ -2542,6 +2627,9 @@ function getImageDimensions(file: File): Promise<{ width: number; height: number
 
 // ============== SPREAD RENDER ==============
 
+type SlotDragHandlers = ReturnType<typeof useSlotDrag>['slotHandlers']
+type SpreadDropHandlers = ReturnType<typeof useSlotDrag>['spreadDropHandlers']
+
 function SpreadView({
   spread,
   index,
@@ -2551,6 +2639,9 @@ function SpreadView({
   onDragOver,
   onDrop,
   onDragEnd,
+  slotDragHandlers,
+  spreadDropHandlers,
+  onPhotoCountChange,
   photoMap,
   albumSize,
   albumType,
@@ -2574,6 +2665,9 @@ function SpreadView({
   onDragOver: (e: React.DragEvent) => void
   onDrop: (e: React.DragEvent) => void
   onDragEnd: () => void
+  slotDragHandlers: SlotDragHandlers
+  spreadDropHandlers: SpreadDropHandlers
+  onPhotoCountChange: (n: number) => void
   photoMap: Map<string, Photo>
   albumSize: AlbumSize
   albumType: AlbumType
@@ -2658,6 +2752,14 @@ function SpreadView({
           <span style={{ color: GOLD, fontSize: 11, fontWeight: 700 }}>⋮⋮</span>
           Spread {index + 1} · {ALBUM_SPECS[albumSize].label}
         </span>
+
+        {/* Photo count dropdown — change how many photos this spread holds */}
+        <PhotoCountDropdown
+          current={spread.photoIds.filter(Boolean).length}
+          available={[1, 2, 3, 4, 5]}
+          onChange={onPhotoCountChange}
+        />
+
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -2733,6 +2835,10 @@ function SpreadView({
       </div>
 
       <div
+        // Spread-level drop target: dropping an unused photo here
+        // (NOT on a specific slot) grows the template by 1.
+        onDragOver={spreadDropHandlers(spread.id).onDragOver}
+        onDrop={spreadDropHandlers(spread.id).onDrop}
         style={{
           position: 'relative',
           width: '100%',
@@ -2747,10 +2853,6 @@ function SpreadView({
           const photo = id ? photoMap.get(id) : undefined
           const editing = editingSlot === i
           const adj = adjusts[adjustKey(spread.id, i)] ?? DEFAULT_ADJUST
-          // SlotImage uses object-position for pan (the pan-fix). It also
-          // supports drag-to-pan, but only when onAdjustChange is wired —
-          // we wire it only for the slot the user is currently editing
-          // so casual clicks elsewhere don't accidentally pan.
           const slotAdjust: SlotAdjust = {
             panX: adj.panX,
             panY: adj.panY,
@@ -2759,6 +2861,12 @@ function SpreadView({
             flipH: adj.flipH,
             flipV: adj.flipV,
           }
+          // Slot-level DnD: each slot is BOTH draggable (drag a photo
+          // to another slot to swap) AND a drop target (drop a slot
+          // photo or unused thumbnail here to swap).
+          // Only photo-bearing slots are draggable — empty slots can
+          // still receive drops but you can't drag from them.
+          const slotDH = slotDragHandlers(spread.id, i)
           return (
             <div
               key={i}
@@ -2766,19 +2874,28 @@ function SpreadView({
                 e.stopPropagation()
                 onPhotoClick(i)
               }}
+              draggable={!!photo}
+              onDragStart={photo ? slotDH.onDragStart : undefined}
+              onDragOver={slotDH.onDragOver}
+              onDrop={(e) => {
+                slotDH.onDrop(e)
+                // Stop the spread-level drop from also firing
+                e.stopPropagation()
+              }}
+              onDragEnd={slotDH.onDragEnd}
               style={{
                 position: 'absolute',
                 left: `${slot.x}%`,
                 top: `${slot.y}%`,
                 width: `${slot.w}%`,
                 height: `${slot.h}%`,
-                cursor: 'pointer',
+                cursor: photo ? 'grab' : 'pointer',
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,
                 overflow: 'hidden',
                 background: '#f5f0e8',
               }}
-              title={slot.isHero ? 'Hero photo' : 'Photo'}
+              title={slot.isHero ? 'Hero photo · drag to swap' : 'Photo · drag to swap'}
             >
               {photo && (
                 <>
