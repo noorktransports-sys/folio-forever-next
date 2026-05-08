@@ -587,6 +587,12 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
     'valima',
     'other1',
     'other2',
+    // 'unassigned' is appended last so any photos the user didn't tag
+    // in the Group step still get placed in the album. Without this,
+    // untagged photos vanish during generation and the album ends up
+    // empty (0 spreads). Per-spread label falls back gracefully when
+    // the EventId isn't in the EVENTS list.
+    'unassigned',
   ]
   const buckets = eventOrder
     .map((eid) => ({
@@ -3255,7 +3261,9 @@ function SpreadView({
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
 
-  const eventName = EVENTS.find((e) => e.id === spread.eventId)?.name ?? ''
+  const eventName = spread.eventId === 'unassigned'
+    ? 'Untagged'
+    : EVENTS.find((e) => e.id === spread.eventId)?.name ?? ''
   const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
   const showGutter = albumType === 'standard'
 
