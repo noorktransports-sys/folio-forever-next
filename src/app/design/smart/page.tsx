@@ -1018,6 +1018,15 @@ export default function SmartDesignerPage() {
   // Tracks which event card is currently a drag-over target (for the
   // gold-highlight feedback while the user drags a photo onto a tag).
   const [recatDragOverEvent, setRecatDragOverEvent] = useState<EventId | null>(null)
+  // Multi-select for the Group step. Click a photo to toggle its selection;
+  // dragging any selected photo carries the whole set. The action bar at the
+  // bottom of the screen gives quick "Move all to <tag>" buttons.
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set())
+  // Per-album custom names for the event tags. Keyed by EventId. Persisted
+  // alongside the rest of the wizard state. Falls back to the default name
+  // from the EVENTS array.
+  const [customEventNames, setCustomEventNames] = useState<Record<string, string>>({})
+  const [editingTagId, setEditingTagId] = useState<EventId | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
@@ -1064,6 +1073,7 @@ export default function SmartDesignerPage() {
             spreads: Spread[]
             adjusts: Record<string, PhotoAdjust>
             unusedPhotoIds: string[]
+            customEventNames: Record<string, string>
           }>
           if (s.size) setSize(s.size)
           if (s.type) setType(s.type)
@@ -1083,6 +1093,9 @@ export default function SmartDesignerPage() {
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
+          if (s.customEventNames && typeof s.customEventNames === 'object') {
+            setCustomEventNames(s.customEventNames)
+          }
         }
       } catch {
         /* ignore corrupt state */
@@ -1150,13 +1163,14 @@ export default function SmartDesignerPage() {
         spreads,
         adjusts,
         unusedPhotoIds,
+        customEventNames,
       }
       window.localStorage.setItem(`${SMART_STATE_PREFIX}:${albumId}`, JSON.stringify(payload))
       upsertAlbumIndex(albumId, {})
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, unusedPhotoIds])
+  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -1903,6 +1917,41 @@ export default function SmartDesignerPage() {
   const renderGroup = () => {
     const RECAT_MIME = 'application/x-folio-recat'
     const unassignedCount = photos.filter((p) => p.eventId === 'unassigned').length
+    const tagDisplayName = (id: EventId): string =>
+      customEventNames[id] ?? EVENTS.find((e) => e.id === id)?.name ?? id
+
+    const togglePhotoSelection = (photoId: string) => {
+      setSelectedPhotoIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(photoId)) next.delete(photoId)
+        else next.add(photoId)
+        return next
+      })
+    }
+    const clearSelection = () => setSelectedPhotoIds(new Set())
+    const moveSelectedTo = (eventId: EventId) => {
+      selectedPhotoIds.forEach((id) => {
+        setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, eventId } : p)))
+      })
+      clearSelection()
+    }
+    // dataTransfer payload for the drag — JSON array of ids so multi-drag works
+    const dragPayload = (sourceId: string): string => {
+      const ids = selectedPhotoIds.has(sourceId)
+        ? Array.from(selectedPhotoIds)
+        : [sourceId]
+      return JSON.stringify(ids)
+    }
+    const parseDropPayload = (data: string): string[] => {
+      if (!data) return []
+      try {
+        const parsed = JSON.parse(data)
+        return Array.isArray(parsed) ? parsed : [data]
+      } catch {
+        return [data]
+      }
+    }
+
     return (
       <div style={{ ...css.container, maxWidth: 1280 }}>
         {renderStepIndicator()}
@@ -1913,11 +1962,14 @@ export default function SmartDesignerPage() {
           Drag each photo onto its tag. Tagged photos get a label so you can re-assign them anytime.
         </p>
 
-        {/* TAG CHIPS — small, single-line pills. Each is a drop target. */}
+        {/* TAG CHIPS — small, single-line pills. Each is a drop target.
+            Double-click the name to rename. Click chip to move selected photos. */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
           {EVENTS.map((ev) => {
             const count = photos.filter((p) => p.eventId === ev.id).length
             const isDropTarget = recatDragOverEvent === ev.id
+            const isEditing = editingTagId === ev.id
+            const hasSelection = selectedPhotoIds.size > 0
             return (
               <div
                 key={ev.id}
@@ -1932,9 +1984,18 @@ export default function SmartDesignerPage() {
                 onDrop={(e) => {
                   if (!e.dataTransfer.types.includes(RECAT_MIME)) return
                   e.preventDefault()
-                  const photoId = e.dataTransfer.getData(RECAT_MIME)
-                  if (photoId) recategorize(photoId, ev.id)
+                  const ids = parseDropPayload(e.dataTransfer.getData(RECAT_MIME))
+                  ids.forEach((id) => recategorize(id, ev.id))
+                  if (ids.length > 1) clearSelection()
                   setRecatDragOverEvent(null)
+                }}
+                onClick={(e) => {
+                  if (isEditing) return
+                  // If anything is selected, clicking a chip = move all selected to it
+                  if (hasSelection) {
+                    e.stopPropagation()
+                    moveSelectedTo(ev.id)
+                  }
                 }}
                 style={{
                   display: 'inline-flex',
@@ -1942,16 +2003,61 @@ export default function SmartDesignerPage() {
                   gap: 8,
                   padding: '8px 14px',
                   borderRadius: 30,
-                  border: `1px solid ${isDropTarget ? GOLD : 'rgba(184,150,90,0.3)'}`,
+                  border: `1px solid ${isDropTarget ? GOLD : hasSelection ? 'rgba(184,150,90,0.5)' : 'rgba(184,150,90,0.3)'}`,
                   background: isDropTarget ? 'rgba(184,150,90,0.18)' : 'var(--dark2)',
                   color: isDropTarget ? GOLD : 'var(--cream)',
                   fontFamily: 'var(--font-display)',
                   fontSize: 13,
                   transition: 'all 0.15s',
                   transform: isDropTarget ? 'scale(1.05)' : 'scale(1)',
+                  cursor: hasSelection ? 'pointer' : 'default',
                 }}
+                title={hasSelection ? `Click to move ${selectedPhotoIds.size} selected to ${tagDisplayName(ev.id)}` : 'Double-click name to rename'}
               >
-                <span>{ev.name}</span>
+                {isEditing ? (
+                  <input
+                    autoFocus
+                    defaultValue={tagDisplayName(ev.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => {
+                      const v = e.currentTarget.value.trim()
+                      setCustomEventNames((prev) => {
+                        const next = { ...prev }
+                        if (v && v !== ev.name) next[ev.id] = v
+                        else delete next[ev.id]
+                        return next
+                      })
+                      setEditingTagId(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                      if (e.key === 'Escape') {
+                        ;(e.currentTarget as HTMLInputElement).value = tagDisplayName(ev.id)
+                        setEditingTagId(null)
+                      }
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      borderBottom: `0.5px dashed ${GOLD}`,
+                      color: 'var(--cream)',
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 13,
+                      outline: 'none',
+                      width: 100,
+                    }}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={(e) => {
+                      e.stopPropagation()
+                      setEditingTagId(ev.id)
+                    }}
+                    style={{ userSelect: 'none' }}
+                  >
+                    {tagDisplayName(ev.id)}
+                  </span>
+                )}
                 <span
                   style={{
                     fontFamily: 'var(--font-body)',
@@ -1999,9 +2105,12 @@ export default function SmartDesignerPage() {
             👆
           </span>
           <span>
-            <strong style={{ color: GOLD }}>Drag any photo</strong> from below up to one of the tags above.
+            <strong style={{ color: GOLD }}>Click photos to select multiple</strong>, then drag any one — or click a chip — to move the whole batch.
             {unassignedCount > 0 && (
-              <span style={{ color: 'var(--muted2)' }}> · {unassignedCount} photo{unassignedCount === 1 ? '' : 's'} still untagged</span>
+              <span style={{ color: 'var(--muted2)' }}> · {unassignedCount} untagged</span>
+            )}
+            {selectedPhotoIds.size > 0 && (
+              <span style={{ color: GOLD, marginLeft: 8 }}> · {selectedPhotoIds.size} selected</span>
             )}
           </span>
           <style>{`
@@ -2037,34 +2146,41 @@ export default function SmartDesignerPage() {
           )}
           {photos.map((p) => {
             const isAssigned = p.eventId !== 'unassigned'
-            const tagName = isAssigned ? EVENTS.find((e) => e.id === p.eventId)?.name : null
+            const tagName = isAssigned ? tagDisplayName(p.eventId) : null
+            const isSelected = selectedPhotoIds.has(p.id)
             return (
               <div key={p.id} style={{ position: 'relative' }}>
                 <div
                   draggable
                   onDragStart={(e) => {
-                    e.dataTransfer.setData(RECAT_MIME, p.id)
+                    e.dataTransfer.setData(RECAT_MIME, dragPayload(p.id))
                     e.dataTransfer.effectAllowed = 'move'
                   }}
                   onClick={(e) => {
                     e.stopPropagation()
-                    setRecatId(p.id === recatId ? null : p.id)
+                    togglePhotoSelection(p.id)
                   }}
                   style={{
                     aspectRatio: '1',
                     borderRadius: 8,
                     overflow: 'hidden',
                     cursor: 'grab',
-                    border:
-                      recatId === p.id
-                        ? `1.5px solid ${GOLD}`
-                        : isAssigned
-                        ? '0.5px solid rgba(184,150,90,0.35)'
-                        : '0.5px solid rgba(184,150,90,0.15)',
-                    opacity: isAssigned ? 0.65 : 1,
-                    transition: 'opacity 0.2s',
+                    border: isSelected
+                      ? `2px solid ${GOLD}`
+                      : isAssigned
+                      ? '0.5px solid rgba(184,150,90,0.35)'
+                      : '0.5px solid rgba(184,150,90,0.15)',
+                    boxShadow: isSelected ? `0 0 0 2px rgba(184,150,90,0.3)` : 'none',
+                    opacity: isAssigned && !isSelected ? 0.65 : 1,
+                    transition: 'opacity 0.2s, box-shadow 0.2s',
                   }}
-                  title={isAssigned ? `Tagged ${tagName} — drag to retag, or click for list` : 'Drag onto a tag, or click for a list'}
+                  title={
+                    isSelected
+                      ? `${selectedPhotoIds.size} selected — drag any one to move all, or click a chip`
+                      : isAssigned
+                      ? `Tagged ${tagName} — click to select`
+                      : 'Click to select, drag onto a tag'
+                  }
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -2074,6 +2190,31 @@ export default function SmartDesignerPage() {
                     style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
                   />
                 </div>
+                {/* Selected check overlay */}
+                {isSelected && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      width: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      background: GOLD,
+                      color: '#0e0c09',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      pointerEvents: 'none',
+                    }}
+                    aria-hidden
+                  >
+                    ✓
+                  </span>
+                )}
+                {/* Tag label overlay */}
                 {isAssigned && tagName && (
                   <span
                     style={{
@@ -2094,57 +2235,20 @@ export default function SmartDesignerPage() {
                     {tagName}
                   </span>
                 )}
-                {recatId === p.id && (
-                  <div
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 4px)',
-                      left: 0,
-                      zIndex: 10,
-                      background: 'var(--dark3)',
-                      border: `0.5px solid ${GOLD}`,
-                      borderRadius: 8,
-                      padding: 6,
-                      minWidth: 160,
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                    }}
-                  >
-                    {EVENTS.filter((e) => e.id !== p.eventId).map((e) => (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => recategorize(p.id, e.id)}
-                        style={{
-                          display: 'block',
-                          width: '100%',
-                          textAlign: 'left',
-                          padding: '8px 12px',
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--cream)',
-                          fontSize: 11,
-                          cursor: 'pointer',
-                          borderRadius: 4,
-                          fontFamily: 'var(--font-body)',
-                        }}
-                        onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
-                        onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
-                      >
-                        Move to {e.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             )
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+        <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
           <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
             ← Back
           </button>
+          {selectedPhotoIds.size > 0 && (
+            <button type="button" style={css.btnGhost} onClick={clearSelection}>
+              Clear selection ({selectedPhotoIds.size})
+            </button>
+          )}
           <button type="button" style={css.btnPrimary} onClick={() => setStep('tag')}>
             {unassignedCount > 0 ? `Continue (${unassignedCount} untagged) →` : 'Continue →'}
           </button>
