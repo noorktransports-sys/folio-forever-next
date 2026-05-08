@@ -1209,7 +1209,7 @@ export default function SmartDesignerPage() {
         width: dim.width,
         height: dim.height,
         tagged: 'none',
-        eventId: 'other',
+        eventId: 'other1',
         blurry: false,
       })
       // Persist the blob to IndexedDB so it survives a refresh.
@@ -1510,7 +1510,7 @@ export default function SmartDesignerPage() {
   // ---------- Add more photos (from the unused-panel sidebar) ----------
   // Adds new uploads straight into the unused pool with default tags.
   // User is past the group/tag steps so we don't ask for an event —
-  // photos go to 'other' and the user can drag/swap them in. Honors
+  // photos go to 'other1' and the user can drag/swap them in. Honors
   // the global PHOTO_CAP.
   const addMorePhotosInputRef = useRef<HTMLInputElement>(null)
   const onAddMorePhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1536,7 +1536,7 @@ export default function SmartDesignerPage() {
         width: dim.width,
         height: dim.height,
         tagged: 'none',
-        eventId: 'other',
+        eventId: 'other1',
         blurry: false,
       })
       if (albumId) saveBlob(albumId, photoId, file)
