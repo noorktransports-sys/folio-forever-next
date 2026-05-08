@@ -1428,6 +1428,30 @@ export default function SmartDesignerPage() {
     }))
   }
 
+  // ---------- Add a new (empty) spread to the album from the adjust step ----------
+  // Inserts at the end. Uses the 'pair' template so the new spread has 2 empty
+  // slots, each with a "+ Add photo" affordance. Increments pageCount so the
+  // price recalculates and persists. Capped at the album spec's maxSpreads.
+  const handleAddSpread = useCallback(() => {
+    if (!size || !type) return
+    const spec = ALBUM_SPECS[size][type]
+    if (pageCount >= spec.maxSpreads) {
+      showToast(`Max ${spec.maxSpreads} spreads for ${ALBUM_SPECS[size].label}`)
+      return
+    }
+    const pairTpl =
+      TEMPLATES.find((t) => t.compat.includes(type) && t.id === 'pair') ?? TEMPLATES[0]
+    const newSpread: Spread = {
+      id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      templateId: pairTpl.id,
+      photoIds: new Array(pairTpl.slots.length).fill(null),
+      eventId: 'unassigned',
+    }
+    setSpreads((prev) => [...prev, newSpread])
+    setPageCount((prev) => prev + 1)
+    showToast(`+1 spread · $${spec.perExtraSpread} added to total`)
+  }, [size, type, pageCount, showToast])
+
   // ---------- Empty-slot fillers (called from SpreadView's "+ Add" overlay) ----------
   /** Place a specific photo id into an empty slot. Used by both pick-from-unused
    *  and upload-new flows. */
@@ -2982,6 +3006,54 @@ export default function SmartDesignerPage() {
             </div>
           </aside>
         </div>
+
+        {/* Add spread button — appends a fresh empty spread + bumps pageCount.
+            Live price preview shows the per-spread surcharge. */}
+        {size && type && (() => {
+          const spec = ALBUM_SPECS[size][type]
+          const atMax = pageCount >= spec.maxSpreads
+          return (
+            <div
+              style={{
+                marginTop: 24,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleAddSpread}
+                disabled={atMax}
+                style={{
+                  background: atMax ? 'transparent' : 'rgba(184,150,90,0.08)',
+                  border: `0.5px dashed ${atMax ? 'rgba(184,150,90,0.3)' : GOLD}`,
+                  color: atMax ? 'var(--muted2)' : GOLD,
+                  padding: '14px 32px',
+                  borderRadius: 30,
+                  fontSize: 11,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 600,
+                  cursor: atMax ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                title={atMax ? `Max ${spec.maxSpreads} spreads reached` : 'Append an empty spread to the album'}
+              >
+                {atMax
+                  ? `Max spreads reached (${spec.maxSpreads})`
+                  : `+ Add new spread · +$${spec.perExtraSpread}`}
+              </button>
+              {!atMax && (
+                <span style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1 }}>
+                  Currently {pageCount} of {spec.maxSpreads} spreads · ${albumPrice} total
+                </span>
+              )}
+            </div>
+          )
+        })()}
 
         <div
           style={{
