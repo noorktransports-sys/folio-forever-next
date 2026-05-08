@@ -3537,11 +3537,9 @@ function SpreadView({
                     src={photo.preview}
                     adjust={slotAdjust}
                     fit={adj.fit}
-                    onAdjustChange={
-                      editing
-                        ? (next) => onAdjustChange(i, next as Partial<PhotoAdjust>)
-                        : undefined
-                    }
+                    // No onAdjustChange → SlotImage's pointer capture is
+                    // disabled, leaving HTML5 drag-to-swap unblocked. Pan
+                    // and zoom continue to work via the toolbar sliders.
                   />
                   {slot.isHero && (
                     <span
@@ -3809,7 +3807,7 @@ function PhotoToolbar({
             </span>
           </div>
           <span style={{ fontSize: 10, color: 'var(--muted2)', fontStyle: 'italic' }}>
-            tip: drag the photo directly to slide
+            tip: zoom in first to see pan have more effect
           </span>
         </div>
       )}
