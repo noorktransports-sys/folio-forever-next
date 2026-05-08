@@ -257,8 +257,9 @@ Auto-save fires on every state change after hydration, throttled by React's batc
 1. **Always start a session with**: *"Read HANDOFF_SMART.md first, confirm you understand the state, then I'll tell you what I want."*
 2. **Plan-before-code rule**: ask the AI to produce a plan first. Approve or push back before any code lands.
 3. **One commit per change set, not per chat turn**: ask the AI to bundle related fixes.
-4. **Test in browser after every commit**, not at the end.
-5. **Keep the local backup zips fresh** — re-run `git archive` weekly:
+4. **MUST run `npx next build` locally before every push.** Cloudflare's build is strict-mode TypeScript and will fail silently on type errors that local dev (`next dev`) compiles through fine. **Eight commits in a row failed silently this way** before the issue was caught — all the user saw was "no changes after refresh." Make this a hard rule in any new AI session prompt: *"Before any commit you push, run `npx next build` and don't push if it fails."*
+5. **Test in browser after every commit**, not at the end.
+6. **Keep the local backup zips fresh** — re-run `git archive` weekly:
    ```sh
    DATE=$(date +%Y-%m-%d) && git archive --format=zip --output="C:/Users/fufck/Documents/GitHub/backup/folio-forever-main-$DATE.zip" --prefix="folio-forever-main/" origin/main
    ```
@@ -278,6 +279,10 @@ Before doing anything:
 
 Then I'll tell you what I want to change. Don't code anything until I
 approve a plan.
+
+HARD RULE for every push: run `npx next build` locally first. If it
+fails, don't push. (Cloudflare's strict TypeScript build has silently
+killed 8 deployments in a row when this rule wasn't followed.)
 ```
 
 ---
