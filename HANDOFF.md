@@ -2,7 +2,9 @@
 
 **Read this first if you're a new developer, a returning Jayvee, or pasting this into Claude after a month.** It covers what the system is, where every piece of data lives, what to do when something breaks, and what's still on the roadmap.
 
-Last updated: 2026-04-29.
+> **Working specifically on the Smart Auto-Layout wizard at `/design/smart`?** Read this doc for system context, then read [`HANDOFF_SMART.md`](HANDOFF_SMART.md) for the wizard-specific details (layout engine, templates, known bugs, deferred features).
+
+Last updated: 2026-05-07.
 
 ---
 
@@ -10,8 +12,9 @@ Last updated: 2026-04-29.
 
 - Custom-built album-printing website at **folioforever.com**.
 - Customers design wedding albums (cover + spreads), preview them, submit. Owner (Jayvee) sees orders in an admin dashboard.
+- **Three design paths** on `/design`: **Smart Auto-Layout** (recommended, AI-arranged), **I'll design it** (manual builder), **We design it** (expert handoff for $150).
 - Built on **Next.js 15 + TypeScript** for the modern parts, **vanilla JavaScript** for the legacy spread builder (`public/js/album-builder.js`).
-- Hosted on **Cloudflare Pages** (free tier covers all traffic for now). All data lives in **Cloudflare KV** (designs/orders) + **Cloudflare R2** (photos).
+- Hosted on **Cloudflare Pages** (free tier covers all traffic for now). All data lives in **Cloudflare KV** (designs/orders) + **Cloudflare R2** (photos). Smart wizard drafts also use **localStorage** for client-side persistence.
 - Transactional email via **Resend**.
 - Owner email: `noorktransports@gmail.com`. Sending email: `orders@folioforever.com`.
 - Stripe payment is **not wired yet** — submit currently fires email-based orders only. Stripe integration is the top todo.
@@ -107,8 +110,14 @@ Set in Cloudflare Pages → folio-forever-next → Settings → Variables and Se
 |---|---|---|
 | `/` | Homepage | `src/app/page.tsx` |
 | `/photographers` | Photographer-targeted landing page | `src/app/photographers/page.tsx` |
-| `/design` | Album builder (spreads + cover step) | `src/app/design/page.tsx` |
-| `/design?d=<token>` | Edit existing saved design | same as above |
+| `/design` | Path picker (Smart / Manual / Expert) + My Albums list | `src/app/design/[[...step]]/page.tsx` |
+| `/design/product` | Album size + binding picker (manual path) | same catch-all |
+| `/design/build` | Manual spread builder | same catch-all |
+| `/design/cover` | Cover designer | same catch-all |
+| `/design/expert` | Expert-design intake form ($150) | same catch-all |
+| `/design/smart` | **Smart Auto-Layout wizard** — see [`HANDOFF_SMART.md`](HANDOFF_SMART.md) | `src/app/design/smart/page.tsx` |
+| `/design/smart?album=<id>` | Resume an existing smart album | same |
+| `/design?d=<token>` | Edit existing saved design (manual) | catch-all |
 | `/album/<token>` | Read-only album viewer (the share link) | `src/app/album/[token]/page.tsx` |
 
 ### Admin (password-gated)
@@ -137,28 +146,34 @@ Set in Cloudflare Pages → folio-forever-next → Settings → Variables and Se
 
 ## Customer journey (end-to-end)
 
-1. Lands on `/design`. Email-gate modal asks for email + name (saved to localStorage `folio-customer-v1`).
-2. Picks "I'll design it" → drops into spread builder.
-3. Uploads photos via dropzone → photos hit `/api/upload` → stored in R2.
-4. Drags photos into spread layouts. ~12 layouts available (full bleed, side by side, triptych, etc).
-5. Clicks "Submit Order" in the navbar → transitions to cover step.
-6. Designs cover: leather (6 colors) or photo cover, title text, subtitle, font (10 options), font size, position.
-7. Clicks "Preview album →" → calls `previewAlbum()` which:
+1. Lands on `/design`. Email-gate modal asks for email + name (saved to localStorage `folio-customer-v1`). My Albums list shows any draft albums (manual or smart).
+2. Picks one of three paths:
+   - **Smart Auto-Layout** — routes to `/design/smart`, see [`HANDOFF_SMART.md`](HANDOFF_SMART.md) for that flow
+   - **I'll design it** — routes to `/design/product` then the manual flow described below
+   - **We design it** — routes to `/design/expert` ($150 expert intake)
+3. (Manual path) Drops into spread builder.
+4. Uploads photos via dropzone → photos hit `/api/upload` → stored in R2.
+5. Drags photos into spread layouts. ~12 layouts available (full bleed, side by side, triptych, etc).
+6. Clicks "Submit Order" in the navbar → transitions to cover step.
+7. Designs cover: leather (6 colors) or photo cover, title text, subtitle, font (10 options), font size, position.
+8. Clicks "Preview album →" → calls `previewAlbum()` which:
    - serializes everything (spreads + cover + customer)
    - POSTs to `/api/designs` (writes to KV with random 12-hex token)
    - redirects to `/album/<token>`
-8. Album viewer opens with cover face. "Open Album" → spreads carousel.
-9. Customer reviews. Quick-jump page numbers (bottom on desktop, side rail on mobile with press-and-slide).
-10. Clicks "Submit album" → **shipping form modal** (recipient name, phone, full address, delivery notes).
-11. Confirm submit → POST `/api/submit-order`:
+9. Album viewer opens with cover face. "Open Album" → spreads carousel.
+10. Customer reviews. Quick-jump page numbers (bottom on desktop, side rail on mobile with press-and-slide).
+11. Clicks "Submit album" → **shipping form modal** (recipient name, phone, full address, delivery notes).
+12. Confirm submit → POST `/api/submit-order`:
     - mints `orderId` (e.g. `FF-A1B2C3-LMK7N9`)
     - writes design back to KV with `status='submitted'`, `submittedAt`, `shipping` fields
     - extends TTL to 1 year
     - appends entry to `_orders_index_v1`
     - removes entry from `_drafts_index_v1`
     - calls `/api/notify-order` in `mode: 'order'` → emails customer + owner with photo download links
-12. Customer sees thank-you screen + 4-step status timeline.
-13. Customer can revisit `/album/<token>` any time to see latest status (admin updates propagate live).
+13. Customer sees thank-you screen + 4-step status timeline.
+14. Customer can revisit `/album/<token>` any time to see latest status (admin updates propagate live).
+
+> **Smart-path journey** is documented separately in [`HANDOFF_SMART.md`](HANDOFF_SMART.md). The two paths are independent — a customer who picks Smart never enters the manual builder, and vice versa. Both paths converge at the order-submission stage (same email pipeline, same admin dashboard).
 
 ---
 
@@ -212,8 +227,9 @@ The Save flow intentionally never emails the owner so multiple iterations don't 
 ### Cache-busting JavaScript
 
 Cloudflare's CDN caches `/js/album-builder.js` with `max-age=14400` (4 hours). Browsers won't refetch within that window. To force a refetch:
-- In `src/app/design/page.tsx`, the script tag has `?v=20260429-N`. **Bump the number every time you change `album-builder.js`.**
-- Currently at `?v=20260429-9`.
+- In `src/app/design/[[...step]]/page.tsx`, the script tag has `?v=20260506-N`. **Bump the number every time you change `album-builder.js`.**
+
+The Smart wizard (`/design/smart`) does NOT use the legacy `album-builder.js` — it's pure React, so cache-busting is automatic via Next.js's hashed bundle filenames. No manual bumping needed for smart-wizard changes.
 
 ---
 
@@ -273,6 +289,7 @@ Cloudflare's CDN caches `/js/album-builder.js` with `max-age=14400` (4 hours). B
 |---|---|
 | Code | github.com/noorktransports-sys/folio-forever-next |
 | Local clone | C:\Users\fufck\Documents\GitHub\folio-forever-next |
+| Local backup zips | C:\Users\fufck\Documents\GitHub\backup |
 | Cloudflare account | noorktransports@gmail.com |
 | Cloudflare project | folio-forever-next |
 | KV namespace ID | 325e972a22e749e2915d3ac0ce98eb6b |
@@ -285,6 +302,7 @@ Cloudflare's CDN caches `/js/album-builder.js` with `max-age=14400` (4 hours). B
 | Sending email | orders@folioforever.com |
 | Admin URL | folioforever.com/admin |
 | Admin password | (only Jayvee knows — set as Cloudflare secret) |
+| Smart-wizard handoff | [`HANDOFF_SMART.md`](HANDOFF_SMART.md) |
 
 ---
 
@@ -296,6 +314,8 @@ If you're stuck and want me to help, paste this whole file plus a description of
 - Any error message you copy-pasted
 
 I'll be able to pick up from here.
+
+**If the problem is specifically inside the Smart wizard** (`/design/smart`), also paste [`HANDOFF_SMART.md`](HANDOFF_SMART.md) — it has the layout-engine details and the deferred-features list.
 
 ---
 
