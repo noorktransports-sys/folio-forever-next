@@ -805,24 +805,18 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
 // ============== DEMO DATA ==============
 
 function buildSampleWeddingPhotos(): Photo[] {
-  const eventMap: EventId[] = [
-    'mehndi', 'mehndi', 'mehndi',
-    'haldi', 'haldi',
-    'prep', 'prep', 'prep', 'prep',
-    'nikkah', 'nikkah', 'nikkah',
-    'wedding', 'wedding', 'wedding', 'wedding', 'wedding', 'wedding', 'wedding',
-    'reception', 'reception', 'reception', 'reception', 'reception',
-    'valima', 'valima',
-    'other1', 'other1', 'other2', 'other2',
-  ]
+  // Sample photos start in the UNASSIGNED bucket — same as real uploads.
+  // The Group step is meant to teach the user how to drag-and-tag, so
+  // presenting them already-tagged would skip the lesson and feel
+  // confusing ("why are these in Other 1?").
   const blurryIdxs = new Set([4, 13, 22])
-  return eventMap.map((eventId, i) => ({
+  return Array.from({ length: 30 }, (_, i) => ({
     id: `sample-${i}`,
     preview: `https://picsum.photos/seed/wedding${i}/1200/800`,
     width: 4000,
     height: 4000,
     tagged: 'none' as const,
-    eventId,
+    eventId: 'unassigned' as EventId,
     blurry: blurryIdxs.has(i),
   }))
 }
@@ -1962,11 +1956,23 @@ export default function SmartDesignerPage() {
           Drag each photo onto its tag. Tagged photos get a label so you can re-assign them anytime.
         </p>
 
-        {/* TAG CHIPS — small, single-line pills. Each is a drop target.
-            Double-click the name to rename. Click chip to move selected photos. */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        {/* TAG CARDS — small cards with thumbnail strips inside. 5 cols on desktop.
+            - Empty card: just header + dashed drop zone
+            - Populated card: header + horizontal scroll strip of thumbnails
+            - Drop on the card = move dragged photo(s) into this tag
+            - Click thumbnail = toggle selection (same as bottom grid)
+            - Double-click tag name = rename. Click chip = move selected. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 8,
+            marginBottom: 14,
+          }}
+        >
           {EVENTS.map((ev) => {
-            const count = photos.filter((p) => p.eventId === ev.id).length
+            const inTag = photos.filter((p) => p.eventId === ev.id)
+            const count = inTag.length
             const isDropTarget = recatDragOverEvent === ev.id
             const isEditing = editingTagId === ev.id
             const hasSelection = selectedPhotoIds.size > 0
@@ -1991,89 +1997,177 @@ export default function SmartDesignerPage() {
                 }}
                 onClick={(e) => {
                   if (isEditing) return
-                  // If anything is selected, clicking a chip = move all selected to it
+                  // If anything is selected, clicking the card = move selection to this tag.
+                  // Inner thumbnail clicks stop propagation so they don't trigger this.
                   if (hasSelection) {
                     e.stopPropagation()
                     moveSelectedTo(ev.id)
                   }
                 }}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 14px',
-                  borderRadius: 30,
-                  border: `1px solid ${isDropTarget ? GOLD : hasSelection ? 'rgba(184,150,90,0.5)' : 'rgba(184,150,90,0.3)'}`,
-                  background: isDropTarget ? 'rgba(184,150,90,0.18)' : 'var(--dark2)',
-                  color: isDropTarget ? GOLD : 'var(--cream)',
-                  fontFamily: 'var(--font-display)',
-                  fontSize: 13,
-                  transition: 'all 0.15s',
-                  transform: isDropTarget ? 'scale(1.05)' : 'scale(1)',
+                  background: isDropTarget ? 'rgba(184,150,90,0.12)' : 'var(--dark2)',
+                  border: `1px solid ${isDropTarget ? GOLD : hasSelection ? 'rgba(184,150,90,0.5)' : 'rgba(184,150,90,0.2)'}`,
+                  borderRadius: 8,
+                  padding: 8,
+                  height: 90,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  transition: 'border-color 0.15s, background 0.15s',
                   cursor: hasSelection ? 'pointer' : 'default',
                 }}
                 title={hasSelection ? `Click to move ${selectedPhotoIds.size} selected to ${tagDisplayName(ev.id)}` : 'Double-click name to rename'}
               >
-                {isEditing ? (
-                  <input
-                    autoFocus
-                    defaultValue={tagDisplayName(ev.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={(e) => {
-                      const v = e.currentTarget.value.trim()
-                      setCustomEventNames((prev) => {
-                        const next = { ...prev }
-                        if (v && v !== ev.name) next[ev.id] = v
-                        else delete next[ev.id]
-                        return next
-                      })
-                      setEditingTagId(null)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
-                      if (e.key === 'Escape') {
-                        ;(e.currentTarget as HTMLInputElement).value = tagDisplayName(ev.id)
-                        setEditingTagId(null)
-                      }
-                    }}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      borderBottom: `0.5px dashed ${GOLD}`,
-                      color: 'var(--cream)',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: 13,
-                      outline: 'none',
-                      width: 100,
-                    }}
-                  />
-                ) : (
-                  <span
-                    onDoubleClick={(e) => {
-                      e.stopPropagation()
-                      setEditingTagId(ev.id)
-                    }}
-                    style={{ userSelect: 'none' }}
-                  >
-                    {tagDisplayName(ev.id)}
-                  </span>
-                )}
-                <span
+                {/* Header: name + count */}
+                <div
                   style={{
-                    fontFamily: 'var(--font-body)',
-                    fontSize: 10,
-                    letterSpacing: 0.5,
-                    background: count > 0 ? GOLD : 'rgba(184,150,90,0.15)',
-                    color: count > 0 ? '#0e0c09' : 'var(--muted2)',
-                    padding: '2px 8px',
-                    borderRadius: 30,
-                    minWidth: 22,
-                    textAlign: 'center',
-                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'space-between',
+                    gap: 6,
+                    flexShrink: 0,
                   }}
                 >
-                  {count}
-                </span>
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      defaultValue={tagDisplayName(ev.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => {
+                        const v = e.currentTarget.value.trim()
+                        setCustomEventNames((prev) => {
+                          const next = { ...prev }
+                          if (v && v !== ev.name) next[ev.id] = v
+                          else delete next[ev.id]
+                          return next
+                        })
+                        setEditingTagId(null)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                        if (e.key === 'Escape') {
+                          ;(e.currentTarget as HTMLInputElement).value = tagDisplayName(ev.id)
+                          setEditingTagId(null)
+                        }
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: `0.5px dashed ${GOLD}`,
+                        color: 'var(--cream)',
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 13,
+                        outline: 'none',
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        setEditingTagId(ev.id)
+                      }}
+                      style={{
+                        fontFamily: 'var(--font-display)',
+                        fontSize: 13,
+                        color: 'var(--cream)',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {tagDisplayName(ev.id)}
+                    </span>
+                  )}
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 10,
+                      letterSpacing: 0.5,
+                      background: count > 0 ? GOLD : 'rgba(184,150,90,0.15)',
+                      color: count > 0 ? '#0e0c09' : 'var(--muted2)',
+                      padding: '2px 8px',
+                      borderRadius: 30,
+                      minWidth: 22,
+                      textAlign: 'center',
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </div>
+
+                {/* Body: thumbnails OR empty drop zone */}
+                {count === 0 ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      border: `0.5px dashed ${isDropTarget ? GOLD : 'rgba(184,150,90,0.25)'}`,
+                      borderRadius: 4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 8,
+                      letterSpacing: 1.2,
+                      color: isDropTarget ? GOLD : 'var(--muted2)',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Drop
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      gap: 4,
+                      overflowX: 'auto',
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: 'rgba(184,150,90,0.4) transparent',
+                    }}
+                  >
+                    {inTag.map((p) => {
+                      const isSelected = selectedPhotoIds.has(p.id)
+                      return (
+                        <div
+                          key={p.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation()
+                            e.dataTransfer.setData(RECAT_MIME, dragPayload(p.id))
+                            e.dataTransfer.effectAllowed = 'move'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            togglePhotoSelection(p.id)
+                          }}
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: 4,
+                            overflow: 'hidden',
+                            cursor: 'grab',
+                            border: isSelected ? `1.5px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.25)',
+                            flexShrink: 0,
+                            position: 'relative',
+                          }}
+                          title="Drag to another tag, or click to select"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={p.preview}
+                            alt=""
+                            draggable={false}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -2121,7 +2215,8 @@ export default function SmartDesignerPage() {
           `}</style>
         </div>
 
-        {/* BIG PHOTO GRID — all photos, large thumbs. Tagged photos show a small badge. */}
+        {/* BIG UNASSIGNED PHOTO GRID — only photos that haven't been tagged yet.
+            Once tagged, the photo moves up into its tag card and disappears here. */}
         <div
           style={{
             display: 'grid',
@@ -2144,100 +2239,88 @@ export default function SmartDesignerPage() {
               No photos to tag
             </div>
           )}
-          {photos.map((p) => {
-            const isAssigned = p.eventId !== 'unassigned'
-            const tagName = isAssigned ? tagDisplayName(p.eventId) : null
-            const isSelected = selectedPhotoIds.has(p.id)
-            return (
-              <div key={p.id} style={{ position: 'relative' }}>
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(RECAT_MIME, dragPayload(p.id))
-                    e.dataTransfer.effectAllowed = 'move'
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    togglePhotoSelection(p.id)
-                  }}
-                  style={{
-                    aspectRatio: '1',
-                    borderRadius: 8,
-                    overflow: 'hidden',
-                    cursor: 'grab',
-                    border: isSelected
-                      ? `2px solid ${GOLD}`
-                      : isAssigned
-                      ? '0.5px solid rgba(184,150,90,0.35)'
-                      : '0.5px solid rgba(184,150,90,0.15)',
-                    boxShadow: isSelected ? `0 0 0 2px rgba(184,150,90,0.3)` : 'none',
-                    opacity: isAssigned && !isSelected ? 0.65 : 1,
-                    transition: 'opacity 0.2s, box-shadow 0.2s',
-                  }}
-                  title={
-                    isSelected
-                      ? `${selectedPhotoIds.size} selected — drag any one to move all, or click a chip`
-                      : isAssigned
-                      ? `Tagged ${tagName} — click to select`
-                      : 'Click to select, drag onto a tag'
-                  }
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={p.preview}
-                    alt=""
-                    draggable={false}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
-                  />
+          {photos.length > 0 && unassignedCount === 0 && (
+            <div
+              style={{
+                gridColumn: '1 / -1',
+                textAlign: 'center',
+                padding: 50,
+                color: GOLD,
+                fontSize: 13,
+                letterSpacing: 1,
+              }}
+            >
+              ✓ All photos tagged · Continue to the next step
+            </div>
+          )}
+          {photos
+            .filter((p) => p.eventId === 'unassigned')
+            .map((p) => {
+              const isSelected = selectedPhotoIds.has(p.id)
+              return (
+                <div key={p.id} style={{ position: 'relative' }}>
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(RECAT_MIME, dragPayload(p.id))
+                      e.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePhotoSelection(p.id)
+                    }}
+                    style={{
+                      aspectRatio: '1',
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      cursor: 'grab',
+                      border: isSelected
+                        ? `2px solid ${GOLD}`
+                        : '0.5px solid rgba(184,150,90,0.18)',
+                      boxShadow: isSelected ? `0 0 0 2px rgba(184,150,90,0.3)` : 'none',
+                      transition: 'box-shadow 0.2s',
+                    }}
+                    title={
+                      isSelected
+                        ? `${selectedPhotoIds.size} selected — drag any one to a tag, or click a tag card`
+                        : 'Click to select, drag onto a tag above'
+                    }
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.preview}
+                      alt=""
+                      draggable={false}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                    />
+                  </div>
+                  {/* Selection ✓ badge */}
+                  {isSelected && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        background: GOLD,
+                        color: '#0e0c09',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        pointerEvents: 'none',
+                      }}
+                      aria-hidden
+                    >
+                      ✓
+                    </span>
+                  )}
                 </div>
-                {/* Selected check overlay */}
-                {isSelected && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: 6,
-                      right: 6,
-                      width: 20,
-                      height: 20,
-                      borderRadius: '50%',
-                      background: GOLD,
-                      color: '#0e0c09',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      pointerEvents: 'none',
-                    }}
-                    aria-hidden
-                  >
-                    ✓
-                  </span>
-                )}
-                {/* Tag label overlay */}
-                {isAssigned && tagName && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      bottom: 6,
-                      left: 6,
-                      background: 'rgba(0,0,0,0.7)',
-                      color: GOLD,
-                      fontSize: 9,
-                      letterSpacing: 1,
-                      padding: '3px 8px',
-                      borderRadius: 30,
-                      textTransform: 'uppercase',
-                      fontWeight: 600,
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    {tagName}
-                  </span>
-                )}
-              </div>
-            )
-          })}
+              )
+            })}
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
