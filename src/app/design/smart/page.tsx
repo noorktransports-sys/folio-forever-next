@@ -132,8 +132,24 @@ type Spread = {
   eventId: EventId
 }
 
-type PhotoAdjust = { zoom: number; panX: number; panY: number }
-const DEFAULT_ADJUST: PhotoAdjust = { zoom: 1, panX: 50, panY: 50 }
+type PhotoAdjust = {
+  zoom: number
+  panX: number
+  panY: number
+  flipH: boolean
+  flipV: boolean
+  rotate: 0 | 90 | 180 | 270
+  fit: 'fill' | 'contain'
+}
+const DEFAULT_ADJUST: PhotoAdjust = {
+  zoom: 1,
+  panX: 50,
+  panY: 50,
+  flipH: false,
+  flipV: false,
+  rotate: 0,
+  fit: 'fill',
+}
 const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx}`
 
 // ============== ALBUM SPECS ==============
@@ -166,8 +182,9 @@ function computePrice(size: AlbumSize, type: AlbumType, spreads: number): number
 }
 
 // ============== LAYOUT TEMPLATES ==============
-// Tight padding: 1% edge, 2% gutter (1% each side of x=50), 1.5% inter-photo.
-// All slot %ages within the spread (0-100 horizontal, 0-100 vertical).
+// Half-mm-thin gaps: 0.5% edge, 1% gutter (0.5% each side of x=50),
+// 0.5% inter-photo. All slot %ages within the spread.
+// HALF_W = 49 (left half: 0.5 to 49.5, right half: 50.5 to 99.5).
 
 const TEMPLATES: LayoutTemplate[] = [
   // --- 2 PHOTOS ---
@@ -176,8 +193,8 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Solo right',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98, isHero: true },
-      { x: 51, y: 1, w: 48, h: 98 },
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 49, h: 99 },
     ],
   },
   {
@@ -185,8 +202,8 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Solo left',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98 },
-      { x: 51, y: 1, w: 48, h: 98, isHero: true },
+      { x: 0.5, y: 0.5, w: 49, h: 99 },
+      { x: 50.5, y: 0.5, w: 49, h: 99, isHero: true },
     ],
   },
   {
@@ -194,8 +211,8 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '2 photos',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98 },
-      { x: 51, y: 1, w: 48, h: 98 },
+      { x: 0.5, y: 0.5, w: 49, h: 99 },
+      { x: 50.5, y: 0.5, w: 49, h: 99 },
     ],
   },
 
@@ -205,9 +222,9 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Pair right',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98, isHero: true },
-      { x: 51, y: 1, w: 48, h: 48 },
-      { x: 51, y: 51, w: 48, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 49, h: 49 },
+      { x: 50.5, y: 50, w: 49, h: 49.5 },
     ],
   },
   {
@@ -215,9 +232,9 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Pair left',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 48 },
-      { x: 1, y: 51, w: 48, h: 48 },
-      { x: 51, y: 1, w: 48, h: 98, isHero: true },
+      { x: 0.5, y: 0.5, w: 49, h: 49 },
+      { x: 0.5, y: 50, w: 49, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 99, isHero: true },
     ],
   },
   {
@@ -225,9 +242,9 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '3 · 2+1',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 48 },
-      { x: 1, y: 51, w: 48, h: 48 },
-      { x: 51, y: 1, w: 48, h: 98 },
+      { x: 0.5, y: 0.5, w: 49, h: 49 },
+      { x: 0.5, y: 50, w: 49, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 99 },
     ],
   },
 
@@ -237,10 +254,10 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Trio right',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98, isHero: true },
-      { x: 51, y: 1, w: 48, h: 32 },
-      { x: 51, y: 34, w: 48, h: 32 },
-      { x: 51, y: 67, w: 48, h: 32 },
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 66.5, w: 49, h: 33 },
     ],
   },
   {
@@ -248,10 +265,10 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Trio left',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 32 },
-      { x: 1, y: 34, w: 48, h: 32 },
-      { x: 1, y: 67, w: 48, h: 32 },
-      { x: 51, y: 1, w: 48, h: 98, isHero: true },
+      { x: 0.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 49, h: 33 },
+      { x: 50.5, y: 0.5, w: 49, h: 99, isHero: true },
     ],
   },
   {
@@ -259,10 +276,10 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '4 · 2+2 grid',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 48 },
-      { x: 1, y: 51, w: 48, h: 48 },
-      { x: 51, y: 1, w: 48, h: 48 },
-      { x: 51, y: 51, w: 48, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 49 },
+      { x: 0.5, y: 50, w: 49, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 49 },
+      { x: 50.5, y: 50, w: 49, h: 49.5 },
     ],
   },
 
@@ -272,11 +289,11 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Quad right',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 98, isHero: true },
-      { x: 51, y: 1, w: 23, h: 48 },
-      { x: 75, y: 1, w: 24, h: 48 },
-      { x: 51, y: 51, w: 23, h: 48 },
-      { x: 75, y: 51, w: 24, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 50.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 75.25, y: 50, w: 24.25, h: 49.5 },
     ],
   },
   {
@@ -284,11 +301,11 @@ const TEMPLATES: LayoutTemplate[] = [
     name: 'Hero · Quad left',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 23, h: 48 },
-      { x: 25, y: 1, w: 24, h: 48 },
-      { x: 1, y: 51, w: 23, h: 48 },
-      { x: 25, y: 51, w: 24, h: 48 },
-      { x: 51, y: 1, w: 48, h: 98, isHero: true },
+      { x: 0.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 0.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 25.25, y: 50, w: 24.25, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 99, isHero: true },
     ],
   },
   {
@@ -296,11 +313,11 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '5 · 3+2',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 32 },
-      { x: 1, y: 34, w: 48, h: 32 },
-      { x: 1, y: 67, w: 48, h: 32 },
-      { x: 51, y: 1, w: 48, h: 48 },
-      { x: 51, y: 51, w: 48, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 49, h: 33 },
+      { x: 50.5, y: 0.5, w: 49, h: 49 },
+      { x: 50.5, y: 50, w: 49, h: 49.5 },
     ],
   },
   {
@@ -308,11 +325,11 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '5 · 2+3',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 48 },
-      { x: 1, y: 51, w: 48, h: 48 },
-      { x: 51, y: 1, w: 48, h: 32 },
-      { x: 51, y: 34, w: 48, h: 32 },
-      { x: 51, y: 67, w: 48, h: 32 },
+      { x: 0.5, y: 0.5, w: 49, h: 49 },
+      { x: 0.5, y: 50, w: 49, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 66.5, w: 49, h: 33 },
     ],
   },
 
@@ -322,12 +339,12 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '6 · 3+3 rows',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 32 },
-      { x: 1, y: 34, w: 48, h: 32 },
-      { x: 1, y: 67, w: 48, h: 32 },
-      { x: 51, y: 1, w: 48, h: 32 },
-      { x: 51, y: 34, w: 48, h: 32 },
-      { x: 51, y: 67, w: 48, h: 32 },
+      { x: 0.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 49, h: 33 },
+      { x: 50.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 66.5, w: 49, h: 33 },
     ],
   },
   {
@@ -335,12 +352,12 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '6 · 2+4',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 48 },
-      { x: 1, y: 51, w: 48, h: 48 },
-      { x: 51, y: 1, w: 23, h: 48 },
-      { x: 75, y: 1, w: 24, h: 48 },
-      { x: 51, y: 51, w: 23, h: 48 },
-      { x: 75, y: 51, w: 24, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 49 },
+      { x: 0.5, y: 50, w: 49, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 50.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 75.25, y: 50, w: 24.25, h: 49.5 },
     ],
   },
   {
@@ -348,12 +365,12 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '6 · 4+2',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 23, h: 48 },
-      { x: 25, y: 1, w: 24, h: 48 },
-      { x: 1, y: 51, w: 23, h: 48 },
-      { x: 25, y: 51, w: 24, h: 48 },
-      { x: 51, y: 1, w: 48, h: 48 },
-      { x: 51, y: 51, w: 48, h: 48 },
+      { x: 0.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 0.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 25.25, y: 50, w: 24.25, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 49 },
+      { x: 50.5, y: 50, w: 49, h: 49.5 },
     ],
   },
 
@@ -363,13 +380,13 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '7 · 4+3',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 23, h: 48 },
-      { x: 25, y: 1, w: 24, h: 48 },
-      { x: 1, y: 51, w: 23, h: 48 },
-      { x: 25, y: 51, w: 24, h: 48 },
-      { x: 51, y: 1, w: 48, h: 32 },
-      { x: 51, y: 34, w: 48, h: 32 },
-      { x: 51, y: 67, w: 48, h: 32 },
+      { x: 0.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 0.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 25.25, y: 50, w: 24.25, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 66.5, w: 49, h: 33 },
     ],
   },
   {
@@ -377,13 +394,13 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '7 · 3+4',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 48, h: 32 },
-      { x: 1, y: 34, w: 48, h: 32 },
-      { x: 1, y: 67, w: 48, h: 32 },
-      { x: 51, y: 1, w: 23, h: 48 },
-      { x: 75, y: 1, w: 24, h: 48 },
-      { x: 51, y: 51, w: 23, h: 48 },
-      { x: 75, y: 51, w: 24, h: 48 },
+      { x: 0.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 49, h: 33 },
+      { x: 50.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 50.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 75.25, y: 50, w: 24.25, h: 49.5 },
     ],
   },
 
@@ -393,14 +410,14 @@ const TEMPLATES: LayoutTemplate[] = [
     name: '8 · 4+4 grid',
     compat: ['standard', 'layflat'],
     slots: [
-      { x: 1, y: 1, w: 23, h: 48 },
-      { x: 25, y: 1, w: 24, h: 48 },
-      { x: 1, y: 51, w: 23, h: 48 },
-      { x: 25, y: 51, w: 24, h: 48 },
-      { x: 51, y: 1, w: 23, h: 48 },
-      { x: 75, y: 1, w: 24, h: 48 },
-      { x: 51, y: 51, w: 23, h: 48 },
-      { x: 75, y: 51, w: 24, h: 48 },
+      { x: 0.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 0.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 25.25, y: 50, w: 24.25, h: 49.5 },
+      { x: 50.5, y: 0.5, w: 24.25, h: 49 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 49 },
+      { x: 50.5, y: 50, w: 24.25, h: 49.5 },
+      { x: 75.25, y: 50, w: 24.25, h: 49.5 },
     ],
   },
 
@@ -417,7 +434,7 @@ const TEMPLATES: LayoutTemplate[] = [
     compat: ['layflat'],
     slots: [
       { x: 0, y: 0, w: 70, h: 100, isHero: true },
-      { x: 71, y: 1, w: 28, h: 98 },
+      { x: 70.5, y: 0.5, w: 29, h: 99 },
     ],
   },
   {
@@ -426,9 +443,9 @@ const TEMPLATES: LayoutTemplate[] = [
     compat: ['layflat'],
     slots: [
       { x: 0, y: 0, w: 70, h: 100, isHero: true },
-      { x: 71, y: 1, w: 28, h: 32 },
-      { x: 71, y: 34, w: 28, h: 32 },
-      { x: 71, y: 67, w: 28, h: 32 },
+      { x: 70.5, y: 0.5, w: 29, h: 32.5 },
+      { x: 70.5, y: 33.5, w: 29, h: 32.5 },
+      { x: 70.5, y: 66.5, w: 29, h: 33 },
     ],
   },
 ]
@@ -437,6 +454,32 @@ const TEMPLATE_BY_ID = new Map(TEMPLATES.map((t) => [t.id, t] as const))
 
 function templatesForCount(count: number, type: AlbumType): LayoutTemplate[] {
   return TEMPLATES.filter((t) => t.compat.includes(type) && t.slots.length === count)
+}
+
+// After removing a photo from a spread, pick a smaller template that
+// matches the new photo count (preferring same hero/non-hero kind).
+// Falls back to the closest fit if no exact match exists.
+function pickFitTemplate(
+  currentTplId: string,
+  newCount: number,
+  type: AlbumType,
+): string {
+  if (newCount <= 0) return currentTplId
+  const current = TEMPLATE_BY_ID.get(currentTplId)
+  const wantHero = current?.slots.some((s) => s.isHero) ?? false
+  // Try exact-count match in same kind
+  const same = TEMPLATES.find(
+    (t) =>
+      t.compat.includes(type) &&
+      t.slots.length === newCount &&
+      t.slots.some((s) => s.isHero) === wantHero,
+  )
+  if (same) return same.id
+  // Fall back to opposite kind, exact count
+  const opp = TEMPLATES.find((t) => t.compat.includes(type) && t.slots.length === newCount)
+  if (opp) return opp.id
+  // Last resort: keep current template id
+  return currentTplId
 }
 
 function pickTemplate(
@@ -459,9 +502,10 @@ function pickTemplate(
 }
 
 // ============== LAYOUT ENGINE ==============
+// Pacing rule: every 3rd spread is a hero spread (positions 2, 5, 8, ...
+// 0-indexed within an event). Non-hero spreads default to PAIR (2 photos).
+// Density only steps up when math requires it to fit all photos.
 // Strict event grouping: each spread contains photos from ONE event.
-// Hero spreads prefer the hero+4 (1 + 4-grid) template. ALL non-blurry
-// photos are placed.
 
 function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Spread[] {
   const useable = photos.filter((p) => !p.blurry)
@@ -479,15 +523,12 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
 
   // Allocate spread budgets per event proportional to photo count
   const totalPhotos = useable.length
-  const heroCount = useable.filter((p) => p.tagged === 'hero').length
 
-  // Step 1: rough proportional spread budget per event
   const rawBudgets = buckets.map((b) => ({
     eid: b.eid,
     bucket: b,
     spreads: Math.max(1, Math.round((b.photos.length / totalPhotos) * pageCount)),
   }))
-  // Adjust budgets to sum to exactly pageCount
   let total = rawBudgets.reduce((s, x) => s + x.spreads, 0)
   while (total > pageCount) {
     const biggest = rawBudgets.reduce((a, b) => (a.spreads > b.spreads ? a : b))
@@ -503,98 +544,176 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
   const spreads: Spread[] = []
   let idx = 0
 
-  // Process each event entirely before moving to the next.
   for (const { eid, bucket, spreads: spreadBudget } of rawBudgets) {
     const heroes = bucket.photos.filter((p) => p.tagged === 'hero')
     const favorites = bucket.photos.filter((p) => p.tagged === 'favorite')
     const others = bucket.photos.filter((p) => p.tagged === 'none')
+    const totalEventPhotos = bucket.photos.length
 
+    // ---- PASS 1: PLAN ----
+    // Decide which spread positions are heroes vs non-hero, and the
+    // photo count per spread.
+    const isHeroSpot: boolean[] = new Array(spreadBudget).fill(false)
+    let heroAssigned = 0
+    // First pass: every 3rd position (i % 3 === 2)
+    for (let i = 0; i < spreadBudget; i++) {
+      if (heroAssigned >= heroes.length) break
+      if (i % 3 === 2) {
+        isHeroSpot[i] = true
+        heroAssigned++
+      }
+    }
+    // If extra heroes still remain, append on first available pair slots
+    // from the front (so heroes get featured even if we have many).
+    for (let i = 0; i < spreadBudget && heroAssigned < heroes.length; i++) {
+      if (!isHeroSpot[i]) {
+        isHeroSpot[i] = true
+        heroAssigned++
+      }
+    }
+
+    const heroSpreadCount = isHeroSpot.filter(Boolean).length
+    const pairSpreadCount = spreadBudget - heroSpreadCount
+
+    // Photo budget: heroes themselves are placed (heroSpreadCount of them),
+    // plus the non-hero photos to be distributed.
+    const nonHeroPhotos = favorites.length + others.length
+
+    // Per-spread sizes: hero spread defaults to 2 photos (hero+1, matches
+    // pair density). Pair spread defaults to 2.
+    const sizes: number[] = isHeroSpot.map((isH) => (isH ? 2 : 2))
+
+    // Adjust sizes to fit ALL non-hero photos.
+    // Non-hero photos to place = nonHeroPhotos
+    // Slots dedicated to non-hero = (heroSpreadCount * 1 fillers) + (pairSpreadCount * 2)
+    let nonHeroSlotsPlanned = heroSpreadCount * 1 + pairSpreadCount * 2
+
+    if (nonHeroSlotsPlanned > nonHeroPhotos) {
+      // Slots > photos. Reduce some pair spreads from 2 to 1 photo.
+      let surplus = nonHeroSlotsPlanned - nonHeroPhotos
+      for (let i = sizes.length - 1; i >= 0 && surplus > 0; i--) {
+        if (!isHeroSpot[i] && sizes[i] > 1) {
+          sizes[i]--
+          surplus--
+        }
+      }
+      // If still surplus, reduce pair spreads to 0 (shouldn't normally happen)
+      for (let i = sizes.length - 1; i >= 0 && surplus > 0; i--) {
+        if (!isHeroSpot[i] && sizes[i] > 0) {
+          sizes[i]--
+          surplus--
+        }
+      }
+    } else if (nonHeroSlotsPlanned < nonHeroPhotos) {
+      // Need to increase density. Step up hero spreads first (hero+1 → hero+2 → +3 → +4 max),
+      // then pair spreads (2 → 3 → 4 ... max 8).
+      let deficit = nonHeroPhotos - nonHeroSlotsPlanned
+      // Round-robin upgrade until deficit is gone
+      const heroMax = 5 // 1 hero + 4 fillers
+      const pairMax = 8
+      let safety = 1000
+      while (deficit > 0 && safety-- > 0) {
+        let bumped = false
+        // Bump hero spreads first (give heroes more support photos)
+        for (let i = 0; i < sizes.length && deficit > 0; i++) {
+          if (isHeroSpot[i] && sizes[i] < heroMax) {
+            sizes[i]++
+            deficit--
+            bumped = true
+          }
+        }
+        // Then bump pair spreads
+        for (let i = 0; i < sizes.length && deficit > 0; i++) {
+          if (!isHeroSpot[i] && sizes[i] < pairMax) {
+            sizes[i]++
+            deficit--
+            bumped = true
+          }
+        }
+        if (!bumped) break
+      }
+    }
+
+    // ---- PASS 2: ASSIGN ----
+    // Build the actual spreads using the planned sizes + hero positions.
+    const fillerQueue: Photo[] = [...favorites, ...others]
+    let alternateLeft = true
     const eventSpreads: Spread[] = []
-    let alternateLeft = true // alternate hero side L/R for variety
 
-    // Hero spreads: each gets a hero+4 (5-photo) layout where possible.
-    for (const hero of heroes) {
-      if (eventSpreads.length >= spreadBudget) break
-      // Pull up to 4 fillers from this event (favorites first, then others)
-      const fillers: Photo[] = []
-      while (fillers.length < 4 && favorites.length > 0) fillers.push(favorites.shift()!)
-      while (fillers.length < 4 && others.length > 0) fillers.push(others.shift()!)
-
-      const photoCount = 1 + fillers.length
-      const tplId = alternateLeft
-        ? photoCount === 5
-          ? 'hero-4r'
-          : photoCount === 4
-          ? 'hero-3r'
-          : photoCount === 3
-          ? 'hero-2r'
-          : 'hero-1r'
-        : photoCount === 5
-        ? 'hero-4l'
-        : photoCount === 4
-        ? 'hero-3l'
-        : photoCount === 3
-        ? 'hero-2l'
-        : 'hero-1l'
-      const tpl = pickTemplate(type, photoCount, true, tplId) ?? pickTemplate(type, photoCount, true)
-      if (!tpl) continue
-
-      // Hero goes in the isHero slot. Fillers fill the rest in slot order.
-      const heroSlotIdx = tpl.slots.findIndex((s) => s.isHero)
-      const photoIds: string[] = new Array(tpl.slots.length).fill('')
-      photoIds[heroSlotIdx] = hero.id
-      let fi = 0
-      for (let i = 0; i < tpl.slots.length; i++) {
-        if (i === heroSlotIdx) continue
-        photoIds[i] = fillers[fi++]?.id ?? ''
-      }
-      eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: photoIds.filter(Boolean), eventId: eid })
-      alternateLeft = !alternateLeft
-    }
-
-    // Distribute remaining (favorites + others) across remaining budget.
-    const remainingPhotos = [...favorites, ...others]
-    const remainingSlots = spreadBudget - eventSpreads.length
-
-    if (remainingSlots > 0 && remainingPhotos.length > 0) {
-      // Aim for even distribution (3-7 photos per spread, capped at 8)
-      let perSpread = Math.max(2, Math.min(8, Math.ceil(remainingPhotos.length / remainingSlots)))
-      while (eventSpreads.length < spreadBudget && remainingPhotos.length > 0) {
-        const remainingNow = spreadBudget - eventSpreads.length
-        perSpread = Math.max(
-          2,
-          Math.min(8, Math.ceil(remainingPhotos.length / Math.max(1, remainingNow))),
-        )
-        const take = Math.min(perSpread, remainingPhotos.length, 8)
-        const chunk = remainingPhotos.splice(0, take)
-        const tpl = pickTemplate(type, take, false) ?? pickTemplate(type, take, true)
-        if (!tpl) break
-        eventSpreads.push({
-          id: `s-${idx++}`,
-          templateId: tpl.id,
-          photoIds: chunk.map((p) => p.id),
-          eventId: eid,
-        })
+    for (let i = 0; i < spreadBudget; i++) {
+      if (isHeroSpot[i]) {
+        const hero = heroes.shift()
+        if (!hero) {
+          // Shouldn't happen — but if it does, fall back to a pair
+          const take = Math.min(sizes[i], fillerQueue.length)
+          const chunk = fillerQueue.splice(0, take)
+          if (chunk.length === 0) continue
+          const tpl = pickTemplate(type, chunk.length, false) ?? pickTemplate(type, chunk.length, true)
+          if (!tpl) continue
+          eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
+          continue
+        }
+        const fillerCount = Math.max(0, sizes[i] - 1)
+        const fillers = fillerQueue.splice(0, fillerCount)
+        const total = 1 + fillers.length
+        // Pick template: hero+N with side alternating
+        const tplId = alternateLeft
+          ? total === 5 ? 'hero-4r' : total === 4 ? 'hero-3r' : total === 3 ? 'hero-2r' : 'hero-1r'
+          : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
+        const tpl = pickTemplate(type, total, true, tplId) ?? pickTemplate(type, total, true)
+        if (!tpl) {
+          // Fall back: put hero into a 2-photo pair as if it were any photo
+          const fallback = pickTemplate(type, total, false)
+          if (!fallback) continue
+          eventSpreads.push({
+            id: `s-${idx++}`,
+            templateId: fallback.id,
+            photoIds: [hero, ...fillers].map((p) => p.id),
+            eventId: eid,
+          })
+          continue
+        }
+        const heroSlotIdx = tpl.slots.findIndex((s) => s.isHero)
+        const photoIds: string[] = new Array(tpl.slots.length).fill('')
+        photoIds[heroSlotIdx] = hero.id
+        let fi = 0
+        for (let s = 0; s < tpl.slots.length; s++) {
+          if (s === heroSlotIdx) continue
+          if (fillers[fi]) photoIds[s] = fillers[fi++].id
+        }
+        eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: photoIds.filter(Boolean), eventId: eid })
+        alternateLeft = !alternateLeft
+      } else {
+        // Pair (or higher density) spread
+        const take = Math.min(sizes[i], fillerQueue.length)
+        if (take === 0) continue
+        const chunk = fillerQueue.splice(0, take)
+        const tpl = pickTemplate(type, chunk.length, false) ?? pickTemplate(type, chunk.length, true)
+        if (!tpl) continue
+        eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
       }
     }
 
-    // If photos still remain in this event, append to the last event-spread
-    // by upgrading template. (Maintains all-photos-placed.)
-    if (remainingPhotos.length > 0 && eventSpreads.length > 0) {
+    // If anything still remains in this event, jam it onto the last spread
+    // by upgrading the template — keeps the all-photos-placed promise.
+    const stillLeft = [...heroes, ...fillerQueue]
+    if (stillLeft.length > 0 && eventSpreads.length > 0) {
       const last = eventSpreads[eventSpreads.length - 1]
-      const tgtCount = Math.min(8, last.photoIds.length + remainingPhotos.length)
-      const upgrade = pickTemplate(type, tgtCount, false)
+      const tgt = Math.min(8, last.photoIds.length + stillLeft.length)
+      const upgrade = pickTemplate(type, tgt, false)
       if (upgrade) {
         last.templateId = upgrade.id
-        last.photoIds = [...last.photoIds, ...remainingPhotos.splice(0, tgtCount - last.photoIds.length).map((p) => p.id)]
+        last.photoIds = [
+          ...last.photoIds,
+          ...stillLeft.slice(0, tgt - last.photoIds.length).map((p) => p.id),
+        ]
       }
     }
 
     spreads.push(...eventSpreads)
   }
 
-  // Final safety: any photos that didn't land (shouldn't happen, but
-  // guards against template gaps) get appended to the last spread.
+  // Final orphan-safety pass
   const placed = new Set(spreads.flatMap((s) => s.photoIds))
   const orphans = useable.filter((p) => !placed.has(p.id))
   if (orphans.length > 0 && spreads.length > 0) {
@@ -1857,17 +1976,28 @@ export default function SmartDesignerPage() {
                 albumType={type}
                 adjusts={adjusts}
                 onPhotoClick={(idx) => {
-                  if (swapSlot) return // ignore in swap mode (use replacement panel)
+                  // Always reveal the toolbar on click. If we were in swap
+                  // mode for a different slot, switch the active slot.
                   setEditSlot(
                     editSlot && editSlot.spreadId === s.id && editSlot.idx === idx
                       ? null
                       : { spreadId: s.id, idx },
                   )
+                  if (swapSlot && (swapSlot.spreadId !== s.id || swapSlot.idx !== idx)) {
+                    setSwapSlot(null)
+                  }
                 }}
                 editingSlot={editSlot && editSlot.spreadId === s.id ? editSlot.idx : -1}
+                swappingSlot={swapSlot && swapSlot.spreadId === s.id ? swapSlot.idx : -1}
                 onStartSwap={(idx) => {
-                  setSwapSlot({ spreadId: s.id, idx })
-                  setEditSlot(null)
+                  // Toggle swap mode but KEEP the toolbar visible so the
+                  // user keeps access to zoom/flip/etc.
+                  if (swapSlot && swapSlot.spreadId === s.id && swapSlot.idx === idx) {
+                    setSwapSlot(null)
+                  } else {
+                    setSwapSlot({ spreadId: s.id, idx })
+                    setEditSlot({ spreadId: s.id, idx })
+                  }
                 }}
                 onResetAdjust={(idx) => {
                   setAdjusts((prev) => {
@@ -1875,6 +2005,26 @@ export default function SmartDesignerPage() {
                     delete next[adjustKey(s.id, idx)]
                     return next
                   })
+                }}
+                onRemovePhoto={(idx) => {
+                  // Photo returns to the unused pool: clear the slot's
+                  // photo id (template stays intact, slot shows empty
+                  // placeholder).
+                  setSpreads((prev) =>
+                    prev.map((sp) => {
+                      if (sp.id !== s.id) return sp
+                      const newIds = [...sp.photoIds]
+                      newIds.splice(idx, 1)
+                      return { ...sp, photoIds: newIds, templateId: pickFitTemplate(sp.templateId, newIds.length, type) }
+                    }),
+                  )
+                  setAdjusts((prev) => {
+                    const next = { ...prev }
+                    delete next[adjustKey(s.id, idx)]
+                    return next
+                  })
+                  setEditSlot(null)
+                  setSwapSlot(null)
                 }}
                 onAdjustChange={(idx, patch) => updateAdjust(adjustKey(s.id, idx), patch)}
                 layoutMenuOpen={layoutMenuId === s.id}
@@ -2108,8 +2258,10 @@ function SpreadView({
   adjusts,
   onPhotoClick,
   editingSlot,
+  swappingSlot,
   onStartSwap,
   onResetAdjust,
+  onRemovePhoto,
   onAdjustChange,
   layoutMenuOpen,
   onToggleLayoutMenu,
@@ -2123,8 +2275,10 @@ function SpreadView({
   adjusts: Record<string, PhotoAdjust>
   onPhotoClick: (idx: number) => void
   editingSlot: number
+  swappingSlot: number
   onStartSwap: (idx: number) => void
   onResetAdjust: (idx: number) => void
+  onRemovePhoto: (idx: number) => void
   onAdjustChange: (idx: number, patch: Partial<PhotoAdjust>) => void
   layoutMenuOpen: boolean
   onToggleLayoutMenu: () => void
@@ -2233,8 +2387,8 @@ function SpreadView({
           position: 'relative',
           width: '100%',
           aspectRatio: `${aspect}`,
-          background: 'var(--dark3)',
-          borderRadius: 4,
+          background: '#ffffff', // album paper — gaps appear white
+          borderRadius: 2,
           overflow: 'hidden',
         }}
       >
@@ -2242,6 +2396,8 @@ function SpreadView({
           const photo = photoMap.get(spread.photoIds[i])
           const editing = editingSlot === i
           const adj = adjusts[adjustKey(spread.id, i)] ?? DEFAULT_ADJUST
+          const scaleX = (adj.flipH ? -1 : 1) * adj.zoom
+          const scaleY = (adj.flipV ? -1 : 1) * adj.zoom
           return (
             <div
               key={i}
@@ -2256,10 +2412,10 @@ function SpreadView({
                 width: `${slot.w}%`,
                 height: `${slot.h}%`,
                 cursor: 'pointer',
-                border: editing ? `2px solid ${GOLD}` : '0.5px solid rgba(255,255,255,0.04)',
+                outline: editing ? `2px solid ${GOLD}` : 'none',
+                outlineOffset: -2,
                 overflow: 'hidden',
-                borderRadius: 2,
-                background: 'var(--dark)',
+                background: '#0e0c09',
               }}
               title={slot.isHero ? 'Hero photo' : 'Photo'}
             >
@@ -2272,11 +2428,12 @@ function SpreadView({
                     style={{
                       width: '100%',
                       height: '100%',
-                      objectFit: 'cover',
+                      objectFit: adj.fit === 'contain' ? 'contain' : 'cover',
                       objectPosition: `${adj.panX}% ${adj.panY}%`,
-                      transform: `scale(${adj.zoom})`,
+                      transform: `scale(${scaleX}, ${scaleY}) rotate(${adj.rotate}deg)`,
                       transition: editing ? 'none' : 'transform 0.2s',
                       display: 'block',
+                      background: adj.fit === 'contain' ? '#ffffff' : 'transparent',
                     }}
                   />
                   {slot.isHero && (
@@ -2311,21 +2468,23 @@ function SpreadView({
               top: 0,
               bottom: 0,
               width: 1,
-              background: 'rgba(0,0,0,0.55)',
+              background: 'rgba(0,0,0,0.18)',
               pointerEvents: 'none',
             }}
           />
         )}
       </div>
 
-      {/* Photo edit toolbar (zoom, pan, swap, reset) */}
+      {/* Photo edit toolbar (full set, mirrors manual builder) */}
       {editingSlot >= 0 && (
         <PhotoToolbar
           adj={adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST}
           onChange={(patch) => onAdjustChange(editingSlot, patch)}
           onSwap={() => onStartSwap(editingSlot)}
           onReset={() => onResetAdjust(editingSlot)}
+          onRemove={() => onRemovePhoto(editingSlot)}
           slotIdx={editingSlot}
+          inSwapMode={swappingSlot === editingSlot}
         />
       )}
     </div>
@@ -2333,92 +2492,194 @@ function SpreadView({
 }
 
 // ============== PHOTO TOOLBAR ==============
+// Mirrors the manual builder's photoFloatToolbar: zoom, pan, fit-fill /
+// fit-original, flip H/V, rotate ±90°, reset, swap, remove.
 
 function PhotoToolbar({
   adj,
   onChange,
   onSwap,
   onReset,
+  onRemove,
   slotIdx,
+  inSwapMode,
 }: {
   adj: PhotoAdjust
   onChange: (patch: Partial<PhotoAdjust>) => void
   onSwap: () => void
   onReset: () => void
+  onRemove: () => void
   slotIdx: number
+  inSwapMode: boolean
 }) {
-  const btnSm: React.CSSProperties = {
+  const btn: React.CSSProperties = {
     background: 'transparent',
-    border: '0.5px solid rgba(184,150,90,0.3)',
+    border: '0.5px solid rgba(184,150,90,0.35)',
     color: GOLD,
     fontSize: 10,
-    padding: '6px 12px',
+    padding: '6px 10px',
     borderRadius: 30,
     cursor: 'pointer',
     fontFamily: 'var(--font-body)',
     letterSpacing: 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
   }
+  const btnActive: React.CSSProperties = { ...btn, background: GOLD, color: '#0e0c09', borderColor: GOLD }
+  const btnDanger: React.CSSProperties = { ...btn, color: '#ff8a8a', borderColor: 'rgba(255,138,138,0.45)' }
+  const groupLabel: React.CSSProperties = {
+    fontSize: 9,
+    letterSpacing: 1.5,
+    color: 'var(--muted2)',
+    textTransform: 'uppercase',
+    marginRight: 4,
+  }
+
   return (
     <div
       onClick={(e) => e.stopPropagation()}
       style={{
         marginTop: 10,
-        padding: '12px 14px',
+        padding: '14px 16px',
         background: 'var(--dark3)',
-        border: '0.5px solid rgba(184,150,90,0.25)',
+        border: `0.5px solid ${inSwapMode ? GOLD : 'rgba(184,150,90,0.25)'}`,
         borderRadius: 8,
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 14,
-        alignItems: 'center',
+        display: 'grid',
+        gap: 12,
       }}
     >
-      <span style={{ fontSize: 9, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-        Slot {slotIdx + 1}
-      </span>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Zoom</span>
-        <button type="button" style={btnSm} onClick={() => onChange({ zoom: Math.max(1, +(adj.zoom - 0.1).toFixed(2)) })}>
-          −
-        </button>
-        <span style={{ fontSize: 10, color: GOLD, minWidth: 38, textAlign: 'center' }}>
-          {Math.round(adj.zoom * 100)}%
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+        <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>
+          Slot {slotIdx + 1} · Photo tools
         </span>
-        <button type="button" style={btnSm} onClick={() => onChange({ zoom: Math.min(3, +(adj.zoom + 0.1).toFixed(2)) })}>
-          +
+
+        {/* FIT mode */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Fit</span>
+          <button type="button" style={adj.fit === 'fill' ? btnActive : btn} onClick={() => onChange({ fit: 'fill' })}>
+            Fill
+          </button>
+          <button type="button" style={adj.fit === 'contain' ? btnActive : btn} onClick={() => onChange({ fit: 'contain' })}>
+            Original
+          </button>
+        </div>
+
+        {/* ZOOM */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Zoom</span>
+          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.max(1, +(adj.zoom - 0.1).toFixed(2)) })}>
+            −
+          </button>
+          <input
+            type="range"
+            min="100"
+            max="500"
+            step="5"
+            value={Math.round(adj.zoom * 100)}
+            onChange={(e) => onChange({ zoom: parseInt(e.target.value) / 100 })}
+            style={{ width: 100, accentColor: GOLD }}
+          />
+          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.min(5, +(adj.zoom + 0.1).toFixed(2)) })}>
+            +
+          </button>
+          <span style={{ fontSize: 10, color: GOLD, minWidth: 42, textAlign: 'center' }}>
+            {Math.round(adj.zoom * 100)}%
+          </span>
+        </div>
+
+        {/* FLIP */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Flip</span>
+          <button
+            type="button"
+            style={adj.flipH ? btnActive : btn}
+            title="Flip horizontal"
+            onClick={() => onChange({ flipH: !adj.flipH })}
+          >
+            ⇄
+          </button>
+          <button
+            type="button"
+            style={adj.flipV ? btnActive : btn}
+            title="Flip vertical"
+            onClick={() => onChange({ flipV: !adj.flipV })}
+          >
+            ⇅
+          </button>
+        </div>
+
+        {/* ROTATE */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Rotate</span>
+          <button
+            type="button"
+            style={btn}
+            title="Rotate left 90°"
+            onClick={() => onChange({ rotate: ((adj.rotate + 270) % 360) as PhotoAdjust['rotate'] })}
+          >
+            ↺
+          </button>
+          <button
+            type="button"
+            style={btn}
+            title="Rotate right 90°"
+            onClick={() => onChange({ rotate: ((adj.rotate + 90) % 360) as PhotoAdjust['rotate'] })}
+          >
+            ↻
+          </button>
+          <span style={{ fontSize: 10, color: GOLD, minWidth: 32 }}>{adj.rotate}°</span>
+        </div>
+      </div>
+
+      {/* PAN sliders (only meaningful when fit=fill) */}
+      {adj.fit === 'fill' && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+          <span style={groupLabel}>Pan</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>X</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={adj.panX}
+              onChange={(e) => onChange({ panX: parseInt(e.target.value) })}
+              style={{ width: 100, accentColor: GOLD }}
+            />
+            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 30 }}>{adj.panX}%</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Y</span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={adj.panY}
+              onChange={(e) => onChange({ panY: parseInt(e.target.value) })}
+              style={{ width: 100, accentColor: GOLD }}
+            />
+            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 30 }}>{adj.panY}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* ACTIONS */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 6, borderTop: '0.5px solid rgba(184,150,90,0.15)' }}>
+        <button type="button" style={btn} onClick={onReset}>
+          ↺ Reset adjustments
+        </button>
+        <button
+          type="button"
+          style={inSwapMode ? btnActive : btn}
+          onClick={onSwap}
+          title="Pick a different photo from the unused pool"
+        >
+          {inSwapMode ? 'Swap mode active — pick from pool →' : '⇄ Swap photo'}
+        </button>
+        <button type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
+          ✕ Remove
         </button>
       </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Pan X</span>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={adj.panX}
-          onChange={(e) => onChange({ panX: parseInt(e.target.value) })}
-          style={{ width: 90, accentColor: GOLD }}
-        />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Pan Y</span>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={adj.panY}
-          onChange={(e) => onChange({ panY: parseInt(e.target.value) })}
-          style={{ width: 90, accentColor: GOLD }}
-        />
-      </div>
-
-      <button type="button" style={btnSm} onClick={onReset}>
-        Reset
-      </button>
-      <button type="button" style={{ ...btnSm, color: '#ff8a8a', borderColor: 'rgba(255,138,138,0.4)' }} onClick={onSwap}>
-        Swap photo
-      </button>
     </div>
   )
 }
