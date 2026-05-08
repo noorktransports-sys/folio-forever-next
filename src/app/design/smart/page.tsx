@@ -618,11 +618,11 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
       }
     } else if (nonHeroSlotsPlanned < nonHeroPhotos) {
       // Need to increase density. Step up hero spreads first (hero+1 → hero+2 → +3 → +4 max),
-      // then pair spreads (2 → 3 → 4 ... max 8).
+      // then pair spreads (2 → 3 → 4 → 5). Hard cap is 5 photos per spread — anything
+      // beyond that becomes unused-pool overflow.
       let deficit = nonHeroPhotos - nonHeroSlotsPlanned
-      // Round-robin upgrade until deficit is gone
       const heroMax = 5 // 1 hero + 4 fillers
-      const pairMax = 8
+      const pairMax = 5
       let safety = 1000
       while (deficit > 0 && safety-- > 0) {
         let bumped = false
@@ -711,7 +711,7 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
     const stillLeft = [...heroes, ...fillerQueue]
     if (stillLeft.length > 0 && eventSpreads.length > 0) {
       const last = eventSpreads[eventSpreads.length - 1]
-      const tgt = Math.min(8, last.photoIds.length + stillLeft.length)
+      const tgt = Math.min(5, last.photoIds.length + stillLeft.length)
       const upgrade = pickTemplate(type, tgt, false)
       if (upgrade) {
         last.templateId = upgrade.id
@@ -730,7 +730,7 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
   const orphans = useable.filter((p) => !placed.has(p.id))
   if (orphans.length > 0 && spreads.length > 0) {
     const last = spreads[spreads.length - 1]
-    const tgt = Math.min(8, last.photoIds.length + orphans.length)
+    const tgt = Math.min(5, last.photoIds.length + orphans.length)
     const upgrade = pickTemplate(type, tgt, false)
     if (upgrade) {
       last.templateId = upgrade.id
@@ -1076,7 +1076,9 @@ export default function SmartDesignerPage() {
   const favCount = photos.filter((p) => p.tagged === 'favorite').length
   const usefulPhotoCount = photos.filter((p) => !p.blurry).length
 
-  const recommendedSpreads = Math.max(10, Math.min(25, Math.ceil(usefulPhotoCount / 8)))
+  // Recommended spreads = photos ÷ 4 (breathable, ~4 photos per spread).
+  // Floor of 10, ceiling of 25 to fit album-spec range.
+  const recommendedSpreads = Math.max(10, Math.min(25, Math.ceil(usefulPhotoCount / 4)))
 
   const albumPrice = useMemo(() => {
     if (!size || !type) return 0
@@ -1555,12 +1557,12 @@ export default function SmartDesignerPage() {
             How many photos to upload
           </p>
           <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.9, marginBottom: 10 }}>
-            Each page fits <strong style={{ color: GOLD }}>3–5 photos</strong>. A spread is two pages.
+            Each spread fits up to <strong style={{ color: GOLD }}>5 photos</strong>.
           </p>
           <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.9 }}>
-            Rule of thumb: <strong style={{ color: GOLD }}>photos ÷ 4 ≈ pages</strong>.
+            Rule of thumb: <strong style={{ color: GOLD }}>photos ÷ 4 ≈ spreads</strong> for a breathable layout.
             <br />
-            100 photos → ~25 pages → ~13 spreads.
+            100 photos → ~25 spreads. 50 photos → ~13 spreads.
           </p>
           <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.8, marginTop: 14 }}>
             Hard cap: 100 photos. Less is fine — every photo you upload will be placed in the album.

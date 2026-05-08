@@ -12,7 +12,9 @@
       "WebFetch(domain:folioforever.com)",
       "Bash(ls \"C:/Users/fufck/Documents/GitHub\" 2>&1 | head -20)",
       "Bash(cp HANDOFF_SMART.md \"C:/Users/fufck/Documents/GitHub/folio-forever-next/HANDOFF_SMART.md\" && ls -lh \"C:/Users/fufck/Documents/GitHub/folio-forever-next/HANDOFF_SMART.md\")",
-      "Bash(unzip -o files.zip)"
+      "Bash(unzip -o files.zip)",
+      "Bash(npm install *)",
+      "Bash(node_modules/.bin/next build *)"
     ]
   }
 }
