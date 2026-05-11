@@ -29,7 +29,8 @@ export default async function AdminAuditPage() {
   const cookieHeader = (await cookies()).toString();
   const { env } = getRequestContext() as { env: Env };
   if (!(await isAuthedFromCookieHeader(cookieHeader, env.ADMIN_PASSWORD))) {
-    redirect('/admin/login');
+    // Login is rendered inline at /admin (no separate /admin/login route).
+    redirect('/admin');
   }
 
   return (
