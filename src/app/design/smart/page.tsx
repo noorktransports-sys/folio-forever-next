@@ -1037,6 +1037,34 @@ export default function SmartDesignerPage() {
   //   2. Upload a new file
   const [emptySlotPicker, setEmptySlotPicker] = useState<{ spreadId: string; slotIdx: number } | null>(null)
   const emptySlotFileInputRef = useRef<HTMLInputElement>(null)
+
+  // ---------- Final submit flow ----------
+  // Customer info form (modal shown when "Submit Order" is clicked).
+  const [submitModalOpen, setSubmitModalOpen] = useState(false)
+  const [customerForm, setCustomerForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    line1: '',
+    line2: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    country: 'United States',
+    notes: '',
+  })
+  // Submission progress: uploadIdx of total when uploading photos.
+  const [submitting, setSubmitting] = useState<{
+    stage: 'idle' | 'uploading' | 'persisting' | 'done' | 'error'
+    done: number
+    total: number
+    label: string
+    error?: string
+  }>({ stage: 'idle', done: 0, total: 0, label: '' })
+  // Real order ID returned by /api/submit-smart-order (replaces the
+  // session-only random one we generate at mount time).
+  const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(null)
+  const [polishHandoff, setPolishHandoff] = useState(false)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
@@ -1492,6 +1520,139 @@ export default function SmartDesignerPage() {
     fillEmptySlot(emptySlotPicker.spreadId, emptySlotPicker.slotIdx, photoId)
     e.target.value = ''
   }
+
+  // ---------- Final submit (customer info → upload to R2 → API call) ----------
+  // Validates the form, runs the photo-upload pipeline (orig + watermarked
+  // preview to R2), then POSTs everything to /api/submit-smart-order which
+  // persists to KV + emails owner + customer. On success we land on the
+  // submit step with the REAL order ID returned by the server.
+  const runFinalSubmit = useCallback(async () => {
+    if (!size || !type) return
+    const c = customerForm
+    if (!c.name.trim() || !c.email.trim()) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Name and email are required' })
+      return
+    }
+    if (!c.line1.trim() || !c.city.trim() || !c.postalCode.trim()) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Shipping address line 1, city and postal code are required' })
+      return
+    }
+    if (!albumId) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Album id missing — please refresh and try again' })
+      return
+    }
+    // Only photos that are actually placed in spreads get uploaded.
+    const usedIds = new Set(
+      spreads.flatMap((s) => s.photoIds).filter((id): id is string => Boolean(id)),
+    )
+    const photosToUpload = photos.filter((p) => usedIds.has(p.id))
+    if (photosToUpload.length === 0) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Album has no photos placed' })
+      return
+    }
+
+    setSubmitting({
+      stage: 'uploading',
+      done: 0,
+      total: photosToUpload.length,
+      label: 'Preparing upload…',
+    })
+    try {
+      const { prepareSubmission } = await import('./edit/submit-helpers')
+      const designId = albumId // use albumId as the R2 designId folder
+      const uploads = await prepareSubmission({
+        albumId,
+        designId,
+        photos: photosToUpload.map((p) => ({
+          id: p.id,
+          preview: p.preview,
+          width: p.width,
+          height: p.height,
+        })),
+        onProgress: (done, total, label) =>
+          setSubmitting({ stage: 'uploading', done, total, label }),
+      })
+
+      setSubmitting({
+        stage: 'persisting',
+        done: photosToUpload.length,
+        total: photosToUpload.length,
+        label: 'Saving order…',
+      })
+
+      // Map photo tag + event back onto each upload result
+      const photoById = new Map(photos.map((p) => [p.id, p]))
+      const photosPayload = uploads.map((u) => {
+        const meta = photoById.get(u.photoId)
+        return {
+          ...u,
+          tagged: meta?.tagged ?? 'none',
+          eventId: meta?.eventId ?? 'unassigned',
+        }
+      })
+
+      const res = await fetch('/api/submit-smart-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumId,
+          albumName: albumName || 'Untitled Smart Album',
+          customer: { name: c.name.trim(), email: c.email.trim() },
+          shipping: {
+            recipientName: c.name.trim(),
+            phone: c.phone.trim(),
+            line1: c.line1.trim(),
+            line2: c.line2.trim() || undefined,
+            city: c.city.trim(),
+            region: c.region.trim(),
+            postalCode: c.postalCode.trim(),
+            country: c.country.trim() || 'United States',
+            notes: c.notes.trim() || undefined,
+          },
+          album: {
+            size,
+            type,
+            pageCount,
+            totalPrice: albumPrice + (polishHandoff ? 99 : 0),
+          },
+          photos: photosPayload,
+          spreads,
+          customEventNames,
+          polishHandoff,
+        }),
+      })
+      if (!res.ok) {
+        let detail = ''
+        try {
+          const j = (await res.json()) as { error?: string }
+          detail = j.error ?? ''
+        } catch {
+          /* ignore */
+        }
+        throw new Error(`Server rejected the order${detail ? ': ' + detail : ''}`)
+      }
+      const json = (await res.json()) as { orderId: string }
+      setSubmittedOrderId(json.orderId)
+      setSubmitting({ stage: 'done', done: photosToUpload.length, total: photosToUpload.length, label: 'Done' })
+      setSubmitModalOpen(false)
+      setStep('submit')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: msg })
+    }
+  }, [
+    size,
+    type,
+    albumId,
+    albumName,
+    pageCount,
+    albumPrice,
+    photos,
+    spreads,
+    customerForm,
+    customEventNames,
+    polishHandoff,
+  ])
 
   // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
   // Adapter so templatesForCount matches the integration's signature
@@ -3072,8 +3233,19 @@ export default function SmartDesignerPage() {
             For an extra <strong style={{ color: GOLD }}>$99</strong>, our designers fine-tune crops, refine spread pacing,
             and balance the visual flow. Proof in 24 hours.
           </p>
-          <button type="button" style={{ ...css.btnSecondary, padding: '11px 24px' }}>
-            + $99 · Hand off to design team
+          <button
+            type="button"
+            onClick={() => setPolishHandoff((v) => !v)}
+            style={{
+              ...css.btnSecondary,
+              padding: '11px 24px',
+              background: polishHandoff ? GOLD : 'transparent',
+              color: polishHandoff ? '#0e0c09' : GOLD,
+              borderColor: GOLD,
+            }}
+            title={polishHandoff ? 'Click to remove the polish add-on' : 'Click to add the $99 polish service to your order'}
+          >
+            {polishHandoff ? '✓ $99 · Hand-off added' : '+ $99 · Hand off to design team'}
           </button>
         </div>
 
@@ -3081,10 +3253,269 @@ export default function SmartDesignerPage() {
           <button type="button" style={css.btnSecondary} onClick={() => setStep('pages')}>
             ← Back
           </button>
-          <button type="button" style={css.btnPrimary} onClick={() => setStep('submit')}>
-            Submit Order · ${albumPrice} →
+          <button
+            type="button"
+            style={css.btnPrimary}
+            onClick={() => {
+              setSubmitting({ stage: 'idle', done: 0, total: 0, label: '' })
+              setSubmitModalOpen(true)
+            }}
+          >
+            Submit Order · ${albumPrice + (polishHandoff ? 99 : 0)} →
           </button>
         </div>
+
+        {/* Customer info + Submit modal */}
+        {submitModalOpen && size && type && (
+          <div
+            onClick={() => {
+              if (submitting.stage !== 'uploading' && submitting.stage !== 'persisting') {
+                setSubmitModalOpen(false)
+              }
+            }}
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.75)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'center',
+              zIndex: 10000,
+              padding: 24,
+              overflowY: 'auto',
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--dark2)',
+                border: `0.5px solid ${GOLD}`,
+                borderRadius: 12,
+                padding: 32,
+                maxWidth: 540,
+                width: '100%',
+                marginTop: 40,
+                marginBottom: 40,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--cream)', margin: 0 }}>
+                  Shipping &amp; <em style={{ color: GOLD, fontStyle: 'italic' }}>contact</em>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (submitting.stage === 'uploading' || submitting.stage === 'persisting') return
+                    setSubmitModalOpen(false)
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--cream)',
+                    fontSize: 24,
+                    cursor: 'pointer',
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Order summary */}
+              <div
+                style={{
+                  background: 'rgba(184,150,90,0.06)',
+                  border: '0.5px solid rgba(184,150,90,0.2)',
+                  borderRadius: 8,
+                  padding: '12px 14px',
+                  marginBottom: 20,
+                  fontSize: 11,
+                  color: 'var(--cream)',
+                  lineHeight: 1.8,
+                }}
+              >
+                {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard' : 'Layflat'} · {pageCount} spreads · {photos.length} photos
+                <br />
+                <strong style={{ color: GOLD, fontSize: 14 }}>
+                  Total: ${albumPrice + (polishHandoff ? 99 : 0)}
+                  {polishHandoff && (
+                    <span style={{ fontSize: 10, color: 'var(--muted2)', fontWeight: 400 }}> (incl. $99 polish hand-off)</span>
+                  )}
+                </strong>
+              </div>
+
+              {/* Form fields */}
+              {(() => {
+                const inputStyle: React.CSSProperties = {
+                  width: '100%',
+                  background: 'var(--dark3)',
+                  border: '0.5px solid rgba(184,150,90,0.25)',
+                  borderRadius: 4,
+                  padding: '10px 12px',
+                  color: 'var(--cream)',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-body)',
+                  outline: 'none',
+                }
+                const labelStyle: React.CSSProperties = {
+                  display: 'block',
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  color: GOLD,
+                  textTransform: 'uppercase',
+                  marginBottom: 4,
+                  marginTop: 10,
+                }
+                const setField = (field: keyof typeof customerForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                  setCustomerForm((prev) => ({ ...prev, [field]: e.target.value }))
+                const busy = submitting.stage === 'uploading' || submitting.stage === 'persisting'
+                return (
+                  <>
+                    <label style={labelStyle}>Full name *</label>
+                    <input
+                      style={inputStyle}
+                      value={customerForm.name}
+                      onChange={setField('name')}
+                      disabled={busy}
+                      placeholder="Sarah Khan"
+                    />
+                    <label style={labelStyle}>Email *</label>
+                    <input
+                      style={inputStyle}
+                      value={customerForm.email}
+                      onChange={setField('email')}
+                      disabled={busy}
+                      type="email"
+                      placeholder="you@email.com"
+                    />
+                    <label style={labelStyle}>Phone</label>
+                    <input
+                      style={inputStyle}
+                      value={customerForm.phone}
+                      onChange={setField('phone')}
+                      disabled={busy}
+                      placeholder="+1 555 000 0000"
+                    />
+                    <label style={labelStyle}>Address line 1 *</label>
+                    <input
+                      style={inputStyle}
+                      value={customerForm.line1}
+                      onChange={setField('line1')}
+                      disabled={busy}
+                      placeholder="123 Main St"
+                    />
+                    <label style={labelStyle}>Address line 2</label>
+                    <input
+                      style={inputStyle}
+                      value={customerForm.line2}
+                      onChange={setField('line2')}
+                      disabled={busy}
+                      placeholder="Apt / Suite (optional)"
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginTop: 10 }}>
+                      <div>
+                        <label style={{ ...labelStyle, marginTop: 0 }}>City *</label>
+                        <input style={inputStyle} value={customerForm.city} onChange={setField('city')} disabled={busy} />
+                      </div>
+                      <div>
+                        <label style={{ ...labelStyle, marginTop: 0 }}>State</label>
+                        <input style={inputStyle} value={customerForm.region} onChange={setField('region')} disabled={busy} />
+                      </div>
+                      <div>
+                        <label style={{ ...labelStyle, marginTop: 0 }}>Postal *</label>
+                        <input style={inputStyle} value={customerForm.postalCode} onChange={setField('postalCode')} disabled={busy} />
+                      </div>
+                    </div>
+                    <label style={labelStyle}>Country</label>
+                    <input style={inputStyle} value={customerForm.country} onChange={setField('country')} disabled={busy} />
+                    <label style={labelStyle}>Delivery notes (optional)</label>
+                    <textarea
+                      style={{ ...inputStyle, resize: 'vertical', minHeight: 60, fontFamily: 'var(--font-body)' }}
+                      value={customerForm.notes}
+                      onChange={setField('notes')}
+                      disabled={busy}
+                      placeholder="e.g. Leave at door / Apartment buzzer code"
+                    />
+                  </>
+                )
+              })()}
+
+              {/* Progress / error / submit */}
+              {submitting.stage === 'uploading' && (
+                <div style={{ marginTop: 20 }}>
+                  <div
+                    style={{
+                      width: '100%',
+                      height: 8,
+                      background: 'var(--dark3)',
+                      borderRadius: 4,
+                      overflow: 'hidden',
+                      border: '0.5px solid rgba(184,150,90,0.2)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.round((submitting.done / Math.max(1, submitting.total)) * 100)}%`,
+                        height: '100%',
+                        background: GOLD,
+                        transition: 'width 0.2s',
+                      }}
+                    />
+                  </div>
+                  <p style={{ fontSize: 10, letterSpacing: 1, color: 'var(--muted2)', marginTop: 6, textAlign: 'center' }}>
+                    {submitting.label}
+                  </p>
+                </div>
+              )}
+              {submitting.stage === 'persisting' && (
+                <p style={{ fontSize: 11, color: GOLD, textAlign: 'center', marginTop: 16 }}>
+                  Photos uploaded · saving your order…
+                </p>
+              )}
+              {submitting.stage === 'error' && submitting.error && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: '10px 12px',
+                    background: 'rgba(255,138,138,0.1)',
+                    border: '0.5px solid rgba(255,138,138,0.4)',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    color: '#ff8a8a',
+                  }}
+                >
+                  {submitting.error}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                <button
+                  type="button"
+                  style={{ ...css.btnSecondary, opacity: submitting.stage === 'uploading' || submitting.stage === 'persisting' ? 0.4 : 1 }}
+                  disabled={submitting.stage === 'uploading' || submitting.stage === 'persisting'}
+                  onClick={() => setSubmitModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  style={{ ...css.btnPrimary, opacity: submitting.stage === 'uploading' || submitting.stage === 'persisting' ? 0.6 : 1 }}
+                  disabled={submitting.stage === 'uploading' || submitting.stage === 'persisting'}
+                  onClick={runFinalSubmit}
+                >
+                  {submitting.stage === 'uploading' || submitting.stage === 'persisting'
+                    ? 'Submitting…'
+                    : `Place order · $${albumPrice + (polishHandoff ? 99 : 0)}`}
+                </button>
+              </div>
+              <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginTop: 14 }}>
+                Photo upload takes ~1 second per photo. Please don&apos;t close this tab while uploading.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Empty-slot picker modal — opens when user clicks "+ Add" on an empty slot */}
         {emptySlotPicker && (
@@ -3226,7 +3657,11 @@ export default function SmartDesignerPage() {
         Order <em style={css.titleEm}>received.</em>
       </h2>
       <p style={css.subtitle}>
-        Order #{orderId} · ${albumPrice}
+        Order #{submittedOrderId ?? orderId} · ${albumPrice + (polishHandoff ? 99 : 0)}
+        <br />
+        <span style={{ fontSize: 11, color: 'var(--muted2)' }}>
+          A confirmation has been sent to {customerForm.email || 'your inbox'}.
+        </span>
       </p>
 
       <div style={{ ...css.card, textAlign: 'left', marginBottom: 32 }}>
