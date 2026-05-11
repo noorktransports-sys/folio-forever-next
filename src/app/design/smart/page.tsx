@@ -3878,45 +3878,83 @@ function PhotoToolbar({
       </div>
 
       {/* PAN sliders (only meaningful when fit=fill).
-          Tip: drag the photo directly inside the slot — same effect, more natural. */}
-      {adj.fit === 'fill' && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
-          <span style={groupLabel}>Pan</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>X</span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={Math.round(adj.panX)}
-              onChange={(e) => onChange({ panX: parseInt(e.target.value) })}
-              style={{ width: 100, accentColor: GOLD }}
-            />
-            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
-              {Math.round(adj.panX)}%
+          Sliders are in SCREEN coordinates — "X" always moves left/right on
+          screen, "Y" always moves up/down. When the image is rotated 90°/180°/
+          270°, internally we map screen-X/Y to the image's coordinate axes so
+          the pan still matches what the user sees. */}
+      {adj.fit === 'fill' && (() => {
+        // Snap to nearest 90° step for axis mapping. Fine tilts (e.g. ±15°)
+        // map to step 0 — pan stays in image coords, which is close enough to
+        // visual coords for small angles.
+        const r = ((Math.round(adj.rotate ?? 0) % 360) + 360) % 360
+        const step = Math.round(r / 90) % 4
+        // imageToScreen: convert stored image-coord pan → what the user sees.
+        // screenToImage: convert slider value → image-coord pan to store.
+        const inv = (v: number) => 100 - v
+        const imageToScreen = (px: number, py: number) => {
+          switch (step) {
+            case 1: return { sx: inv(py), sy: px }       // 90° CW
+            case 2: return { sx: inv(px), sy: inv(py) }  // 180°
+            case 3: return { sx: py, sy: inv(px) }       // 270° CW
+            default: return { sx: px, sy: py }
+          }
+        }
+        const screenToImage = (sx: number, sy: number) => {
+          switch (step) {
+            case 1: return { px: sy, py: inv(sx) }
+            case 2: return { px: inv(sx), py: inv(sy) }
+            case 3: return { px: inv(sy), py: sx }
+            default: return { px: sx, py: sy }
+          }
+        }
+        const { sx, sy } = imageToScreen(adj.panX, adj.panY)
+        return (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+            <span style={groupLabel}>Pan</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>X</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round(sx)}
+                onChange={(e) => {
+                  const newSx = parseInt(e.target.value)
+                  const { px, py } = screenToImage(newSx, sy)
+                  onChange({ panX: px, panY: py })
+                }}
+                style={{ width: 100, accentColor: GOLD }}
+              />
+              <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
+                {Math.round(sx)}%
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Y</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round(sy)}
+                onChange={(e) => {
+                  const newSy = parseInt(e.target.value)
+                  const { px, py } = screenToImage(sx, newSy)
+                  onChange({ panX: px, panY: py })
+                }}
+                style={{ width: 100, accentColor: GOLD }}
+              />
+              <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
+                {Math.round(sy)}%
+              </span>
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--muted2)', fontStyle: 'italic' }}>
+              tip: zoom in first to see pan have more effect
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Y</span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={Math.round(adj.panY)}
-              onChange={(e) => onChange({ panY: parseInt(e.target.value) })}
-              style={{ width: 100, accentColor: GOLD }}
-            />
-            <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
-              {Math.round(adj.panY)}%
-            </span>
-          </div>
-          <span style={{ fontSize: 10, color: 'var(--muted2)', fontStyle: 'italic' }}>
-            tip: zoom in first to see pan have more effect
-          </span>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ACTIONS */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 6, borderTop: '0.5px solid rgba(184,150,90,0.15)' }}>
