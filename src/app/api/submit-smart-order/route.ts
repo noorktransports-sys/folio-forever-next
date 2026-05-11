@@ -65,6 +65,12 @@ interface SmartSpreadSnapshot {
   eventId: string;
 }
 
+interface SpreadCompositeUpload {
+  spreadId: string;
+  key: string;
+  url: string;
+}
+
 interface ShippingInfo {
   recipientName: string;
   phone: string;
@@ -95,6 +101,9 @@ interface SubmitPayload {
   };
   photos: SmartPhotoUpload[];
   spreads: SmartSpreadSnapshot[];
+  /** Composite JPEGs of each spread, uploaded by the client at submit
+   *  time so the emails can SHOW the album layout, not just list photos. */
+  spreadComposites?: SpreadCompositeUpload[];
   customEventNames?: Record<string, string>;
   /** Polish-it upsell — $99 if true */
   polishHandoff?: boolean;
@@ -180,6 +189,18 @@ function ownerEmailHtml(
         )}</a> · ${p.width}×${p.height}px${p.tagged && p.tagged !== 'none' ? ` · <strong>${escapeHtml(p.tagged)}</strong>` : ''}</li>`,
     )
     .join('');
+  // Spread composites — the actual designed layouts. Numbered in order.
+  const compositesHtml = (payload.spreadComposites ?? [])
+    .map(
+      (c, i) =>
+        `<div style="margin-bottom: 18px; padding: 8px; background: #faf6ed; border: 1px solid #b8965a;">
+           <div style="font-size: 11px; letter-spacing: 2px; color: #b8965a; text-transform: uppercase; margin-bottom: 6px;">Spread ${i + 1}</div>
+           <a href="${escapeHtml(abs(siteUrl, c.url))}">
+             <img src="${escapeHtml(abs(siteUrl, c.url))}" alt="Spread ${i + 1}" style="width: 100%; max-width: 560px; height: auto; display: block; border: 0.5px solid #d4b07a;" />
+           </a>
+         </div>`,
+    )
+    .join('');
 
   return `<!doctype html>
 <html><body style="font-family: Georgia, serif; color: #2a2218; background: #f5f0e8; padding: 24px;">
@@ -217,7 +238,11 @@ function ownerEmailHtml(
       ${s.notes ? `<br><em style="color: #6b5e4e;">Notes: ${escapeHtml(s.notes)}</em>` : ''}
     </div>
 
-    <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 18px 0 6px;">High-resolution photos (for print)</h3>
+    ${compositesHtml ? `<h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 22px 0 8px;">Album spreads — as designed</h3>
+    <p style="font-size: 11px; color: #6b5e4e; margin: 0 0 12px;">${(payload.spreadComposites ?? []).length} composite previews · click any to open full size</p>
+    ${compositesHtml}` : ''}
+
+    <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 22px 0 6px;">High-resolution photos (for print)</h3>
     <p style="font-size: 12px; color: #6b5e4e; margin: 0 0 8px;">${totalPhotos} originals on R2 · click any to download</p>
     <ul style="font-size: 12px; line-height: 1.8; color: #2a2218; max-height: 320px; overflow-y: auto; padding-left: 18px;">
       ${photoListHtml}
@@ -248,6 +273,20 @@ function customerEmailHtml(
         `<li><a href="${escapeHtml(abs(siteUrl, p.previewUrl))}">Preview ${escapeHtml(p.photoId.slice(0, 8))}</a></li>`,
     )
     .join('');
+  // Customer composite previews — same as owner but with the watermarked
+  // photos baked in via the rendered spread (no extra watermarking here
+  // since the composite uses original photos at lower resolution).
+  const compositesHtml = (payload.spreadComposites ?? [])
+    .map(
+      (c, i) =>
+        `<div style="margin-bottom: 16px; padding: 6px; background: #faf6ed; border: 1px solid #b8965a;">
+           <div style="font-size: 11px; letter-spacing: 2px; color: #b8965a; text-transform: uppercase; margin-bottom: 4px;">Spread ${i + 1}</div>
+           <a href="${escapeHtml(abs(siteUrl, c.url))}">
+             <img src="${escapeHtml(abs(siteUrl, c.url))}" alt="Spread ${i + 1}" style="width: 100%; max-width: 480px; height: auto; display: block;" />
+           </a>
+         </div>`,
+    )
+    .join('');
 
   return `<!doctype html>
 <html><body style="font-family: Georgia, serif; color: #2a2218; background: #f5f0e8; padding: 24px;">
@@ -276,7 +315,11 @@ function customerEmailHtml(
       <li>We ship to the address on file</li>
     </ol>
 
-    <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 20px 0 6px;">Your photos · preview</h3>
+    ${compositesHtml ? `<h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 22px 0 8px;">Your album · spread previews</h3>
+    <p style="font-size: 12px; color: #6b5e4e; margin: 0 0 12px;">Here's how each spread will look. The actual print uses your originals at full resolution.</p>
+    ${compositesHtml}` : ''}
+
+    <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 22px 0 6px;">Your photos · preview links</h3>
     <p style="font-size: 12px; color: #6b5e4e; margin: 0 0 8px;">
       Compressed, watermarked copies for your records. The print uses your originals at full resolution.
     </p>

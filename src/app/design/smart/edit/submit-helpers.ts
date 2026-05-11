@@ -13,6 +13,7 @@
 //                       Yields progress so the UI can show a live percentage.
 
 import { loadAlbumBlobs } from './photo-blob-store'
+import { renderSpreadComposite } from './render-spread'
 
 /* ─── Image processing ──────────────────────────────────────────────── */
 
@@ -157,6 +158,12 @@ export interface PhotoUploadResult {
   height: number
 }
 
+export interface SpreadCompositeResult {
+  spreadId: string
+  key: string
+  url: string
+}
+
 export interface SubmissionInput {
   albumId: string
   designId: string
@@ -167,6 +174,39 @@ export interface SubmissionInput {
     width: number
     height: number
   }>
+  /** Spreads to render as composite previews. Optional — if absent we
+   *  skip composite rendering and the email won't have layout pictures. */
+  spreads?: Array<{
+    id: string
+    templateId: string
+    photoIds: (string | null)[]
+  }>
+  /** Lookup `templateId` → slots + name. Caller passes the TEMPLATES map. */
+  templates?: Map<
+    string,
+    {
+      id: string
+      name: string
+      slots: { x: number; y: number; w: number; h: number; isHero?: boolean }[]
+    }
+  >
+  /** Per-slot adjustments keyed `${spreadId}::${slotIdx}` */
+  adjusts?: Record<
+    string,
+    {
+      zoom: number
+      panX: number
+      panY: number
+      flipH: boolean
+      flipV: boolean
+      rotate: number
+      fit: 'fill' | 'contain'
+    }
+  >
+  /** Album spread aspect (e.g. 24/17 for 17×24). Required if composites are rendered. */
+  spreadAspectRatio?: number
+  /** Whether to draw the gutter line (standard = true, layflat = false). */
+  showGutter?: boolean
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -187,31 +227,46 @@ export async function prepareSubmission({
   albumId,
   designId,
   photos,
+  spreads,
+  templates,
+  adjusts,
+  spreadAspectRatio,
+  showGutter,
   onProgress,
-}: SubmissionInput): Promise<PhotoUploadResult[]> {
+}: SubmissionInput): Promise<{
+  photos: PhotoUploadResult[]
+  spreadComposites: SpreadCompositeResult[]
+}> {
   // Hydrate uploaded photo blobs from IDB so we can read the originals.
   // Sample photos won't be in IDB — we fetch their HTTPS URL instead.
   const idbBlobs = await loadAlbumBlobs(albumId)
-  const results: PhotoUploadResult[] = []
-  let done = 0
-  const total = photos.length
+  const photoResults: PhotoUploadResult[] = []
+  const composites: SpreadCompositeResult[] = []
 
+  // Photo lookup that the spread composite renderer can use later.
+  // We rebuild it as we go (mapping photoId → loaded preview).
+  const photoLookup = new Map<
+    string,
+    { id: string; preview: string; width: number; height: number }
+  >()
+
+  const photoSteps = photos.length
+  const spreadSteps = spreads && templates && spreadAspectRatio ? spreads.length : 0
+  const total = photoSteps + spreadSteps
+  let done = 0
+
+  // ─── Pass 1: per-photo originals + watermarked previews ─────────────
   for (const p of photos) {
-    onProgress?.(done, total, `Uploading photo ${done + 1} of ${total}`)
+    onProgress?.(done, total, `Uploading photo ${done + 1} of ${photoSteps}`)
 
     // 1. Get the source blob
     let source: Blob
     const idbUrl = idbBlobs.get(p.id)
     if (idbUrl) {
-      // The IDB-derived object URL is a Blob URL; fetch it back to a Blob
       const r = await fetch(idbUrl)
       source = await r.blob()
-    } else if (/^https?:\/\//.test(p.preview)) {
-      // Sample photos: HTTPS source
-      const r = await fetch(p.preview)
-      source = await r.blob()
     } else {
-      // Local blob: URL still alive (current session)
+      // HTTPS sample OR a still-alive blob: URL from the current session
       const r = await fetch(p.preview)
       source = await r.blob()
     }
@@ -227,7 +282,7 @@ export async function prepareSubmission({
       `${p.id}-preview.jpg`,
     )
 
-    results.push({
+    photoResults.push({
       photoId: p.id,
       originalKey: origUpload.key,
       originalUrl: origUpload.url,
@@ -236,9 +291,47 @@ export async function prepareSubmission({
       width: p.width,
       height: p.height,
     })
+    // Save the LOCAL preview URL so spread compositing can use it without
+    // re-fetching (faster + avoids CORS issues with the R2 public proxy).
+    photoLookup.set(p.id, {
+      id: p.id,
+      preview: URL.createObjectURL(source),
+      width: p.width,
+      height: p.height,
+    })
     done++
-    onProgress?.(done, total, `Uploaded ${done} of ${total}`)
+    onProgress?.(done, total, `Uploaded ${done}/${photoSteps} photos`)
   }
 
-  return results
+  // ─── Pass 2: per-spread composite renders ──────────────────────────
+  if (spreads && templates && spreadAspectRatio !== undefined && spreadSteps > 0) {
+    for (let i = 0; i < spreads.length; i++) {
+      const s = spreads[i]
+      onProgress?.(done, total, `Rendering spread ${i + 1} of ${spreadSteps}`)
+      const tpl = templates.get(s.templateId)
+      if (!tpl) {
+        done++
+        continue
+      }
+      try {
+        const blob = await renderSpreadComposite({
+          spread: s,
+          template: tpl,
+          photos: photoLookup,
+          adjusts: adjusts ?? {},
+          spreadAspectRatio,
+          showGutter: !!showGutter,
+        })
+        const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
+        composites.push({ spreadId: s.id, key: up.key, url: up.url })
+      } catch (err) {
+        console.warn('[submit-helpers] composite render failed for spread', s.id, err)
+        // Continue — partial composite set is still useful.
+      }
+      done++
+      onProgress?.(done, total, `Rendered ${composites.length}/${spreadSteps} spreads`)
+    }
+  }
+
+  return { photos: photoResults, spreadComposites: composites }
 }
