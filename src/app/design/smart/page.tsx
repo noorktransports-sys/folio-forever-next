@@ -1554,13 +1554,20 @@ export default function SmartDesignerPage() {
     setSubmitting({
       stage: 'uploading',
       done: 0,
-      total: photosToUpload.length,
+      total: photosToUpload.length + spreads.length,
       label: 'Preparing upload…',
     })
     try {
       const { prepareSubmission } = await import('./edit/submit-helpers')
       const designId = albumId // use albumId as the R2 designId folder
-      const uploads = await prepareSubmission({
+      // Build the template map for spread compositing
+      const templateMap = new Map(
+        TEMPLATES.map((t) => [
+          t.id,
+          { id: t.id, name: t.name, slots: t.slots },
+        ]),
+      )
+      const result = await prepareSubmission({
         albumId,
         designId,
         photos: photosToUpload.map((p) => ({
@@ -1569,20 +1576,29 @@ export default function SmartDesignerPage() {
           width: p.width,
           height: p.height,
         })),
+        spreads: spreads.map((s) => ({
+          id: s.id,
+          templateId: s.templateId,
+          photoIds: s.photoIds as (string | null)[],
+        })),
+        templates: templateMap,
+        adjusts,
+        spreadAspectRatio: ALBUM_SPECS[size].spreadAspectRatio,
+        showGutter: type === 'standard',
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
 
       setSubmitting({
         stage: 'persisting',
-        done: photosToUpload.length,
-        total: photosToUpload.length,
+        done: photosToUpload.length + spreads.length,
+        total: photosToUpload.length + spreads.length,
         label: 'Saving order…',
       })
 
       // Map photo tag + event back onto each upload result
       const photoById = new Map(photos.map((p) => [p.id, p]))
-      const photosPayload = uploads.map((u) => {
+      const photosPayload = result.photos.map((u) => {
         const meta = photoById.get(u.photoId)
         return {
           ...u,
@@ -1617,6 +1633,7 @@ export default function SmartDesignerPage() {
           },
           photos: photosPayload,
           spreads,
+          spreadComposites: result.spreadComposites,
           customEventNames,
           polishHandoff,
         }),
