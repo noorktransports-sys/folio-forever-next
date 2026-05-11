@@ -3821,47 +3821,60 @@ function PhotoToolbar({
           </button>
         </div>
 
-        {/* ROTATE — 90° snap buttons + free-angle slider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={groupLabel}>Rotate</span>
-          <button
-            type="button"
-            style={btn}
-            title="Rotate left 90°"
-            onClick={() => onChange({ rotate: Math.round(adj.rotate - 90) })}
-          >
-            ↺
-          </button>
-          <button
-            type="button"
-            style={btn}
-            title="Rotate right 90°"
-            onClick={() => onChange({ rotate: Math.round(adj.rotate + 90) })}
-          >
-            ↻
-          </button>
-          <input
-            type="range"
-            min={-180}
-            max={180}
-            step={1}
-            value={(((Math.round(adj.rotate) % 360) + 540) % 360) - 180}
-            onChange={(e) => onChange({ rotate: parseInt(e.target.value) })}
-            title="Fine angle"
-            style={{ width: 90, accentColor: GOLD }}
-          />
-          <button
-            type="button"
-            style={btn}
-            title="Reset to 0°"
-            onClick={() => onChange({ rotate: 0 })}
-          >
-            0°
-          </button>
-          <span style={{ fontSize: 10, color: GOLD, minWidth: 38, textAlign: 'right' }}>
-            {(((Math.round(adj.rotate) % 360) + 540) % 360) - 180}°
-          </span>
-        </div>
+        {/* ROTATE — buttons handle the big 90° jumps; slider is a fine-
+            tune ±15° around the current coarse angle. Splitting like this
+            means a small slider drag only tilts a tiny amount (good for
+            straightening a horizon) instead of rotating dramatically. */}
+        {(() => {
+          const total = adj.rotate ?? 0
+          // Nearest 90° "coarse" component; remainder is the fine tilt.
+          const coarse = Math.round(total / 90) * 90
+          const fine = total - coarse
+          const displayTotal = (((Math.round(total) % 360) + 540) % 360) - 180
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={groupLabel}>Rotate</span>
+              <button
+                type="button"
+                style={btn}
+                title="Rotate left 90°"
+                onClick={() => onChange({ rotate: total - 90 })}
+              >
+                ↺
+              </button>
+              <button
+                type="button"
+                style={btn}
+                title="Rotate right 90°"
+                onClick={() => onChange({ rotate: total + 90 })}
+              >
+                ↻
+              </button>
+              <span style={{ fontSize: 9, color: 'var(--muted2)', marginLeft: 4 }}>fine</span>
+              <input
+                type="range"
+                min={-15}
+                max={15}
+                step={1}
+                value={Math.round(Math.max(-15, Math.min(15, fine)))}
+                onChange={(e) => onChange({ rotate: coarse + parseInt(e.target.value) })}
+                title="Fine tilt — ±15°"
+                style={{ width: 90, accentColor: GOLD }}
+              />
+              <button
+                type="button"
+                style={btn}
+                title="Reset to 0°"
+                onClick={() => onChange({ rotate: 0 })}
+              >
+                0°
+              </button>
+              <span style={{ fontSize: 10, color: GOLD, minWidth: 38, textAlign: 'right' }}>
+                {displayTotal}°
+              </span>
+            </div>
+          )
+        })()}
       </div>
 
       {/* PAN sliders (only meaningful when fit=fill).
