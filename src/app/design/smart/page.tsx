@@ -204,7 +204,8 @@ type PhotoAdjust = {
   panY: number
   flipH: boolean
   flipV: boolean
-  rotate: 0 | 90 | 180 | 270
+  /** Rotation in degrees, any value (was constrained to 90° snaps). */
+  rotate: number
   fit: 'fill' | 'contain'
 }
 const DEFAULT_ADJUST: PhotoAdjust = {
@@ -3820,14 +3821,14 @@ function PhotoToolbar({
           </button>
         </div>
 
-        {/* ROTATE */}
+        {/* ROTATE — 90° snap buttons + free-angle slider */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={groupLabel}>Rotate</span>
           <button
             type="button"
             style={btn}
             title="Rotate left 90°"
-            onClick={() => onChange({ rotate: ((adj.rotate + 270) % 360) as PhotoAdjust['rotate'] })}
+            onClick={() => onChange({ rotate: Math.round(adj.rotate - 90) })}
           >
             ↺
           </button>
@@ -3835,11 +3836,31 @@ function PhotoToolbar({
             type="button"
             style={btn}
             title="Rotate right 90°"
-            onClick={() => onChange({ rotate: ((adj.rotate + 90) % 360) as PhotoAdjust['rotate'] })}
+            onClick={() => onChange({ rotate: Math.round(adj.rotate + 90) })}
           >
             ↻
           </button>
-          <span style={{ fontSize: 10, color: GOLD, minWidth: 32 }}>{adj.rotate}°</span>
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            value={(((Math.round(adj.rotate) % 360) + 540) % 360) - 180}
+            onChange={(e) => onChange({ rotate: parseInt(e.target.value) })}
+            title="Fine angle"
+            style={{ width: 90, accentColor: GOLD }}
+          />
+          <button
+            type="button"
+            style={btn}
+            title="Reset to 0°"
+            onClick={() => onChange({ rotate: 0 })}
+          >
+            0°
+          </button>
+          <span style={{ fontSize: 10, color: GOLD, minWidth: 38, textAlign: 'right' }}>
+            {(((Math.round(adj.rotate) % 360) + 540) % 360) - 180}°
+          </span>
         </div>
       </div>
 
