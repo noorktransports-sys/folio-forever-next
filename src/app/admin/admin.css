@@ -167,9 +167,14 @@
 }
 .admin-status-submitted { background: #fbf2db; color: #8a6913; border-color: #e6cf8b; }
 .admin-status-in_progress { background: #e8f0fa; color: #2a4a76; border-color: #a8c4e6; }
+.admin-status-pending_payment { background: #fef3e2; color: #8a5613; border-color: #e8c08b; }
+.admin-status-paid { background: #e0f0e8; color: #1a5a3c; border-color: #95c8a8; }
+.admin-status-in_design { background: #ece8f8; color: #3a2a76; border-color: #beadea; }
+.admin-status-in_production { background: #e8f0fa; color: #2a4a76; border-color: #a8c4e6; }
 .admin-status-shipped { background: #e7f5ec; color: #2a6a3f; border-color: #a8d8b8; }
 .admin-status-delivered { background: #d6efdc; color: #1c4a2c; border-color: #7abe92; }
 .admin-status-cancelled { background: #f4e0e0; color: #7a2828; border-color: #d8a8a8; }
+.admin-status-refunded { background: #efeaea; color: #6b3a3a; border-color: #b89a9a; }
 
 .admin-paid-yes { color: #2a6a3f; font-weight: 500; font-size: 13px; }
 .admin-paid-no { color: #6b5e4d; font-size: 12px; }
