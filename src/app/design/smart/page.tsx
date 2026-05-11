@@ -177,7 +177,51 @@ type Step =
   | 'pages'
   | 'generate'
   | 'adjust'
+  | 'proof'
   | 'submit'
+
+// ───── Legal clauses (PDF: Album_Legal_Clauses_and_Dev_Instructions.pdf) ─────
+// Stored as constants so the EXACT text shown to the user is the EXACT text
+// captured in the audit record. Versioned — bump the suffix if clause text
+// changes so old acceptances stay traceable to the version they accepted.
+//
+// [ATTORNEY REVIEW PENDING] — placeholders [Company], [STATE/COUNTRY],
+// [JURISDICTION] left intentionally so the attorney can finalize before
+// these appear on payment-enabled production.
+const LEGAL_VERSION = 'v1-2026-05-11'
+
+const CLAUSE_PROOF_APPROVAL = `2.3  PROOF APPROVAL — FINAL RESPONSIBILITY OF CUSTOMER
+
+You will receive a digital proof of every spread before printing. By approving the proof, you confirm that:
+
+  (a) you have reviewed every spread carefully and the design reflects what you want printed;
+  (b) the order of photos, crops, layout, and any visible text are correct;
+  (c) you understand that once you approve the proof, the album enters production and CANNOT be cancelled, modified, refunded, or recalled for any reason other than a manufacturing defect attributable to [Company];
+  (d) any error you fail to identify in the proof — including but not limited to misplaced photos, color shifts within normal tolerance, spelling, cropping, or sequence — is your responsibility, not [Company]'s;
+  (e) reprints requested due to customer-side errors will be billed at full price.
+
+This approval is the single most important decision in the order. Please take your time.`
+
+const CLAUSE_CONTENT_RIGHTS = `2.4  CONTENT OWNERSHIP & COPYRIGHT — INDEMNIFICATION
+
+By uploading photos to [Company], you represent and warrant that:
+
+  (a) you own the photos, OR you have explicit written or verbal permission from the photographer / rights-holder to use them in a printed album for personal use;
+  (b) the photos do not infringe upon any copyright, trademark, publicity right, privacy right, or other intellectual-property right of any third party;
+  (c) you will defend, indemnify, and hold harmless [Company], its agents, and its production partners against any claim, demand, or liability (including reasonable attorney's fees) arising from a breach of (a) or (b).
+
+[Company] does not verify ownership and is not liable for content uploaded by the customer.`
+
+const CLAUSE_CONTENT_POLICY = `2.2  CONTENT QUALITY & POLICY
+
+You agree not to upload content that is illegal, sexually explicit, hateful, defamatory, or that depicts minors in any inappropriate way. [Company] reserves the right to refuse to print any content that violates this policy at our sole discretion, and to refund the order minus any work already performed.
+
+You are responsible for the quality of the source files you upload. Low-resolution photos (under 1500 px on the shortest edge) may print soft or pixelated. We will not stop the order for resolution reasons unless you ask us to — but you accept the print result.`
+
+// Threshold for the "low resolution" warning shown at upload + on each
+// photo card. 1500 px on the shortest edge is the floor for an acceptable
+// 17×24 print at ~150 dpi viewing distance.
+const LOW_RES_PX = 1500
 
 type Slot = { x: number; y: number; w: number; h: number; isHero?: boolean }
 
@@ -1065,6 +1109,35 @@ export default function SmartDesignerPage() {
   // session-only random one we generate at mount time).
   const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(null)
   const [polishHandoff, setPolishHandoff] = useState(false)
+
+  // ────── Phase 1: Proof approval (clause 2.3) ──────
+  // Tracks which spreads the customer has personally reviewed. Required
+  // before they can hit "Approve This Proof for Printing."
+  // Cleared whenever the user navigates back to adjust (so any subsequent
+  // edit forces a fresh review).
+  const [reviewedSpreadIds, setReviewedSpreadIds] = useState<Set<string>>(new Set())
+  // The full audit record we send to the server when proof is approved.
+  // Server adds IP + UA + orderId on its side.
+  const [proofApproval, setProofApproval] = useState<{
+    acceptedAt: string
+    clauseVersion: string
+    clauseText: string
+    reviewedSpreadIds: string[]
+  } | null>(null)
+
+  // ────── Phase 2: Content rights modal (clauses 2.2 + 2.4) ──────
+  // Shown the first time photos enter the album. Stored in localStorage
+  // tied to the album so resuming a saved album doesn't re-prompt.
+  const [contentRightsModalOpen, setContentRightsModalOpen] = useState(false)
+  // Two-checkbox state inside the modal.
+  const [crCopyrightOk, setCrCopyrightOk] = useState(false)
+  const [crPolicyOk, setCrPolicyOk] = useState(false)
+  const [contentRights, setContentRights] = useState<{
+    acceptedAt: string
+    clauseVersion: string
+    copyrightClause: string
+    policyClause: string
+  } | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
@@ -1137,6 +1210,23 @@ export default function SmartDesignerPage() {
         }
       } catch {
         /* ignore corrupt state */
+      }
+
+      // Phase 2: hydrate content-rights acceptance from localStorage so the
+      // modal doesn't re-prompt on every visit.
+      try {
+        const crRaw = window.localStorage.getItem(`folio-content-rights:${urlAlbumId}`)
+        if (crRaw) {
+          const cr = JSON.parse(crRaw) as {
+            acceptedAt: string
+            clauseVersion: string
+            copyrightClause: string
+            policyClause: string
+          }
+          if (cr.acceptedAt && cr.clauseVersion) setContentRights(cr)
+        }
+      } catch {
+        /* ignore */
       }
 
       // Restore uploaded photo blobs from IndexedDB.
@@ -1233,13 +1323,30 @@ export default function SmartDesignerPage() {
     return computePrice(size, type, pageCount)
   }, [size, type, pageCount])
 
+  // Phase 2: gate any path that adds photos behind the content-rights modal.
+  // Returns true if photos may be added now; false if the modal was opened
+  // and the caller should bail (the user will retry after accepting).
+  const ensureContentRights = useCallback((): boolean => {
+    if (contentRights) return true
+    setCrCopyrightOk(false)
+    setCrPolicyOk(false)
+    setContentRightsModalOpen(true)
+    return false
+  }, [contentRights])
+
   const loadSamples = useCallback(() => {
+    if (!ensureContentRights()) return
     setPhotos(buildSampleWeddingPhotos())
-  }, [])
+  }, [ensureContentRights])
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
+    if (!ensureContentRights()) {
+      // Clear the input so opening it again triggers another change event.
+      e.target.value = ''
+      return
+    }
     const remaining = PHOTO_CAP - photos.length
     if (remaining <= 0) {
       alert(`You've reached the ${PHOTO_CAP}-photo limit.`)
@@ -1504,6 +1611,10 @@ export default function SmartDesignerPage() {
     if (!emptySlotPicker) return
     const file = e.target.files?.[0]
     if (!file) return
+    if (!ensureContentRights()) {
+      e.target.value = ''
+      return
+    }
     const dim = await getImageDimensions(file)
     const photoId = `${Date.now()}-empty-${Math.random().toString(36).slice(2, 8)}`
     const newPhoto: Photo = {
@@ -1539,6 +1650,16 @@ export default function SmartDesignerPage() {
     }
     if (!albumId) {
       setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Album id missing — please refresh and try again' })
+      return
+    }
+    // Legal gate (clause 2.3 + clause 2.4). If either record is missing we
+    // refuse — the customer must have walked through both checkpoints.
+    if (!proofApproval) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Proof not approved. Please review every spread before submitting (clause 2.3).' })
+      return
+    }
+    if (!contentRights) {
+      setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Content rights not accepted (clauses 2.2 and 2.4). Please re-open the rights confirmation.' })
       return
     }
     // Only photos that are actually placed in spreads get uploaded.
@@ -1636,6 +1757,15 @@ export default function SmartDesignerPage() {
           spreadComposites: result.spreadComposites,
           customEventNames,
           polishHandoff,
+          // ── Legal audit records (Phase 1 + Phase 2) ──
+          proofApproval,
+          contentRights,
+          // Summary of low-res photos so the owner can flag them on the
+          // print order (clause 2.2 — customer bears responsibility for
+          // resolution, but the printer wants to know in advance).
+          lowResPhotos: photosToUpload
+            .filter((p) => Math.min(p.width, p.height) < LOW_RES_PX)
+            .map((p) => ({ id: p.id, width: p.width, height: p.height })),
         }),
       })
       if (!res.ok) {
@@ -1648,11 +1778,41 @@ export default function SmartDesignerPage() {
         }
         throw new Error(`Server rejected the order${detail ? ': ' + detail : ''}`)
       }
-      const json = (await res.json()) as { orderId: string }
+      const json = (await res.json()) as { orderId: string; token: string }
       setSubmittedOrderId(json.orderId)
-      setSubmitting({ stage: 'done', done: photosToUpload.length, total: photosToUpload.length, label: 'Done' })
-      setSubmitModalOpen(false)
-      setStep('submit')
+
+      // ── Payment hand-off (Square) ──
+      // submit-smart-order has persisted the order at pending_payment and
+      // sent us the owner heads-up. Now we ask /api/square-checkout to
+      // build a Payment Link and redirect the customer to Square's hosted
+      // checkout. The confirmation emails (customer + owner PAID) fire
+      // from the webhook on payment success.
+      setSubmitting({
+        stage: 'persisting',
+        done: photosToUpload.length + spreads.length,
+        total: photosToUpload.length + spreads.length,
+        label: 'Opening secure checkout…',
+      })
+      const checkoutRes = await fetch('/api/square-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: json.token }),
+      })
+      if (!checkoutRes.ok) {
+        let detail = ''
+        try {
+          const j = (await checkoutRes.json()) as { error?: string }
+          detail = j.error ?? ''
+        } catch {
+          /* ignore */
+        }
+        throw new Error(`Couldn't start payment${detail ? ': ' + detail : ''}`)
+      }
+      const checkoutJson = (await checkoutRes.json()) as { url: string }
+      // Hard navigation — Stripe's hosted checkout takes over from here.
+      // The customer comes back to /design/smart/success on success or to
+      // /design/smart?payment=cancelled if they bail.
+      window.location.href = checkoutJson.url
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: msg })
@@ -1669,6 +1829,9 @@ export default function SmartDesignerPage() {
     customerForm,
     customEventNames,
     polishHandoff,
+    proofApproval,
+    contentRights,
+    adjusts,
   ])
 
   // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
@@ -1822,6 +1985,10 @@ export default function SmartDesignerPage() {
   const onAddMorePhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
+    if (!ensureContentRights()) {
+      e.target.value = ''
+      return
+    }
     const remaining = PHOTO_CAP - photos.length
     if (remaining <= 0) {
       alert(`You're at the ${PHOTO_CAP}-photo limit.`)
@@ -1911,7 +2078,7 @@ export default function SmartDesignerPage() {
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'submit']
+    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'proof', 'submit']
     const stepForIdx = step === 'generate' ? 'adjust' : step
     const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
@@ -2124,7 +2291,13 @@ export default function SmartDesignerPage() {
         )}
 
         <div
-          onClick={() => photos.length < PHOTO_CAP && fileInputRef.current?.click()}
+          onClick={() => {
+            if (photos.length >= PHOTO_CAP) return
+            // Surface the rights modal BEFORE the native file picker opens,
+            // so the customer can't sneak past it by cancelling the picker.
+            if (!ensureContentRights()) return
+            fileInputRef.current?.click()
+          }}
           style={{
             ...css.uploadZone,
             cursor: photos.length >= PHOTO_CAP ? 'not-allowed' : 'pointer',
@@ -2167,6 +2340,27 @@ export default function SmartDesignerPage() {
 
         {photos.length > 0 && (
           <>
+            {(() => {
+              const lowResCount = photos.filter((p) => Math.min(p.width, p.height) < LOW_RES_PX).length
+              if (lowResCount === 0) return null
+              return (
+                <div
+                  style={{
+                    marginTop: 24,
+                    padding: '10px 14px',
+                    background: 'rgba(255,183,77,0.08)',
+                    border: '0.5px solid rgba(255,183,77,0.5)',
+                    borderRadius: 6,
+                    fontSize: 11,
+                    color: 'var(--cream)',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <strong style={{ color: '#ffb74d' }}>{lowResCount} photo{lowResCount === 1 ? '' : 's'} below {LOW_RES_PX}px on the shortest edge.</strong>
+                  {' '}These may print soft. You can continue — per clause 2.2 the print quality of low-resolution photos is the customer's responsibility.
+                </div>
+              )
+            })()}
             <div
               style={{
                 marginTop: 32,
@@ -2175,20 +2369,47 @@ export default function SmartDesignerPage() {
                 gap: 8,
               }}
             >
-              {photos.map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    aspectRatio: '1',
-                    borderRadius: 8,
-                    overflow: 'hidden',
-                    border: '0.5px solid rgba(184,150,90,0.2)',
-                  }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                </div>
-              ))}
+              {photos.map((p) => {
+                const lowRes = Math.min(p.width, p.height) < LOW_RES_PX
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      position: 'relative',
+                      aspectRatio: '1',
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      border: lowRes
+                        ? '0.5px solid rgba(255,170,80,0.7)'
+                        : '0.5px solid rgba(184,150,90,0.2)',
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {lowRes && (
+                      <span
+                        title={`This photo's shortest edge is ${Math.min(p.width, p.height)} px (under ${LOW_RES_PX}). It may print soft. See clause 2.2.`}
+                        style={{
+                          position: 'absolute',
+                          top: 4,
+                          left: 4,
+                          fontSize: 8,
+                          letterSpacing: 1,
+                          color: '#1a1108',
+                          background: '#ffb74d',
+                          padding: '2px 6px',
+                          borderRadius: 3,
+                          textTransform: 'uppercase',
+                          fontWeight: 700,
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        Low res
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
@@ -3274,11 +3495,16 @@ export default function SmartDesignerPage() {
             type="button"
             style={css.btnPrimary}
             onClick={() => {
-              setSubmitting({ stage: 'idle', done: 0, total: 0, label: '' })
-              setSubmitModalOpen(true)
+              // Proof review (clause 2.3) is required before the order can
+              // be submitted. We always send the customer through the proof
+              // step — even if they've been here before — so any edits since
+              // the last review must be re-acknowledged.
+              setReviewedSpreadIds(new Set())
+              setProofApproval(null)
+              setStep('proof')
             }}
           >
-            Submit Order · ${albumPrice + (polishHandoff ? 99 : 0)} →
+            Review proof & submit · ${albumPrice + (polishHandoff ? 99 : 0)} →
           </button>
         </div>
 
@@ -3524,11 +3750,11 @@ export default function SmartDesignerPage() {
                 >
                   {submitting.stage === 'uploading' || submitting.stage === 'persisting'
                     ? 'Submitting…'
-                    : `Place order · $${albumPrice + (polishHandoff ? 99 : 0)}`}
+                    : `Continue to secure payment · $${albumPrice + (polishHandoff ? 99 : 0)} →`}
                 </button>
               </div>
               <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginTop: 14 }}>
-                Photo upload takes ~1 second per photo. Please don&apos;t close this tab while uploading.
+                Photo upload takes ~1 second per photo. You&apos;ll be redirected to Square to enter card details — your order is held under your email and confirmed by email once payment lands. Please don&apos;t close this tab while uploading.
               </p>
             </div>
           </div>
@@ -3652,6 +3878,290 @@ export default function SmartDesignerPage() {
     )
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  //  PROOF APPROVAL STEP (clause 2.3)
+  //
+  //  This is the legal checkpoint. The customer scrolls every spread,
+  //  ticks "Reviewed" on each, then clicks the final approve button.
+  //  Once approved, the order locks (no further edits, no cancellations
+  //  except for manufacturing defects per clause 2.9).
+  //
+  //  Audit record captured here is sent to the server with the
+  //  submission and stored in KV at `proof_approval:{orderId}`.
+  // ─────────────────────────────────────────────────────────────────────
+  const renderProof = () => {
+    if (!size || !type) return null
+    const aspect = ALBUM_SPECS[size].spreadAspectRatio
+    const showGutter = type === 'standard'
+    const photoMap = new Map(photos.map((p) => [p.id, p]))
+    const allReviewed = spreads.length > 0 && spreads.every((s) => reviewedSpreadIds.has(s.id))
+
+    const toggleReview = (id: string) => {
+      setReviewedSpreadIds((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+    const markAll = () => setReviewedSpreadIds(new Set(spreads.map((s) => s.id)))
+
+    const onApprove = () => {
+      if (!allReviewed) return
+      const approval = {
+        acceptedAt: new Date().toISOString(),
+        clauseVersion: LEGAL_VERSION,
+        clauseText: CLAUSE_PROOF_APPROVAL,
+        reviewedSpreadIds: spreads.map((s) => s.id),
+      }
+      setProofApproval(approval)
+      // Now route to the shipping/customer-info modal as before.
+      setSubmitting({ stage: 'idle', done: 0, total: 0, label: '' })
+      setSubmitModalOpen(true)
+    }
+
+    return (
+      <div style={{ ...css.container, maxWidth: 720 }}>
+        {renderStepIndicator()}
+        <div style={{ textAlign: 'center', marginBottom: 18 }}>
+          <h1 style={css.title}>
+            Review your <em style={css.titleEm}>proof</em>
+          </h1>
+          <p style={css.subtitle}>
+            This is your final chance to catch anything before we print. Tick each spread once you've reviewed it.
+          </p>
+        </div>
+
+        {/* Clause 2.3 banner — visible before, during, and after review */}
+        <div
+          style={{
+            background: 'rgba(184,150,90,0.08)',
+            border: `0.5px solid ${GOLD}`,
+            borderRadius: 8,
+            padding: '14px 16px',
+            marginBottom: 24,
+            fontSize: 11,
+            lineHeight: 1.75,
+            color: 'var(--cream)',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 10 }}>
+            Clause 2.3 — Proof Approval [attorney review pending]
+          </strong>
+          <div style={{ marginTop: 8 }}>{CLAUSE_PROOF_APPROVAL}</div>
+        </div>
+
+        {/* Reviewed counter + mark-all helper */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 14,
+            fontSize: 11,
+            color: 'var(--cream)',
+            letterSpacing: 1,
+          }}
+        >
+          <span>
+            <strong style={{ color: allReviewed ? GOLD : 'var(--cream)' }}>
+              {reviewedSpreadIds.size}
+            </strong>{' '}
+            of {spreads.length} spreads reviewed
+          </span>
+          <button
+            type="button"
+            onClick={markAll}
+            style={{
+              background: 'transparent',
+              border: '0.5px solid rgba(184,150,90,0.4)',
+              color: 'var(--cream)',
+              padding: '6px 12px',
+              fontSize: 10,
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
+          >
+            Mark all reviewed
+          </button>
+        </div>
+
+        {/* Spread list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {spreads.map((s, idx) => {
+            const tpl = TEMPLATE_BY_ID.get(s.templateId)
+            if (!tpl) return null
+            const reviewed = reviewedSpreadIds.has(s.id)
+            const eventName = s.eventId === 'unassigned'
+              ? 'Untagged'
+              : customEventNames[s.eventId] ?? EVENTS.find((e) => e.id === s.eventId)?.name ?? ''
+            return (
+              <div
+                key={s.id}
+                style={{
+                  background: 'var(--dark2)',
+                  border: `0.5px solid ${reviewed ? GOLD : 'rgba(184,150,90,0.2)'}`,
+                  borderRadius: 10,
+                  padding: 14,
+                  transition: 'border-color 0.2s',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 10,
+                    flexWrap: 'wrap',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+                    Spread {idx + 1} of {spreads.length} · {eventName}
+                  </span>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      letterSpacing: 1.4,
+                      textTransform: 'uppercase',
+                      color: reviewed ? GOLD : 'var(--cream)',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={reviewed}
+                      onChange={() => toggleReview(s.id)}
+                      style={{ accentColor: GOLD, width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                    {reviewed ? 'Reviewed ✓' : 'I reviewed this spread'}
+                  </label>
+                </div>
+
+                {/* Mini read-only preview of the spread */}
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    aspectRatio: `${aspect}`,
+                    background: '#ffffff',
+                    overflow: 'hidden',
+                    borderRadius: 6,
+                  }}
+                >
+                  {tpl.slots.map((slot, i) => {
+                    const photoId = s.photoIds[i]
+                    const photo = photoId ? photoMap.get(photoId) : undefined
+                    const adj = adjusts[adjustKey(s.id, i)] ?? DEFAULT_ADJUST
+                    const slotAdjust: SlotAdjust = {
+                      panX: adj.panX,
+                      panY: adj.panY,
+                      zoom: adj.zoom,
+                      rotate: adj.rotate,
+                      flipH: adj.flipH,
+                      flipV: adj.flipV,
+                    }
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          position: 'absolute',
+                          left: `${slot.x}%`,
+                          top: `${slot.y}%`,
+                          width: `${slot.w}%`,
+                          height: `${slot.h}%`,
+                          overflow: 'hidden',
+                          background: '#f5f0e8',
+                        }}
+                      >
+                        {photo && (
+                          <SlotImage src={photo.preview} adjust={slotAdjust} fit={adj.fit} />
+                        )}
+                      </div>
+                    )
+                  })}
+                  {/* Gutter line for standard hardcover */}
+                  {showGutter && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: '50%',
+                        width: 1,
+                        background: 'rgba(0,0,0,0.18)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Footer: back to edit + approve & continue */}
+        <div
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            background: 'var(--dark)',
+            paddingTop: 18,
+            paddingBottom: 18,
+            marginTop: 24,
+            borderTop: '0.5px solid rgba(184,150,90,0.2)',
+            display: 'flex',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <button
+            type="button"
+            style={css.btnSecondary}
+            onClick={() => {
+              // Going back to edit clears the review checks — any subsequent
+              // edit invalidates the previous review per clause 2.3.
+              setReviewedSpreadIds(new Set())
+              setStep('adjust')
+            }}
+          >
+            ← Back to edit
+          </button>
+          <button
+            type="button"
+            disabled={!allReviewed}
+            onClick={onApprove}
+            style={{
+              ...css.btnPrimary,
+              opacity: allReviewed ? 1 : 0.4,
+              cursor: allReviewed ? 'pointer' : 'not-allowed',
+            }}
+            title={allReviewed ? 'Approve and continue to shipping' : 'Tick every spread first'}
+          >
+            ✓ I Approve This Proof for Printing →
+          </button>
+        </div>
+
+        <p style={{ fontSize: 10, color: 'var(--muted2)', marginTop: 10, lineHeight: 1.7, textAlign: 'center' }}>
+          By clicking the button above you accept clause 2.3 in full. Your acceptance is timestamped and stored with your order.
+        </p>
+      </div>
+    )
+  }
+
+  // Note: under the Stripe Checkout flow the wizard's "Place order" button
+  // redirects out of this tab to Stripe, and the post-payment landing is
+  // the standalone /design/smart/success page. This in-app submit step is
+  // kept as a fallback for the rare case where the redirect to Stripe
+  // fails (network drop between submit-smart-order and stripe-checkout)
+  // and we still need to give the customer a visible "we have your order
+  // — check email" state.
   const renderSubmit = () => (
     <div style={{ ...css.container, maxWidth: 560, textAlign: 'center', paddingTop: 40 }}>
       {renderStepIndicator()}
@@ -3671,13 +4181,13 @@ export default function SmartDesignerPage() {
       </div>
 
       <h2 style={css.title}>
-        Order <em style={css.titleEm}>received.</em>
+        Order <em style={css.titleEm}>placed.</em>
       </h2>
       <p style={css.subtitle}>
         Order #{submittedOrderId ?? orderId} · ${albumPrice + (polishHandoff ? 99 : 0)}
         <br />
         <span style={{ fontSize: 11, color: 'var(--muted2)' }}>
-          A confirmation has been sent to {customerForm.email || 'your inbox'}.
+          We&apos;ll email {customerForm.email || 'you'} once payment is confirmed.
         </span>
       </p>
 
@@ -3686,10 +4196,10 @@ export default function SmartDesignerPage() {
           What happens next
         </p>
         <ol style={{ paddingLeft: 18, lineHeight: 2, fontSize: 12, color: 'var(--cream)' }}>
-          <li>Smart engine arrangement is queued for review</li>
-          <li>Design team checks crops &amp; balance (24h)</li>
-          <li>You&apos;ll receive a final PDF proof to approve</li>
-          <li>After approval, printing &amp; binding begins (5–7 days)</li>
+          <li>Complete payment on Stripe (you&apos;ll be redirected back)</li>
+          <li>Our design team reviews crops &amp; pacing (24 h)</li>
+          <li>Printing &amp; binding begins (5–7 business days)</li>
+          <li>We ship to the address on file with tracking</li>
         </ol>
       </div>
 
@@ -3761,7 +4271,160 @@ export default function SmartDesignerPage() {
       {step === 'pages' && renderPages()}
       {step === 'generate' && renderGenerate()}
       {step === 'adjust' && renderAdjust()}
+      {step === 'proof' && renderProof()}
       {step === 'submit' && renderSubmit()}
+
+      {/* Phase 2 — Content rights modal (clauses 2.2 + 2.4).
+          Shown the first time photos enter the album, gated above any
+          upload path (file picker, samples, drag-and-drop). */}
+      {contentRightsModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setContentRightsModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.78)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: 24,
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--dark2)',
+              border: `0.5px solid ${GOLD}`,
+              borderRadius: 12,
+              padding: 28,
+              maxWidth: 580,
+              width: '100%',
+              marginTop: 40,
+              marginBottom: 40,
+            }}
+          >
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--cream)', margin: 0, marginBottom: 8 }}>
+              Before you upload <em style={{ color: GOLD, fontStyle: 'italic' }}>photos</em>
+            </h3>
+            <p style={{ fontSize: 11, color: 'var(--muted2)', margin: 0, marginBottom: 16, lineHeight: 1.7 }}>
+              Please confirm two things. These protect both you and us, and your
+              acknowledgement is timestamped and stored with the order.
+            </p>
+
+            {/* Copyright clause */}
+            <div
+              style={{
+                background: 'rgba(184,150,90,0.06)',
+                border: '0.5px solid rgba(184,150,90,0.25)',
+                borderRadius: 6,
+                padding: '10px 12px',
+                marginBottom: 14,
+                fontSize: 11,
+                lineHeight: 1.7,
+                color: 'var(--cream)',
+                whiteSpace: 'pre-wrap',
+                maxHeight: 200,
+                overflowY: 'auto',
+              }}
+            >
+              <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 9 }}>
+                Clause 2.4 — Copyright [attorney review pending]
+              </strong>
+              <div style={{ marginTop: 6 }}>{CLAUSE_CONTENT_RIGHTS}</div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 11, lineHeight: 1.6, color: 'var(--cream)', marginBottom: 16 }}>
+              <input
+                type="checkbox"
+                checked={crCopyrightOk}
+                onChange={(e) => setCrCopyrightOk(e.target.checked)}
+                style={{ accentColor: GOLD, width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span>
+                I own these photos, or I have permission from the photographer or rights-holder to use them in this album.
+              </span>
+            </label>
+
+            {/* Content policy clause */}
+            <div
+              style={{
+                background: 'rgba(184,150,90,0.06)',
+                border: '0.5px solid rgba(184,150,90,0.25)',
+                borderRadius: 6,
+                padding: '10px 12px',
+                marginBottom: 14,
+                fontSize: 11,
+                lineHeight: 1.7,
+                color: 'var(--cream)',
+                whiteSpace: 'pre-wrap',
+                maxHeight: 200,
+                overflowY: 'auto',
+              }}
+            >
+              <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 9 }}>
+                Clause 2.2 — Content quality &amp; policy [attorney review pending]
+              </strong>
+              <div style={{ marginTop: 6 }}>{CLAUSE_CONTENT_POLICY}</div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 11, lineHeight: 1.6, color: 'var(--cream)', marginBottom: 20 }}>
+              <input
+                type="checkbox"
+                checked={crPolicyOk}
+                onChange={(e) => setCrPolicyOk(e.target.checked)}
+                style={{ accentColor: GOLD, width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span>
+                My photos meet the content policy. I understand low-resolution photos (under {LOW_RES_PX} px on the shortest edge) may print soft and I accept that result.
+              </span>
+            </label>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                style={css.btnSecondary}
+                onClick={() => setContentRightsModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!crCopyrightOk || !crPolicyOk}
+                style={{
+                  ...css.btnPrimary,
+                  opacity: crCopyrightOk && crPolicyOk ? 1 : 0.4,
+                  cursor: crCopyrightOk && crPolicyOk ? 'pointer' : 'not-allowed',
+                }}
+                onClick={() => {
+                  if (!(crCopyrightOk && crPolicyOk)) return
+                  const record = {
+                    acceptedAt: new Date().toISOString(),
+                    clauseVersion: LEGAL_VERSION,
+                    copyrightClause: CLAUSE_CONTENT_RIGHTS,
+                    policyClause: CLAUSE_CONTENT_POLICY,
+                  }
+                  setContentRights(record)
+                  setContentRightsModalOpen(false)
+                  if (albumId) {
+                    try {
+                      window.localStorage.setItem(
+                        `folio-content-rights:${albumId}`,
+                        JSON.stringify(record),
+                      )
+                    } catch {
+                      /* ignore quota / private mode */
+                    }
+                  }
+                }}
+              >
+                Accept &amp; continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast for op announcements (undo/redo/etc.) */}
       {Toast}
