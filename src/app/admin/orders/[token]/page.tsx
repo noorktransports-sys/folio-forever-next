@@ -64,6 +64,14 @@ interface SpreadComposite {
   printUrl?: string;
 }
 
+interface SmartCoverSpec {
+  coverType?: 'leather' | 'acrylic' | 'photo';
+  presetId?: string;
+  primaryText?: string;
+  subtitleText?: string;
+  photoId?: string;
+}
+
 interface StatusHistoryEntry {
   status: string;
   at: string;
@@ -120,6 +128,7 @@ interface SavedDesign {
   polishHandoff?: boolean;
   photos?: SmartPhoto[];
   spreadComposites?: SpreadComposite[];
+  cover?: SmartCoverSpec | null;
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; reviewedSpreadIds?: string[] };
   contentRights?: { acceptedAt?: string; clauseVersion?: string };
   lowResPhotos?: Array<{ id: string; width: number; height: number }>;
@@ -400,6 +409,50 @@ export default async function OrderDetail({
       </section>
 
       <AdminNotes token={token} initial={design.adminNotes} />
+
+      {/* ── Cover (smart) ── */}
+      {isSmart && design.cover && (() => {
+        const cover = design.cover!;
+        const coverPhoto = design.photos?.find((p) => p.photoId === cover.photoId);
+        return (
+          <section style={{ marginBottom: 26 }}>
+            <h2 className="admin-photos-heading">Cover</h2>
+            <div className="admin-meta-block" style={{ display: 'grid', gridTemplateColumns: cover.photoId ? '180px 1fr' : '1fr', gap: 18 }}>
+              {cover.photoId && coverPhoto?.originalUrl && (
+                <a href={coverPhoto.originalUrl} target="_blank" rel="noopener" title="Open cover photo original">
+                  <img src={coverPhoto.previewUrl ?? coverPhoto.originalUrl} alt="Cover photo" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block', border: '1px solid #b8965a' }} />
+                </a>
+              )}
+              <table style={{ fontSize: 13, lineHeight: 1.7, width: '100%' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ paddingRight: 16, color: '#6b5e4d', width: 140 }}>Cover type</td>
+                    <td style={{ fontWeight: 600 }}>{cover.coverType ?? '—'}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingRight: 16, color: '#6b5e4d' }}>Preset</td>
+                    <td><code>{cover.presetId ?? '—'}</code></td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingRight: 16, color: '#6b5e4d' }}>Line 1 (names)</td>
+                    <td>{cover.primaryText || <span className="muted">—</span>}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingRight: 16, color: '#6b5e4d' }}>Line 2</td>
+                    <td>{cover.subtitleText || <span className="muted" style={{ fontStyle: 'italic' }}>(none)</span>}</td>
+                  </tr>
+                  {cover.photoId && (
+                    <tr>
+                      <td style={{ paddingRight: 16, color: '#6b5e4d' }}>Photo ID</td>
+                      <td><code>{cover.photoId}</code></td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Composites (smart) ── */}
       {isSmart && (design.spreadComposites?.length ?? 0) > 0 && (() => {
