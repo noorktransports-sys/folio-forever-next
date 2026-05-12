@@ -23,6 +23,8 @@ import {
 import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
+import SmartCoverStep from './edit/SmartCoverStep'
+import type { SmartCoverState } from './edit/cover-presets'
 
 export const runtime = 'edge'
 
@@ -177,6 +179,7 @@ type Step =
   | 'pages'
   | 'generate'
   | 'adjust'
+  | 'cover'
   | 'proof'
   | 'submit'
 
@@ -1148,6 +1151,11 @@ export default function SmartDesignerPage() {
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
+  // Cover designed in the new SmartCoverStep — populated after the
+  // customer picks a preset + types names. Null until they reach + finish
+  // the cover step; defended at submit-time so we never persist a paid
+  // order without a cover.
+  const [coverState, setCoverState] = useState<SmartCoverState | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -1762,6 +1770,19 @@ export default function SmartDesignerPage() {
           photos: photosPayload,
           spreads,
           spreadComposites: result.spreadComposites,
+          // Cover JSON the customer designed in the Cover step. Strips the
+          // resolved photoSrc (transient blob URL) and only persists the
+          // photoId — the server can resolve the print-master photo URL
+          // later from the photos array.
+          cover: coverState
+            ? {
+                coverType: coverState.coverType,
+                presetId: coverState.presetId,
+                primaryText: coverState.primaryText,
+                subtitleText: coverState.subtitleText,
+                photoId: coverState.photoId,
+              }
+            : null,
           customEventNames,
           polishHandoff,
           // ── Legal audit records (Phase 1 + Phase 2) ──
@@ -2085,7 +2106,7 @@ export default function SmartDesignerPage() {
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'proof', 'submit']
+    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'cover', 'proof', 'submit']
     const stepForIdx = step === 'generate' ? 'adjust' : step
     const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
@@ -3502,13 +3523,15 @@ export default function SmartDesignerPage() {
             type="button"
             style={css.btnPrimary}
             onClick={() => {
-              // Proof review (clause 2.3) is required before the order can
-              // be submitted. We always send the customer through the proof
-              // step — even if they've been here before — so any edits since
-              // the last review must be re-acknowledged.
+              // Cover comes BEFORE proof now — the customer designs their
+              // cover, then proof-reviews everything (spreads + cover) as a
+              // single artefact. Proof review (clause 2.3) is required before
+              // the order can be submitted. We always send the customer
+              // through the proof step — even if they've been here before —
+              // so any edits since the last review must be re-acknowledged.
               setReviewedSpreadIds(new Set())
               setProofApproval(null)
-              setStep('proof')
+              setStep('cover')
             }}
           >
             Review proof & submit · ${albumPrice + (polishHandoff ? 99 : 0)} →
@@ -3896,6 +3919,28 @@ export default function SmartDesignerPage() {
   //  Audit record captured here is sent to the server with the
   //  submission and stored in KV at `proof_approval:{orderId}`.
   // ─────────────────────────────────────────────────────────────────────
+  // ── COVER step (new) ───────────────────────────────────────────────
+  //
+  //  Customer picks cover type, types names + free-form line, picks a
+  //  cover photo if applicable, then chooses one of 3 preset designs.
+  //  Result lands in coverState and we move on to proof.
+  const renderCover = () => (
+    <SmartCoverStep
+      photos={photos.map((p) => ({
+        id: p.id,
+        preview: p.preview,
+        width: p.width,
+        height: p.height,
+      }))}
+      initial={coverState}
+      onBack={() => setStep('adjust')}
+      onContinue={(state) => {
+        setCoverState(state)
+        setStep('proof')
+      }}
+    />
+  )
+
   const renderProof = () => {
     if (!size || !type) return null
     const aspect = ALBUM_SPECS[size].spreadAspectRatio
@@ -4284,6 +4329,7 @@ export default function SmartDesignerPage() {
       {step === 'pages' && renderPages()}
       {step === 'generate' && renderGenerate()}
       {step === 'adjust' && renderAdjust()}
+      {step === 'cover' && renderCover()}
       {step === 'proof' && renderProof()}
       {step === 'submit' && renderSubmit()}
 
