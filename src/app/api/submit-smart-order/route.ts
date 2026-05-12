@@ -83,8 +83,14 @@ interface SmartSpreadSnapshot {
 
 interface SpreadCompositeUpload {
   spreadId: string;
+  /** Customer preview composite (≤2000 px). */
   key: string;
   url: string;
+  /** Print master (300 DPI for the album size). Optional — if the high-res
+   *  client-side render OOM'd or threw we still take the order, the owner
+   *  just won't have a downloadable print master for that spread. */
+  printKey?: string;
+  printUrl?: string;
 }
 
 interface ShippingInfo {

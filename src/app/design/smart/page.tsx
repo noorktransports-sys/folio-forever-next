@@ -265,21 +265,27 @@ const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx
 
 // ============== ALBUM SPECS ==============
 
+// printLongEdgePx = open-spread long edge (inches) × 300 DPI. This is the
+// pixel size of the print master composite the renderer hands to the
+// printer at submit time. 17×24 → 24" × 300 = 7200; 20×30 → 30" × 300 = 9000.
 const ALBUM_SPECS: Record<
   AlbumSize,
   Record<AlbumType, { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }> & {
     spreadAspectRatio: number
+    printLongEdgePx: number
     label: string
   }
 > = {
   '17x24': {
     spreadAspectRatio: 24 / 17,
+    printLongEdgePx: 7200,
     label: '17×24',
     standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
   },
   '20x30': {
     spreadAspectRatio: 30 / 20,
+    printLongEdgePx: 9000,
     label: '20×30',
     standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
@@ -1706,6 +1712,7 @@ export default function SmartDesignerPage() {
         adjusts,
         spreadAspectRatio: ALBUM_SPECS[size].spreadAspectRatio,
         showGutter: type === 'standard',
+        printLongEdgePx: ALBUM_SPECS[size].printLongEdgePx,
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
