@@ -3915,7 +3915,13 @@ export default function SmartDesignerPage() {
         reviewedSpreadIds: spreads.map((s) => s.id),
       }
       setProofApproval(approval)
-      // Now route to the shipping/customer-info modal as before.
+      // The shipping modal's JSX lives inside renderAdjust(), so we
+      // navigate BACK to the adjust step before opening it. Without this,
+      // the modal markup is never mounted (step='proof' doesn't render
+      // renderAdjust's JSX) and the click silently fails.
+      // TODO: move the shipping modal to the root render so it works
+      // independently of which step is active.
+      setStep('adjust')
       setSubmitting({ stage: 'idle', done: 0, total: 0, label: '' })
       setSubmitModalOpen(true)
     }
