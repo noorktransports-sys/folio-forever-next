@@ -11,8 +11,10 @@
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { Suspense } from 'react';
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { readProSessionFromCookieHeader } from '@/lib/photographer-auth';
+import { ConnectedAccounts } from './ConnectedAccounts';
 import './pro.css';
 
 export const runtime = 'edge';
@@ -134,6 +136,11 @@ export default async function ProDashboard() {
           <div className="pro-stat-value">{drafts.length}</div>
         </div>
       </section>
+
+      {/* Connected photo platforms — client island. */}
+      <Suspense fallback={<div style={{ fontSize: 13, color: '#6b5e4d' }}>Loading connections…</div>}>
+        <ConnectedAccounts />
+      </Suspense>
 
       {albums.length === 0 ? (
         <div className="pro-empty">
