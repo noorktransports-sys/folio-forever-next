@@ -103,7 +103,13 @@ const FAV_CAP = 30
 
 // ============== TYPES ==============
 
-type AlbumSize = '17x24' | '20x30'
+type AlbumSize =
+  | '12x24'
+  | '14x28'
+  | '15x30'
+  | '17x24'
+  | '20x30'
+  | '20x40'
 type AlbumType = 'standard' | 'layflat'
 
 type EventId =
@@ -271,18 +277,51 @@ const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx
 // printLongEdgePx = open-spread long edge (inches) × 300 DPI. This is the
 // pixel size of the print master composite the renderer hands to the
 // printer at submit time. 17×24 → 24" × 300 = 7200; 20×30 → 30" × 300 = 9000.
+//
+// Panoramic 2:1 sizes (12×24, 14×28, 15×30, 20×40) are wider than the
+// classic 17×24 / 20×30 — slot layouts on these spreads will read more
+// cinematic. 20×40 maxes the print master at 12000×6000 px (~288 MB raw
+// canvas) — desktop handles it fine; older phones will OOM the print
+// render but still ship the small preview thanks to the existing
+// try/catch fallback in submit-helpers.
 const ALBUM_SPECS: Record<
   AlbumSize,
   Record<AlbumType, { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }> & {
     spreadAspectRatio: number
     printLongEdgePx: number
     label: string
+    tagline: string
   }
 > = {
+  '12x24': {
+    spreadAspectRatio: 24 / 12,
+    printLongEdgePx: 7200,
+    label: '12×24',
+    tagline: 'Compact panoramic · cinematic spreads',
+    standard: { base: 210, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 245, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+  },
+  '14x28': {
+    spreadAspectRatio: 28 / 14,
+    printLongEdgePx: 8400,
+    label: '14×28',
+    tagline: 'Mid panoramic · dramatic landscape',
+    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+  },
+  '15x30': {
+    spreadAspectRatio: 30 / 15,
+    printLongEdgePx: 9000,
+    label: '15×30',
+    tagline: 'Wide panoramic · gallery scale',
+    standard: { base: 350, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 385, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+  },
   '17x24': {
     spreadAspectRatio: 24 / 17,
     printLongEdgePx: 7200,
     label: '17×24',
+    tagline: 'Coffee-table size · the classic format',
     standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
   },
@@ -290,8 +329,17 @@ const ALBUM_SPECS: Record<
     spreadAspectRatio: 30 / 20,
     printLongEdgePx: 9000,
     label: '20×30',
+    tagline: 'Oversized poster · premium hero format',
     standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+  },
+  '20x40': {
+    spreadAspectRatio: 40 / 20,
+    printLongEdgePx: 12000,
+    label: '20×40',
+    tagline: 'Huge poster album · gallery-scale panorama',
+    standard: { base: 490, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 525, perExtraSpread: 18, minSpreads: 10, maxSpreads: 25 },
   },
 }
 
@@ -2142,7 +2190,7 @@ export default function SmartDesignerPage() {
           Album size
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-          {(['17x24', '20x30'] as AlbumSize[]).map((s) => {
+          {(['12x24', '14x28', '15x30', '17x24', '20x30', '20x40'] as AlbumSize[]).map((s) => {
             const spec = ALBUM_SPECS[s]
             const isSel = size === s
             return (
@@ -2155,7 +2203,7 @@ export default function SmartDesignerPage() {
                   {spec.label}
                 </p>
                 <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.7 }}>
-                  {s === '17x24' ? 'Coffee-table size · the classic format' : 'Oversized poster · premium hero format'}
+                  {spec.tagline}
                 </p>
                 <p style={{ fontSize: 10, color: GOLD, marginTop: 10, letterSpacing: 1 }}>
                   Standard from ${spec.standard.base} · Layflat from ${spec.layflat.base}

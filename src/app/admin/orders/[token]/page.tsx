@@ -115,7 +115,11 @@ interface SavedDesign {
   size?: string;
   totalSpreads?: number;
   uploadedPhotos?: Record<string, string>;
-  cover?: { primaryText?: string; subtitleText?: string } | null;
+  // Cover persisted on the order. Manual orders only set primaryText/
+  // subtitleText; smart orders set everything (coverType + presetId +
+  // photoId). The admin page renders both shapes off the same field —
+  // fields the source flow doesn't use are simply undefined.
+  cover?: SmartCoverSpec | null;
 
   // Smart shape
   albumName?: string;
@@ -128,7 +132,6 @@ interface SavedDesign {
   polishHandoff?: boolean;
   photos?: SmartPhoto[];
   spreadComposites?: SpreadComposite[];
-  cover?: SmartCoverSpec | null;
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; reviewedSpreadIds?: string[] };
   contentRights?: { acceptedAt?: string; clauseVersion?: string };
   lowResPhotos?: Array<{ id: string; width: number; height: number }>;

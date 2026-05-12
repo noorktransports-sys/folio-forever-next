@@ -155,7 +155,7 @@ interface SubmitPayload {
   customer: CustomerInfo;
   shipping: ShippingInfo;
   album: {
-    size: '17x24' | '20x30';
+    size: '12x24' | '14x28' | '15x30' | '17x24' | '20x30' | '20x40';
     type: 'standard' | 'layflat';
     pageCount: number;
     totalPrice: number;
