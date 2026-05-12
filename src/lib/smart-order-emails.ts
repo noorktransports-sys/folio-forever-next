@@ -30,8 +30,13 @@ export interface SmartSpreadSnapshot {
 
 export interface SpreadCompositeUpload {
   spreadId: string;
+  /** Customer preview composite — embedded in email thumbnails. */
   key: string;
   url: string;
+  /** Print master (300 DPI). Not embedded in customer emails; surfaced
+   *  only on the admin order page for the printer hand-off. */
+  printKey?: string;
+  printUrl?: string;
 }
 
 export interface ShippingInfo {
@@ -208,7 +213,11 @@ export function ownerPaidEmailHtml(
         )}</a> · ${p.width}×${p.height}px${p.tagged && p.tagged !== 'none' ? ` · <strong>${escapeHtml(p.tagged)}</strong>` : ''}</li>`,
     )
     .join('');
+  // Skip composites whose preview URL didn't make it — e.g. the render
+  // failed on a constrained device. We'd rather omit the thumbnail than
+  // ship a broken <img src="">.
   const compositesHtml = (data.spreadComposites ?? [])
+    .filter((cmp) => cmp.url)
     .map(
       (cmp, i) =>
         `<div style="margin-bottom: 18px; padding: 8px; background: #faf6ed; border: 1px solid #b8965a;">
@@ -310,6 +319,7 @@ export function customerPaidEmailHtml(
     )
     .join('');
   const compositesHtml = (data.spreadComposites ?? [])
+    .filter((cmp) => cmp.url)
     .map(
       (cmp, i) =>
         `<div style="margin-bottom: 16px; padding: 6px; background: #faf6ed; border: 1px solid #b8965a;">

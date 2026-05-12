@@ -16,7 +16,11 @@
 //   • Hero slots get a small gold "HERO" badge in the corner so the
 //     printer / design team can spot which photo was the centrepiece.
 //
-// Output is JPEG at quality 0.85, capped at 2000 px on the long edge.
+// Output is JPEG. Defaults: 2000 px long edge @ q=0.85 (customer preview).
+// Callers can override `longEdgePx` and `quality` to produce a much larger
+// "print-ready" composite for the admin/printer hand-off — e.g. 7200 px
+// (= 24" × 300 DPI) for the 17×24 album, 9000 px (= 30" × 300 DPI) for
+// the 20×30. Memory cost scales with W×H — 9000×6000 ≈ 216 MB raw pixels.
 
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
@@ -69,6 +73,13 @@ export interface RenderSpreadInput {
   spreadAspectRatio: number
   /** Standard albums show a gutter line; layflat doesn't. */
   showGutter: boolean
+  /** Override the long-edge pixel count. Defaults to COMPOSITE_LONG_EDGE
+   *  (2000 px) for customer-facing previews. For the admin/printer print
+   *  master, pass 7200 (17×24) or 9000 (20×30) to hit 300 DPI. */
+  longEdgePx?: number
+  /** JPEG quality 0..1. Defaults to JPEG_QUALITY (0.85). For the print
+   *  master we use ~0.95 to minimise compression artefacts. */
+  quality?: number
 }
 
 const DEFAULT_ADJUST: PhotoAdjust = {
@@ -115,12 +126,14 @@ export async function renderSpreadComposite({
   adjusts,
   spreadAspectRatio,
   showGutter,
+  longEdgePx,
+  quality,
 }: RenderSpreadInput): Promise<Blob> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('Canvas unavailable on server')
   }
-  // Canvas size: long edge at COMPOSITE_LONG_EDGE, preserves aspect.
-  const W = COMPOSITE_LONG_EDGE
+  // Canvas size: long edge from caller or COMPOSITE_LONG_EDGE, preserves aspect.
+  const W = Math.max(1, Math.round(longEdgePx ?? COMPOSITE_LONG_EDGE))
   const H = Math.round(W / spreadAspectRatio)
   const canvas = document.createElement('canvas')
   canvas.width = W
@@ -253,6 +266,7 @@ export async function renderSpreadComposite({
     ctx.restore()
   }
 
+  const q = typeof quality === 'number' ? Math.max(0, Math.min(1, quality)) : JPEG_QUALITY
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => {
@@ -260,7 +274,7 @@ export async function renderSpreadComposite({
         else resolve(b)
       },
       'image/jpeg',
-      JPEG_QUALITY,
+      q,
     )
   })
 }

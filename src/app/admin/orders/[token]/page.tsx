@@ -56,8 +56,12 @@ interface SmartPhoto {
 
 interface SpreadComposite {
   spreadId: string;
+  /** Customer-facing preview (≤2000 px). */
   key?: string;
   url?: string;
+  /** Print master at 300 DPI for the album size — what the printer downloads. */
+  printKey?: string;
+  printUrl?: string;
 }
 
 interface StatusHistoryEntry {
@@ -398,21 +402,54 @@ export default async function OrderDetail({
       <AdminNotes token={token} initial={design.adminNotes} />
 
       {/* ── Composites (smart) ── */}
-      {isSmart && (design.spreadComposites?.length ?? 0) > 0 && (
-        <section style={{ marginBottom: 26 }}>
-          <h2 className="admin-photos-heading">Spread composites ({design.spreadComposites!.length})</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {design.spreadComposites!.map((c, i) =>
-              c.url ? (
-                <a key={c.spreadId} href={c.url} target="_blank" rel="noopener" className="admin-photo-card">
-                  <img src={c.url} alt={`Spread ${i + 1}`} loading="lazy" style={{ aspectRatio: 'auto', height: 'auto' }} />
-                  <div className="admin-photo-id">Spread {i + 1}</div>
-                </a>
-              ) : null,
-            )}
-          </div>
-        </section>
-      )}
+      {isSmart && (design.spreadComposites?.length ?? 0) > 0 && (() => {
+        const composites = design.spreadComposites!;
+        const printReady = composites.filter((c) => c.printUrl);
+        return (
+          <section style={{ marginBottom: 26 }}>
+            <h2 className="admin-photos-heading">Spread composites ({composites.length})</h2>
+            <p className="muted" style={{ fontSize: 12, margin: '0 0 12px' }}>
+              Thumbnail is the customer-facing preview. <strong>Print master</strong>{' '}
+              link is the 300 DPI JPEG to send the printer — {printReady.length}/{composites.length}{' '}
+              spreads have one.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {composites.map((c, i) =>
+                c.url || c.printUrl ? (
+                  <div key={c.spreadId} className="admin-photo-card">
+                    {c.url ? (
+                      <a href={c.url} target="_blank" rel="noopener">
+                        <img src={c.url} alt={`Spread ${i + 1}`} loading="lazy" style={{ aspectRatio: 'auto', height: 'auto' }} />
+                      </a>
+                    ) : (
+                      <div style={{ aspectRatio: '1.41', background: '#f5efdf', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b5e4d', fontSize: 12 }}>
+                        Preview unavailable
+                      </div>
+                    )}
+                    <div className="admin-photo-id" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <span>Spread {i + 1}</span>
+                      {c.printUrl ? (
+                        <a
+                          href={c.printUrl}
+                          target="_blank"
+                          rel="noopener"
+                          download
+                          style={{ color: '#b8965a', fontWeight: 600, textDecoration: 'none', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }}
+                          title="300 DPI print master — right-click → Save as"
+                        >
+                          Print master ↓
+                        </a>
+                      ) : (
+                        <span style={{ color: '#a99880', fontSize: 11, fontStyle: 'italic' }}>no print master</span>
+                      )}
+                    </div>
+                  </div>
+                ) : null,
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ── Photos ── */}
       <section>
