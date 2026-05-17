@@ -1139,6 +1139,11 @@ export default function SmartDesignerPage() {
     policyClause: string
   } | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
+  // Tap-to-place: an unused photo the user "picked up" by tapping it.
+  // While set, tapping any slot drops this photo into it. This is the
+  // touch-friendly alternative to HTML5 drag-and-drop (which is
+  // mouse-only and silently does nothing on touchscreens).
+  const [pickedUnusedId, setPickedUnusedId] = useState<string | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
@@ -3201,6 +3206,20 @@ export default function SmartDesignerPage() {
                 albumType={type}
                 adjusts={adjusts}
                 onPhotoClick={(idx) => {
+                  // Tap-to-place: a picked-up unused photo drops into the
+                  // tapped slot. Works on touch where drag-drop can't.
+                  if (pickedUnusedId) {
+                    const opState = {
+                      spreads: spreads as unknown as OpSpread[],
+                      unusedPhotoIds,
+                    }
+                    undoApi.record(
+                      makeSwapWithUnusedOp(opState, s.id, idx, pickedUnusedId),
+                    )
+                    setPickedUnusedId(null)
+                    setEditSlot({ spreadId: s.id, idx })
+                    return
+                  }
                   // Swap mode: clicking ANOTHER slot performs the swap.
                   // Clicking the SAME slot (the armed one) cancels the swap.
                   if (swapSlot) {
@@ -3360,7 +3379,9 @@ export default function SmartDesignerPage() {
                   <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
                     {swapSlot
                       ? 'Click one to drop into the selected slot.'
-                      : 'Drag a photo onto a slot to swap, or onto a spread for +1 layout.'}
+                      : pickedUnusedId
+                      ? 'Now tap any photo in a spread to place it there. Tap this photo again to cancel.'
+                      : 'Tap a photo, then tap a slot to place it. (On a mouse you can also drag it onto a slot, or onto a spread for +1.)'}
                   </p>
                   <div
                     style={{
@@ -3377,18 +3398,39 @@ export default function SmartDesignerPage() {
                         draggable
                         onDragStart={slotDrag.unusedHandlers(p.id).onDragStart}
                         onDragEnd={slotDrag.unusedHandlers(p.id).onDragEnd}
-                        onClick={() => swapSlot && swapPhoto(p.id)}
+                        onClick={() => {
+                          // Legacy path: a slot's swap button is armed →
+                          // this click fills it (unchanged behaviour).
+                          if (swapSlot) {
+                            swapPhoto(p.id)
+                            return
+                          }
+                          // Tap-to-place: toggle "picked up" state. Tapping
+                          // the same photo again puts it back down.
+                          setPickedUnusedId((prev) => (prev === p.id ? null : p.id))
+                        }}
                         style={{
                           aspectRatio: '1',
                           borderRadius: 4,
                           overflow: 'hidden',
-                          cursor: 'grab',
-                          border: '0.5px solid rgba(184,150,90,0.2)',
+                          cursor: 'pointer',
+                          border:
+                            pickedUnusedId === p.id
+                              ? `2px solid ${GOLD}`
+                              : '0.5px solid rgba(184,150,90,0.2)',
+                          boxShadow:
+                            pickedUnusedId === p.id
+                              ? `0 0 0 2px rgba(184,150,90,0.35)`
+                              : 'none',
+                          opacity: pickedUnusedId && pickedUnusedId !== p.id ? 0.5 : 1,
+                          transition: 'opacity 0.15s, border-color 0.15s',
                         }}
                         title={
                           swapSlot
                             ? 'Click to use as replacement, or drag to a slot'
-                            : 'Drag onto a slot to swap, or onto a spread for +1 layout'
+                            : pickedUnusedId === p.id
+                            ? 'Picked up — tap a slot to place it, or tap here to cancel'
+                            : 'Tap to pick up, then tap a slot. Or drag onto a slot/spread.'
                         }
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
