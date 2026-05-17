@@ -83,14 +83,8 @@ interface SmartSpreadSnapshot {
 
 interface SpreadCompositeUpload {
   spreadId: string;
-  /** Customer preview composite (≤2000 px). */
   key: string;
   url: string;
-  /** Print master (300 DPI for the album size). Optional — if the high-res
-   *  client-side render OOM'd or threw we still take the order, the owner
-   *  just won't have a downloadable print master for that spread. */
-  printKey?: string;
-  printUrl?: string;
 }
 
 interface ShippingInfo {
@@ -135,27 +129,13 @@ interface LowResPhoto {
   height: number;
 }
 
-/** Cover designed in the new Cover step. The customer picks a coverType
- *  (leather/acrylic/photo), a presetId (one of 3 designs per type), types
- *  primaryText (couple names) + optional subtitleText (free-form line),
- *  and — for acrylic/photo — picks a photoId from their uploaded photos.
- *  The print team renders the print master from this spec + the original
- *  cover photo on R2. */
-interface CoverSpec {
-  coverType: 'leather' | 'acrylic' | 'photo';
-  presetId: string;
-  primaryText: string;
-  subtitleText?: string;
-  photoId?: string;
-}
-
 interface SubmitPayload {
   albumId: string;
   albumName: string;
   customer: CustomerInfo;
   shipping: ShippingInfo;
   album: {
-    size: '12x24' | '14x28' | '15x30' | '17x24' | '20x30' | '20x40';
+    size: '17x24' | '20x30';
     type: 'standard' | 'layflat';
     pageCount: number;
     totalPrice: number;
@@ -175,9 +155,6 @@ interface SubmitPayload {
   /** Photos whose shortest edge is below 1500 px — surfaced for the printer
    *  (clause 2.2). */
   lowResPhotos?: LowResPhoto[];
-  /** Cover spec from the Cover step. Null if the legacy submit flow that
-   *  predates the Cover step is in use; new submissions always send one. */
-  cover?: CoverSpec | null;
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────── */
@@ -269,7 +246,6 @@ export async function POST(request: Request) {
       photos: payload.photos,
       spreads: payload.spreads,
       spreadComposites: payload.spreadComposites ?? [],
-      cover: payload.cover ?? null,
       customEventNames: payload.customEventNames ?? {},
       // Legal records embedded in the order so admin views can show them
       // without a separate KV read. The standalone audit keys below are

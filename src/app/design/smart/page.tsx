@@ -23,8 +23,6 @@ import {
 import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
-import SmartCoverStep from './edit/SmartCoverStep'
-import type { SmartCoverState } from './edit/cover-presets'
 
 export const runtime = 'edge'
 
@@ -103,13 +101,7 @@ const FAV_CAP = 30
 
 // ============== TYPES ==============
 
-type AlbumSize =
-  | '12x24'
-  | '14x28'
-  | '15x30'
-  | '17x24'
-  | '20x30'
-  | '20x40'
+type AlbumSize = '17x24' | '20x30'
 type AlbumType = 'standard' | 'layflat'
 
 type EventId =
@@ -185,7 +177,6 @@ type Step =
   | 'pages'
   | 'generate'
   | 'adjust'
-  | 'cover'
   | 'proof'
   | 'submit'
 
@@ -274,72 +265,24 @@ const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx
 
 // ============== ALBUM SPECS ==============
 
-// printLongEdgePx = open-spread long edge (inches) × 300 DPI. This is the
-// pixel size of the print master composite the renderer hands to the
-// printer at submit time. 17×24 → 24" × 300 = 7200; 20×30 → 30" × 300 = 9000.
-//
-// Panoramic 2:1 sizes (12×24, 14×28, 15×30, 20×40) are wider than the
-// classic 17×24 / 20×30 — slot layouts on these spreads will read more
-// cinematic. 20×40 maxes the print master at 12000×6000 px (~288 MB raw
-// canvas) — desktop handles it fine; older phones will OOM the print
-// render but still ship the small preview thanks to the existing
-// try/catch fallback in submit-helpers.
 const ALBUM_SPECS: Record<
   AlbumSize,
   Record<AlbumType, { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }> & {
     spreadAspectRatio: number
-    printLongEdgePx: number
     label: string
-    tagline: string
   }
 > = {
-  '12x24': {
-    spreadAspectRatio: 24 / 12,
-    printLongEdgePx: 7200,
-    label: '12×24',
-    tagline: 'Compact panoramic · cinematic spreads',
-    standard: { base: 210, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 245, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
-  },
-  '14x28': {
-    spreadAspectRatio: 28 / 14,
-    printLongEdgePx: 8400,
-    label: '14×28',
-    tagline: 'Mid panoramic · dramatic landscape',
-    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
-  },
-  '15x30': {
-    spreadAspectRatio: 30 / 15,
-    printLongEdgePx: 9000,
-    label: '15×30',
-    tagline: 'Wide panoramic · gallery scale',
-    standard: { base: 350, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 385, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
-  },
   '17x24': {
     spreadAspectRatio: 24 / 17,
-    printLongEdgePx: 7200,
     label: '17×24',
-    tagline: 'Coffee-table size · the classic format',
     standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
   },
   '20x30': {
     spreadAspectRatio: 30 / 20,
-    printLongEdgePx: 9000,
     label: '20×30',
-    tagline: 'Oversized poster · premium hero format',
     standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
-  },
-  '20x40': {
-    spreadAspectRatio: 40 / 20,
-    printLongEdgePx: 12000,
-    label: '20×40',
-    tagline: 'Huge poster album · gallery-scale panorama',
-    standard: { base: 490, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 525, perExtraSpread: 18, minSpreads: 10, maxSpreads: 25 },
   },
 }
 
@@ -1196,14 +1139,14 @@ export default function SmartDesignerPage() {
     policyClause: string
   } | null>(null)
   const [swapSlot, setSwapSlot] = useState<{ spreadId: string; idx: number } | null>(null)
+  // Tap-to-place: an unused photo the user "picked up" by tapping it.
+  // While set, tapping any slot drops this photo into it. This is the
+  // touch-friendly alternative to HTML5 drag-and-drop (which is
+  // mouse-only and silently does nothing on touchscreens).
+  const [pickedUnusedId, setPickedUnusedId] = useState<string | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
-  // Cover designed in the new SmartCoverStep — populated after the
-  // customer picks a preset + types names. Null until they reach + finish
-  // the cover step; defended at submit-time so we never persist a paid
-  // order without a cover.
-  const [coverState, setCoverState] = useState<SmartCoverState | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -1768,7 +1711,6 @@ export default function SmartDesignerPage() {
         adjusts,
         spreadAspectRatio: ALBUM_SPECS[size].spreadAspectRatio,
         showGutter: type === 'standard',
-        printLongEdgePx: ALBUM_SPECS[size].printLongEdgePx,
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
@@ -1818,19 +1760,6 @@ export default function SmartDesignerPage() {
           photos: photosPayload,
           spreads,
           spreadComposites: result.spreadComposites,
-          // Cover JSON the customer designed in the Cover step. Strips the
-          // resolved photoSrc (transient blob URL) and only persists the
-          // photoId — the server can resolve the print-master photo URL
-          // later from the photos array.
-          cover: coverState
-            ? {
-                coverType: coverState.coverType,
-                presetId: coverState.presetId,
-                primaryText: coverState.primaryText,
-                subtitleText: coverState.subtitleText,
-                photoId: coverState.photoId,
-              }
-            : null,
           customEventNames,
           polishHandoff,
           // ── Legal audit records (Phase 1 + Phase 2) ──
@@ -2154,7 +2083,7 @@ export default function SmartDesignerPage() {
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'cover', 'proof', 'submit']
+    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'proof', 'submit']
     const stepForIdx = step === 'generate' ? 'adjust' : step
     const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
@@ -2190,7 +2119,7 @@ export default function SmartDesignerPage() {
           Album size
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-          {(['12x24', '14x28', '15x30', '17x24', '20x30', '20x40'] as AlbumSize[]).map((s) => {
+          {(['17x24', '20x30'] as AlbumSize[]).map((s) => {
             const spec = ALBUM_SPECS[s]
             const isSel = size === s
             return (
@@ -2203,7 +2132,7 @@ export default function SmartDesignerPage() {
                   {spec.label}
                 </p>
                 <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.7 }}>
-                  {spec.tagline}
+                  {s === '17x24' ? 'Coffee-table size · the classic format' : 'Oversized poster · premium hero format'}
                 </p>
                 <p style={{ fontSize: 10, color: GOLD, marginTop: 10, letterSpacing: 1 }}>
                   Standard from ${spec.standard.base} · Layflat from ${spec.layflat.base}
@@ -3277,6 +3206,20 @@ export default function SmartDesignerPage() {
                 albumType={type}
                 adjusts={adjusts}
                 onPhotoClick={(idx) => {
+                  // Tap-to-place: a picked-up unused photo drops into the
+                  // tapped slot. Works on touch where drag-drop can't.
+                  if (pickedUnusedId) {
+                    const opState = {
+                      spreads: spreads as unknown as OpSpread[],
+                      unusedPhotoIds,
+                    }
+                    undoApi.record(
+                      makeSwapWithUnusedOp(opState, s.id, idx, pickedUnusedId),
+                    )
+                    setPickedUnusedId(null)
+                    setEditSlot({ spreadId: s.id, idx })
+                    return
+                  }
                   // Swap mode: clicking ANOTHER slot performs the swap.
                   // Clicking the SAME slot (the armed one) cancels the swap.
                   if (swapSlot) {
@@ -3436,7 +3379,9 @@ export default function SmartDesignerPage() {
                   <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginBottom: 12 }}>
                     {swapSlot
                       ? 'Click one to drop into the selected slot.'
-                      : 'Drag a photo onto a slot to swap, or onto a spread for +1 layout.'}
+                      : pickedUnusedId
+                      ? 'Now tap any photo in a spread to place it there. Tap this photo again to cancel.'
+                      : 'Tap a photo, then tap a slot to place it. (On a mouse you can also drag it onto a slot, or onto a spread for +1.)'}
                   </p>
                   <div
                     style={{
@@ -3453,18 +3398,39 @@ export default function SmartDesignerPage() {
                         draggable
                         onDragStart={slotDrag.unusedHandlers(p.id).onDragStart}
                         onDragEnd={slotDrag.unusedHandlers(p.id).onDragEnd}
-                        onClick={() => swapSlot && swapPhoto(p.id)}
+                        onClick={() => {
+                          // Legacy path: a slot's swap button is armed →
+                          // this click fills it (unchanged behaviour).
+                          if (swapSlot) {
+                            swapPhoto(p.id)
+                            return
+                          }
+                          // Tap-to-place: toggle "picked up" state. Tapping
+                          // the same photo again puts it back down.
+                          setPickedUnusedId((prev) => (prev === p.id ? null : p.id))
+                        }}
                         style={{
                           aspectRatio: '1',
                           borderRadius: 4,
                           overflow: 'hidden',
-                          cursor: 'grab',
-                          border: '0.5px solid rgba(184,150,90,0.2)',
+                          cursor: 'pointer',
+                          border:
+                            pickedUnusedId === p.id
+                              ? `2px solid ${GOLD}`
+                              : '0.5px solid rgba(184,150,90,0.2)',
+                          boxShadow:
+                            pickedUnusedId === p.id
+                              ? `0 0 0 2px rgba(184,150,90,0.35)`
+                              : 'none',
+                          opacity: pickedUnusedId && pickedUnusedId !== p.id ? 0.5 : 1,
+                          transition: 'opacity 0.15s, border-color 0.15s',
                         }}
                         title={
                           swapSlot
                             ? 'Click to use as replacement, or drag to a slot'
-                            : 'Drag onto a slot to swap, or onto a spread for +1 layout'
+                            : pickedUnusedId === p.id
+                            ? 'Picked up — tap a slot to place it, or tap here to cancel'
+                            : 'Tap to pick up, then tap a slot. Or drag onto a slot/spread.'
                         }
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3571,15 +3537,13 @@ export default function SmartDesignerPage() {
             type="button"
             style={css.btnPrimary}
             onClick={() => {
-              // Cover comes BEFORE proof now — the customer designs their
-              // cover, then proof-reviews everything (spreads + cover) as a
-              // single artefact. Proof review (clause 2.3) is required before
-              // the order can be submitted. We always send the customer
-              // through the proof step — even if they've been here before —
-              // so any edits since the last review must be re-acknowledged.
+              // Proof review (clause 2.3) is required before the order can
+              // be submitted. We always send the customer through the proof
+              // step — even if they've been here before — so any edits since
+              // the last review must be re-acknowledged.
               setReviewedSpreadIds(new Set())
               setProofApproval(null)
-              setStep('cover')
+              setStep('proof')
             }}
           >
             Review proof & submit · ${albumPrice + (polishHandoff ? 99 : 0)} →
@@ -3967,28 +3931,6 @@ export default function SmartDesignerPage() {
   //  Audit record captured here is sent to the server with the
   //  submission and stored in KV at `proof_approval:{orderId}`.
   // ─────────────────────────────────────────────────────────────────────
-  // ── COVER step (new) ───────────────────────────────────────────────
-  //
-  //  Customer picks cover type, types names + free-form line, picks a
-  //  cover photo if applicable, then chooses one of 3 preset designs.
-  //  Result lands in coverState and we move on to proof.
-  const renderCover = () => (
-    <SmartCoverStep
-      photos={photos.map((p) => ({
-        id: p.id,
-        preview: p.preview,
-        width: p.width,
-        height: p.height,
-      }))}
-      initial={coverState}
-      onBack={() => setStep('adjust')}
-      onContinue={(state) => {
-        setCoverState(state)
-        setStep('proof')
-      }}
-    />
-  )
-
   const renderProof = () => {
     if (!size || !type) return null
     const aspect = ALBUM_SPECS[size].spreadAspectRatio
@@ -4377,7 +4319,6 @@ export default function SmartDesignerPage() {
       {step === 'pages' && renderPages()}
       {step === 'generate' && renderGenerate()}
       {step === 'adjust' && renderAdjust()}
-      {step === 'cover' && renderCover()}
       {step === 'proof' && renderProof()}
       {step === 'submit' && renderSubmit()}
 

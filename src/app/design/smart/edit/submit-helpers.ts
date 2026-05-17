@@ -160,21 +160,9 @@ export interface PhotoUploadResult {
 
 export interface SpreadCompositeResult {
   spreadId: string
-  /** Customer-facing preview composite (≤2000 px long edge, ~85% JPEG).
-   *  This is what goes into confirmation emails. */
   key: string
   url: string
-  /** Print-ready composite at 300 DPI for the album size (~7200 / 9000 px
-   *  long edge, ~95% JPEG). Owner downloads this from the admin order
-   *  page and hands it to the printer. Undefined if the high-res render
-   *  failed (we still ship the preview rather than block the order). */
-  printKey?: string
-  printUrl?: string
 }
-
-/** JPEG quality used for the print master. Higher than the preview so the
- *  printer doesn't see compression artefacts on the bound page. */
-const PRINT_JPEG_QUALITY = 0.95
 
 export interface SubmissionInput {
   albumId: string
@@ -219,10 +207,6 @@ export interface SubmissionInput {
   spreadAspectRatio?: number
   /** Whether to draw the gutter line (standard = true, layflat = false). */
   showGutter?: boolean
-  /** Long-edge pixel count for the PRINT master composite. Pass 7200 for
-   *  17×24 (24" × 300 DPI) or 9000 for 20×30 (30" × 300 DPI). If omitted
-   *  we skip the high-res render and only ship the customer preview. */
-  printLongEdgePx?: number
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -248,7 +232,6 @@ export async function prepareSubmission({
   adjusts,
   spreadAspectRatio,
   showGutter,
-  printLongEdgePx,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
@@ -321,11 +304,6 @@ export async function prepareSubmission({
   }
 
   // ─── Pass 2: per-spread composite renders ──────────────────────────
-  // Two renders per spread:
-  //   • preview (≤2000 px, q=0.85) → customer-facing emails
-  //   • print master (printLongEdgePx, q=0.95) → admin/printer hand-off
-  // We render preview first so even if the high-res render OOMs / fails
-  // on a constrained device, the customer email still has thumbnails.
   if (spreads && templates && spreadAspectRatio !== undefined && spreadSteps > 0) {
     for (let i = 0; i < spreads.length; i++) {
       const s = spreads[i]
@@ -335,11 +313,6 @@ export async function prepareSubmission({
         done++
         continue
       }
-
-      let previewUp: UploadResult | null = null
-      let printUp: UploadResult | null = null
-
-      // 1. Customer preview composite
       try {
         const blob = await renderSpreadComposite({
           spread: s,
@@ -349,57 +322,11 @@ export async function prepareSubmission({
           spreadAspectRatio,
           showGutter: !!showGutter,
         })
-        previewUp = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
+        const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
+        composites.push({ spreadId: s.id, key: up.key, url: up.url })
       } catch (err) {
-        console.warn('[submit-helpers] preview composite failed for spread', s.id, err)
-      }
-
-      // 2. Print master composite (300 DPI). Skipped if printLongEdgePx
-      //    wasn't supplied or the high-res render fails (likely OOM on
-      //    mobile) — order still ships, owner just won't get the print
-      //    master for that spread. Independent of preview success.
-      if (printLongEdgePx && printLongEdgePx > 0) {
-        try {
-          onProgress?.(
-            done,
-            total,
-            `Rendering print master ${i + 1} of ${spreadSteps}`,
-          )
-          const printBlob = await renderSpreadComposite({
-            spread: s,
-            template: tpl,
-            photos: photoLookup,
-            adjusts: adjusts ?? {},
-            spreadAspectRatio,
-            showGutter: !!showGutter,
-            longEdgePx: printLongEdgePx,
-            quality: PRINT_JPEG_QUALITY,
-          })
-          printUp = await uploadToR2(
-            printBlob,
-            designId,
-            `${s.id}-spread-print.jpg`,
-          )
-        } catch (err) {
-          console.warn(
-            '[submit-helpers] print composite failed for spread',
-            s.id,
-            err,
-          )
-        }
-      }
-
-      // Push the spread if EITHER render succeeded — preview drives the
-      // customer email, printUrl drives the admin/printer download, and
-      // they're independent. Empty strings stand in for a failed render
-      // (downstream consumers already null-check `url`).
-      if (previewUp || printUp) {
-        composites.push({
-          spreadId: s.id,
-          key: previewUp?.key ?? '',
-          url: previewUp?.url ?? '',
-          ...(printUp ? { printKey: printUp.key, printUrl: printUp.url } : {}),
-        })
+        console.warn('[submit-helpers] composite render failed for spread', s.id, err)
+        // Continue — partial composite set is still useful.
       }
       done++
       onProgress?.(done, total, `Rendered ${composites.length}/${spreadSteps} spreads`)
