@@ -289,6 +289,54 @@ const DEFAULT_SPREAD_BG: SpreadBg = { mode: 'paper' }
 /** Max zoom for a background photo — 200%, owner spec. */
 const BG_PHOTO_MAX_ZOOM = 2
 
+// ============== SMART ZOOM CAP (print-resolution aware) ==============
+// Minimum acceptable print resolution. Owner spec: 200 DPI.
+const MIN_PRINT_DPI = 200
+// Global hard ceiling on zoom regardless of resolution (owner: 200%).
+const GLOBAL_MAX_ZOOM = 2
+
+/** Open-spread physical inches for an album size. Key is `${h}x${w}`
+ *  (e.g. '17x24' = 17″ tall × 24″ wide open). */
+function spreadInches(size: AlbumSize): { wIn: number; hIn: number } {
+  const [h, w] = size.split('x').map(Number)
+  return { wIn: w || 24, hIn: h || 17 }
+}
+
+/**
+ * Sharpness of a photo cover-fitted into a slot at zoom 1, in DPI.
+ *   coverDPI = min(photoW / slotWidthInches, photoH / slotHeightInches)
+ * Effective DPI at any zoom = coverDPI / zoom.
+ */
+function coverDpi(
+  photo: { width: number; height: number },
+  slot: { w: number; h: number },
+  size: AlbumSize,
+): number {
+  if (!photo.width || !photo.height) return 0
+  const { wIn, hIn } = spreadInches(size)
+  const slotWin = (slot.w / 100) * wIn
+  const slotHin = (slot.h / 100) * hIn
+  if (slotWin <= 0 || slotHin <= 0) return 0
+  return Math.min(photo.width / slotWin, photo.height / slotHin)
+}
+
+/**
+ * The maximum zoom this photo can take in this slot+album before it
+ * drops below MIN_PRINT_DPI. Clamped to [1, GLOBAL_MAX_ZOOM]. If the
+ * photo can't even hit 200 DPI at zoom 1, returns 1 (and effDpi at 1
+ * will read red so the UI warns).
+ */
+function smartMaxZoom(
+  photo: { width: number; height: number },
+  slot: { w: number; h: number },
+  size: AlbumSize,
+): number {
+  const cd = coverDpi(photo, slot, size)
+  if (cd <= 0) return GLOBAL_MAX_ZOOM
+  const raw = cd / MIN_PRINT_DPI
+  return Math.max(1, Math.min(GLOBAL_MAX_ZOOM, +raw.toFixed(2)))
+}
+
 const PAPER_HEX = '#ffffff'
 
 const BG_PALETTE: { id: string; label: string; hex: string }[] = [
@@ -5808,17 +5856,34 @@ function SpreadView({
       </div>
 
       {/* Photo edit toolbar (full set, mirrors manual builder) */}
-      {editingSlot >= 0 && (
-        <PhotoToolbar
-          adj={adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST}
-          onChange={(patch) => onAdjustChange(editingSlot, patch)}
-          onSwap={() => onStartSwap(editingSlot)}
-          onReset={() => onResetAdjust(editingSlot)}
-          onRemove={() => onRemovePhoto(editingSlot)}
-          slotIdx={editingSlot}
-          inSwapMode={swappingSlot === editingSlot}
-        />
-      )}
+      {editingSlot >= 0 && (() => {
+        const editAdj = adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST
+        const editPhotoId = spread.photoIds[editingSlot]
+        const editPhoto = editPhotoId ? photoMap.get(editPhotoId) : undefined
+        const editSlotDef = tpl.slots[editingSlot]
+        // Smart cap: how far THIS photo can zoom in THIS slot at THIS
+        // album size before dropping under 200 DPI.
+        const cap =
+          editPhoto && editSlotDef
+            ? smartMaxZoom(editPhoto, editSlotDef, albumSize)
+            : GLOBAL_MAX_ZOOM
+        const cd =
+          editPhoto && editSlotDef ? coverDpi(editPhoto, editSlotDef, albumSize) : 0
+        const effDpi = cd > 0 ? Math.round(cd / Math.max(1, editAdj.zoom)) : 0
+        return (
+          <PhotoToolbar
+            adj={editAdj}
+            onChange={(patch) => onAdjustChange(editingSlot, patch)}
+            onSwap={() => onStartSwap(editingSlot)}
+            onReset={() => onResetAdjust(editingSlot)}
+            onRemove={() => onRemovePhoto(editingSlot)}
+            slotIdx={editingSlot}
+            inSwapMode={swappingSlot === editingSlot}
+            maxZoom={cap}
+            effDpi={effDpi}
+          />
+        )
+      })()}
     </div>
     </div>
   )
@@ -5836,6 +5901,8 @@ function PhotoToolbar({
   onRemove,
   slotIdx,
   inSwapMode,
+  maxZoom,
+  effDpi,
 }: {
   adj: PhotoAdjust
   onChange: (patch: Partial<PhotoAdjust>) => void
@@ -5844,7 +5911,15 @@ function PhotoToolbar({
   onRemove: () => void
   slotIdx: number
   inSwapMode: boolean
+  /** Smart per-photo zoom ceiling (keeps ≥200 DPI at this album size). */
+  maxZoom: number
+  /** Effective print DPI at the current zoom (for the quality badge). */
+  effDpi: number
 }) {
+  // Slider/buttons never let the customer zoom past the smart cap.
+  const zCap = Math.max(1, maxZoom)
+  const dpiColor = effDpi >= 200 ? '#7fd18f' : effDpi >= 150 ? '#e0b15a' : '#ff8a8a'
+  const dpiLabel = effDpi >= 200 ? 'Sharp' : effDpi >= 150 ? 'OK' : 'Soft'
   const btn: React.CSSProperties = {
     background: 'transparent',
     border: '0.5px solid rgba(184,150,90,0.35)',
@@ -5898,27 +5973,63 @@ function PhotoToolbar({
           </button>
         </div>
 
-        {/* ZOOM (100-200%) */}
+        {/* ZOOM — smart-capped so it never pixelates at print */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={groupLabel}>Zoom</span>
-          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.max(1, +(adj.zoom - 0.1).toFixed(2)) })}>
+          <button
+            type="button"
+            style={btn}
+            onClick={() => onChange({ zoom: Math.max(1, +(adj.zoom - 0.1).toFixed(2)) })}
+          >
             −
           </button>
           <input
             type="range"
             min="100"
-            max="200"
+            max={Math.round(zCap * 100)}
             step="5"
-            value={Math.round(adj.zoom * 100)}
-            onChange={(e) => onChange({ zoom: parseInt(e.target.value) / 100 })}
+            value={Math.round(Math.min(adj.zoom, zCap) * 100)}
+            onChange={(e) =>
+              onChange({ zoom: Math.min(zCap, parseInt(e.target.value) / 100) })
+            }
             style={{ width: 100, accentColor: GOLD }}
           />
-          <button type="button" style={btn} onClick={() => onChange({ zoom: Math.min(2, +(adj.zoom + 0.1).toFixed(2)) })}>
+          <button
+            type="button"
+            style={btn}
+            onClick={() =>
+              onChange({ zoom: Math.min(zCap, +(adj.zoom + 0.1).toFixed(2)) })
+            }
+          >
             +
           </button>
           <span style={{ fontSize: 10, color: GOLD, minWidth: 42, textAlign: 'center' }}>
             {Math.round(adj.zoom * 100)}%
           </span>
+          {/* Live print-quality badge + smart cap note */}
+          {effDpi > 0 && (
+            <span
+              title={`Effective ${effDpi} DPI at this zoom. Zoom is auto-limited to ${Math.round(
+                zCap * 100,
+              )}% so this photo stays at least 200 DPI at this album size.`}
+              style={{
+                fontSize: 9,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                color: dpiColor,
+                border: `0.5px solid ${dpiColor}`,
+                borderRadius: 30,
+                padding: '2px 8px',
+              }}
+            >
+              {effDpi} DPI · {dpiLabel}
+            </span>
+          )}
+          {zCap < GLOBAL_MAX_ZOOM && (
+            <span style={{ fontSize: 9, color: 'var(--muted2)' }}>
+              max {Math.round(zCap * 100)}%
+            </span>
+          )}
         </div>
 
         {/* FLIP */}
