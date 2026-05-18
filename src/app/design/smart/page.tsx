@@ -2327,6 +2327,30 @@ export default function SmartDesignerPage() {
     [spreads, unusedPhotoIds, undoApi, fillEmptySlot],
   )
 
+  // Drag-to-background: drop a photo on a spread's empty/matted area to
+  // make it the blurred background. Sensible defaults if first time.
+  const setSpreadBgPhoto = useCallback(
+    (spreadId: string, photoId: string) => {
+      setSpreadBgs((prev) => {
+        const cur = prev[spreadId]
+        return {
+          ...prev,
+          [spreadId]: {
+            mode: 'photo',
+            photoId,
+            blur: cur?.blur ?? 18,
+            dim: cur?.dim ?? 0.25,
+            zoom: Math.min(BG_PHOTO_MAX_ZOOM, cur?.zoom ?? 1),
+            panX: cur?.panX ?? 50,
+            panY: cur?.panY ?? 50,
+          },
+        }
+      })
+      setPickedUnusedId(null)
+    },
+    [],
+  )
+
   // ----- Universal pointer-drag for unused photos -----
   const beginPointerDrag = useCallback(
     (e: React.PointerEvent, photoId: string, preview: string) => {
@@ -2370,10 +2394,19 @@ export default function SmartDesignerPage() {
         const el = document.elementFromPoint(ev.clientX, ev.clientY)
         const slotEl = el?.closest('[data-ff-slot]') as HTMLElement | null
         if (slotEl) {
+          // Dropped on a photo slot → fill / swap.
           const sId = slotEl.getAttribute('data-ff-spread')
           const sIdx = slotEl.getAttribute('data-ff-slot')
           if (sId && sIdx !== null) {
             placeUnusedIntoSlot(sId, Number(sIdx), st.photoId)
+          }
+        } else {
+          // Not on a slot — dropped on the spread's background/margin
+          // area → use this photo as the blurred background.
+          const bgEl = el?.closest('[data-ff-bgzone]') as HTMLElement | null
+          const bgSpread = bgEl?.getAttribute('data-ff-bgspread')
+          if (bgSpread) {
+            setSpreadBgPhoto(bgSpread, st.photoId)
           }
         }
         // keep suppressClick true until the click fires, then it resets
@@ -2385,7 +2418,7 @@ export default function SmartDesignerPage() {
       window.addEventListener('pointermove', onMove, { passive: false })
       window.addEventListener('pointerup', onUp)
     },
-    [placeUnusedIntoSlot],
+    [placeUnusedIntoSlot, setSpreadBgPhoto],
   )
 
   const onEmptySlotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -6003,8 +6036,11 @@ function SpreadView({
       </div>
 
       <div
-        // Spread-level drop target: dropping an unused photo here
-        // (NOT on a specific slot) grows the template by 1.
+        // Spread-level drop target. HTML5 drop here = +1 layout (legacy).
+        // The universal pointer-drag hit-tests data-ff-bgzone: dropping
+        // a photo on the empty/matted area sets it as the blurred bg.
+        data-ff-bgzone
+        data-ff-bgspread={spread.id}
         onDragOver={spreadDropHandlers(spread.id).onDragOver}
         onDrop={spreadDropHandlers(spread.id).onDrop}
         style={{
