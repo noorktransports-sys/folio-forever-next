@@ -5043,9 +5043,12 @@ function SpreadView({
           Spread {index + 1} · {ALBUM_SPECS[albumSize].label}
         </span>
 
-        {/* Photo count dropdown — change how many photos this spread holds */}
+        {/* Photo count pill — reflects the LAYOUT'S slot count, not how
+            many are filled. Picking a 5-slot layout via the visual
+            picker must show "5 photos" (with empties to fill), not "2"
+            just because only 2 slots have photos so far. */}
         <PhotoCountDropdown
-          current={spread.photoIds.filter(Boolean).length}
+          current={tpl.slots.length}
           available={[1, 2, 3, 4, 5]}
           onChange={onPhotoCountChange}
         />
