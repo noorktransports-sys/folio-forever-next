@@ -207,6 +207,21 @@ export interface SubmissionInput {
   spreadAspectRatio?: number
   /** Whether to draw the gutter line (standard = true, layflat = false). */
   showGutter?: boolean
+  /** Per-spread backgrounds keyed by spread id (paper/color/photo). So
+   *  the rendered composite matches the editor (proof = print). */
+  spreadBgs?: Record<
+    string,
+    {
+      mode: 'paper' | 'color' | 'photo'
+      color?: string
+      photoId?: string
+      blur?: number
+      dim?: number
+      zoom?: number
+      panX?: number
+      panY?: number
+    }
+  >
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -232,6 +247,7 @@ export async function prepareSubmission({
   adjusts,
   spreadAspectRatio,
   showGutter,
+  spreadBgs,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
@@ -321,6 +337,7 @@ export async function prepareSubmission({
           adjusts: adjusts ?? {},
           spreadAspectRatio,
           showGutter: !!showGutter,
+          bg: spreadBgs?.[s.id],
         })
         const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
         composites.push({ spreadId: s.id, key: up.key, url: up.url })
