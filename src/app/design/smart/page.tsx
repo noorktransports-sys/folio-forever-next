@@ -1290,6 +1290,23 @@ function templateFamily(t: { id: string }): LayoutFamily {
   return t.id.startsWith('mat-') ? 'mat' : 'bleed'
 }
 
+// The single "mood" the client picks once (right after upload). The engine
+// turns this into a per-spread family decision so a non-designer never has
+// to think about "full bleed vs matted" per page.
+//   clean → every spread matted (calm, white space, elegant)
+//   bold  → every spread full-bleed (edge-to-edge, immersive, dramatic)
+//   mix   → smart rhythm: hero/feature spreads go full-bleed for impact,
+//           supporting spreads go matted so the album breathes (default)
+type AlbumStyle = 'clean' | 'bold' | 'mix'
+
+/** Which layout family a given spread should use, given the album mood
+ *  and whether this spread is a hero/feature spread. */
+function familyForSpread(style: AlbumStyle, isHeroSpread: boolean): LayoutFamily {
+  if (style === 'clean') return 'mat'
+  if (style === 'bold') return 'bleed'
+  return isHeroSpread ? 'bleed' : 'mat' // mix
+}
+
 // After removing a photo from a spread, pick a smaller template that
 // matches the new photo count (preferring same hero/non-hero kind).
 // Falls back to the closest fit if no exact match exists.
@@ -1388,14 +1405,24 @@ function pickTemplate(
   preferredId?: string,
   photos?: { width: number; height: number }[],
   spreadAspectRatio?: number,
+  family?: LayoutFamily,
 ): LayoutTemplate | null {
-  const candidates = TEMPLATES.filter(
+  let candidates = TEMPLATES.filter(
     (t) =>
       t.compat.includes(type) &&
       t.slots.length === count &&
       (needsHero ? t.slots.some((s) => s.isHero) : !t.slots.some((s) => s.isHero)),
   )
   if (candidates.length === 0) return null
+
+  // Narrow to the requested family (bleed vs matted) when the album mood
+  // asks for it — but only if that family actually has a template for this
+  // count/hero combo. Otherwise keep all candidates so a layout is never
+  // dropped just because one family lacks a matching template.
+  if (family) {
+    const fam = candidates.filter((t) => templateFamily(t) === family)
+    if (fam.length > 0) candidates = fam
+  }
 
   // No photo info → preserve the old behaviour (preferred id, else first).
   if (!photos || photos.length === 0 || spreadAspectRatio === undefined) {
@@ -1433,9 +1460,15 @@ function generateLayout(
   pageCount: number,
   type: AlbumType,
   spreadAspectRatio: number,
+  style: AlbumStyle = 'mix',
 ): Spread[] {
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
+
+  // Family the album mood wants for hero spreads vs supporting spreads.
+  // Constant for the whole run.
+  const famHero = familyForSpread(style, true)
+  const famPair = familyForSpread(style, false)
 
   const eventOrder: EventId[] = [
     'mehndi',
@@ -1591,8 +1624,8 @@ function generateLayout(
           const chunk = fillerQueue.splice(0, take)
           if (chunk.length === 0) continue
           const tpl =
-            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio) ??
-            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio)
+            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, famHero) ??
+            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, famHero)
           if (!tpl) continue
           eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
           continue
@@ -1606,11 +1639,11 @@ function generateLayout(
           : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
         const heroPhotos = [hero, ...fillers]
         const tpl =
-          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio) ??
-          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio)
+          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, famHero) ??
+          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, famHero)
         if (!tpl) {
           // Fall back: put hero into a 2-photo pair as if it were any photo
-          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio)
+          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, famHero)
           if (!fallback) continue
           eventSpreads.push({
             id: `s-${idx++}`,
@@ -1636,8 +1669,8 @@ function generateLayout(
         if (take === 0) continue
         const chunk = fillerQueue.splice(0, take)
         const tpl =
-          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio) ??
-          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio)
+          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, famPair) ??
+          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, famPair)
         if (!tpl) continue
         eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
       }
@@ -1649,7 +1682,10 @@ function generateLayout(
     if (stillLeft.length > 0 && eventSpreads.length > 0) {
       const last = eventSpreads[eventSpreads.length - 1]
       const tgt = Math.min(5, last.photoIds.length + stillLeft.length)
-      const upgrade = pickTemplate(type, tgt, false)
+      const upgrade = pickTemplate(
+        type, tgt, false, undefined, undefined, undefined,
+        templateFamily({ id: last.templateId }),
+      )
       if (upgrade) {
         last.templateId = upgrade.id
         last.photoIds = [
@@ -1668,7 +1704,10 @@ function generateLayout(
   if (orphans.length > 0 && spreads.length > 0) {
     const last = spreads[spreads.length - 1]
     const tgt = Math.min(5, last.photoIds.length + orphans.length)
-    const upgrade = pickTemplate(type, tgt, false)
+    const upgrade = pickTemplate(
+      type, tgt, false, undefined, undefined, undefined,
+      templateFamily({ id: last.templateId }),
+    )
     if (upgrade) {
       last.templateId = upgrade.id
       last.photoIds = [...last.photoIds, ...orphans.slice(0, tgt - last.photoIds.length).map((p) => p.id)]
@@ -1891,6 +1930,9 @@ export default function SmartDesignerPage() {
   const [type, setType] = useState<AlbumType | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [pageCount, setPageCount] = useState(15)
+  // Album "mood" the client picks once before generation. Smart mix is the
+  // recommended default so a non-designer gets a well-paced album for free.
+  const [albumStyle, setAlbumStyle] = useState<AlbumStyle>('mix')
   const [spreads, setSpreads] = useState<Spread[]>([])
   // Unused-pool state — explicit (not derived) so undo/redo ops can move
   // photos between spreads and unused without recomputing. Initialized
@@ -2038,6 +2080,7 @@ export default function SmartDesignerPage() {
             size: AlbumSize
             type: AlbumType
             pageCount: number
+            albumStyle: AlbumStyle
             step: Step
             photos: Photo[]
             spreads: Spread[]
@@ -2049,6 +2092,7 @@ export default function SmartDesignerPage() {
           if (s.size) setSize(s.size)
           if (s.type) setType(s.type)
           if (typeof s.pageCount === 'number') setPageCount(s.pageCount)
+          if (s.albumStyle) setAlbumStyle(s.albumStyle)
           if (s.step) setStep(s.step)
           if (Array.isArray(s.photos)) {
             // Migrate any legacy eventIds (ceremony / portraits / other)
@@ -2147,6 +2191,7 @@ export default function SmartDesignerPage() {
         size,
         type,
         pageCount,
+        albumStyle,
         step: step === 'generate' ? 'pages' : step, // don't get stuck mid-generate
         photos,
         spreads,
@@ -2160,7 +2205,7 @@ export default function SmartDesignerPage() {
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, spreadBgs, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -2316,11 +2361,11 @@ export default function SmartDesignerPage() {
     setAdjusts({})
     const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
     setTimeout(() => {
-      installLayout(generateLayout(photos, pageCount, type, aspect))
+      installLayout(generateLayout(photos, pageCount, type, aspect, albumStyle))
       setGenerating(false)
       setStep('adjust')
     }, 1400)
-  }, [photos, pageCount, type, size, undoApi, installLayout])
+  }, [photos, pageCount, type, size, albumStyle, undoApi, installLayout])
 
   const regenerate = () => {
     if (!type) return
@@ -2331,7 +2376,7 @@ export default function SmartDesignerPage() {
     undoApi.clearStack()
     const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
     installLayout(
-      generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type, aspect),
+      generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type, aspect, albumStyle),
     )
     setAdjusts({})
   }
@@ -4059,6 +4104,94 @@ export default function SmartDesignerPage() {
             <strong>{recommendedSpreads}</strong> for a more breathable layout.
           </div>
         )}
+
+        <div style={{ ...css.card, marginTop: 28 }}>
+          <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 6 }}>
+            Album style
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--muted2)', marginBottom: 16, lineHeight: 1.5 }}>
+            Not sure which look you want? Pick a mood — we&apos;ll design every
+            spread for you. You can still restyle any single spread later.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {(
+              [
+                {
+                  key: 'mix' as AlbumStyle,
+                  title: 'Smart mix',
+                  tag: 'Recommended',
+                  desc: 'We mix bold full-bleed feature pages with calm matted pages — a designed, well-paced album.',
+                },
+                {
+                  key: 'clean' as AlbumStyle,
+                  title: 'Clean & elegant',
+                  tag: '',
+                  desc: 'Every photo matted with white space around it. Soft, timeless, gallery feel.',
+                },
+                {
+                  key: 'bold' as AlbumStyle,
+                  title: 'Bold & immersive',
+                  tag: '',
+                  desc: 'Edge-to-edge, full-bleed photos. Dramatic and modern.',
+                },
+              ] as const
+            ).map((opt) => {
+              const active = albumStyle === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setAlbumStyle(opt.key)}
+                  style={{
+                    textAlign: 'left',
+                    padding: '14px 16px',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    background: active ? 'rgba(184,150,90,0.12)' : 'transparent',
+                    border: `1px solid ${active ? GOLD : 'rgba(184,150,90,0.25)'}`,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        border: `2px solid ${active ? GOLD : 'rgba(184,150,90,0.4)'}`,
+                        background: active ? GOLD : 'transparent',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontSize: 14, color: 'var(--cream)', fontWeight: 600 }}>
+                      {opt.title}
+                    </span>
+                    {opt.tag && (
+                      <span
+                        style={{
+                          fontSize: 9,
+                          letterSpacing: 1,
+                          textTransform: 'uppercase',
+                          color: '#0e0c09',
+                          background: GOLD,
+                          padding: '2px 7px',
+                          borderRadius: 30,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {opt.tag}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--muted2)', lineHeight: 1.5, margin: 0, paddingLeft: 22 }}>
+                    {opt.desc}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         <div style={{ ...css.card, marginTop: 28 }}>
           <p style={{ fontSize: 11, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 14 }}>
