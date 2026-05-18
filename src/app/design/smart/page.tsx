@@ -3509,6 +3509,7 @@ export default function SmartDesignerPage() {
                 }}
                 onAdjustChange={(idx, patch) => updateAdjust(adjustKey(s.id, idx), patch)}
                 onPickTemplate={(tplId) => swapTemplate(s.id, tplId)}
+                placementArmed={!!pickedUnusedId}
               />
             ))}
           </div>
@@ -4798,6 +4799,7 @@ function SpreadView({
   onRemovePhoto,
   onAdjustChange,
   onPickTemplate,
+  placementArmed,
 }: {
   spread: Spread
   index: number
@@ -4823,6 +4825,10 @@ function SpreadView({
   onRemovePhoto: (idx: number) => void
   onAdjustChange: (idx: number, patch: Partial<PhotoAdjust>) => void
   onPickTemplate: (tplId: string) => void
+  /** True when an unused photo is "picked up" (tap-to-place). When set,
+   *  tapping an empty slot PLACES the picked photo instead of opening
+   *  the upload/pick picker. */
+  placementArmed: boolean
 }) {
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
@@ -5051,11 +5057,17 @@ function SpreadView({
               ) : (
                 // Empty slot: dashed gold border + "+ Add" hint.
                 // Drop targets work the same as filled slots (above).
-                // Click → opens picker (parent handles file upload + unused list).
+                // Click → if a photo is "picked up" (tap-to-place), drop
+                // it into this empty slot; otherwise open the upload /
+                // pick-from-unused picker.
                 <div
                   onClick={(e) => {
                     e.stopPropagation()
-                    onEmptySlotClick(i)
+                    if (placementArmed) {
+                      onPhotoClick(i)
+                    } else {
+                      onEmptySlotClick(i)
+                    }
                   }}
                   style={{
                     position: 'absolute',
