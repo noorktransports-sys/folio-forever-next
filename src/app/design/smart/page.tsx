@@ -101,7 +101,7 @@ const FAV_CAP = 30
 
 // ============== TYPES ==============
 
-type AlbumSize = '17x24' | '20x30'
+type AlbumSize = '17x24' | '20x30' | '12x24' | '15x30'
 type AlbumType = 'standard' | 'layflat'
 
 type EventId =
@@ -270,19 +270,39 @@ const ALBUM_SPECS: Record<
   Record<AlbumType, { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }> & {
     spreadAspectRatio: number
     label: string
+    desc: string
   }
 > = {
   '17x24': {
     spreadAspectRatio: 24 / 17,
     label: '17×24',
+    desc: 'Coffee-table size · the classic format',
+    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+  },
+  '12x24': {
+    // Same pricing as 17×24 per owner. 12 tall × 24 wide open → 24/12 = 2.0
+    spreadAspectRatio: 24 / 12,
+    label: '12×24',
+    desc: 'Panoramic · slim landscape format',
     standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
   },
   '20x30': {
     spreadAspectRatio: 30 / 20,
     label: '20×30',
+    desc: 'Oversized poster · premium hero format',
     standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
     layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+  },
+  '15x30': {
+    // Owner: $300 base, +$15 per sheet (standard). Layflat assumed at the
+    // same +$35 base / +$3 per-spread delta as the other sizes — CONFIRM.
+    spreadAspectRatio: 30 / 15,
+    label: '15×30',
+    desc: 'Grand panoramic · wide statement format',
+    standard: { base: 300, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+    layflat: { base: 335, perExtraSpread: 18, minSpreads: 10, maxSpreads: 25 },
   },
 }
 
@@ -2430,7 +2450,7 @@ export default function SmartDesignerPage() {
           Album size
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-          {(['17x24', '20x30'] as AlbumSize[]).map((s) => {
+          {(['17x24', '12x24', '20x30', '15x30'] as AlbumSize[]).map((s) => {
             const spec = ALBUM_SPECS[s]
             const isSel = size === s
             return (
@@ -2443,7 +2463,7 @@ export default function SmartDesignerPage() {
                   {spec.label}
                 </p>
                 <p style={{ fontSize: 11, color: 'var(--muted2)', lineHeight: 1.7 }}>
-                  {s === '17x24' ? 'Coffee-table size · the classic format' : 'Oversized poster · premium hero format'}
+                  {spec.desc}
                 </p>
                 <p style={{ fontSize: 10, color: GOLD, marginTop: 10, letterSpacing: 1 }}>
                   Standard from ${spec.standard.base} · Layflat from ${spec.layflat.base}

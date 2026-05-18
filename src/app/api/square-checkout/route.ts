@@ -51,7 +51,7 @@ interface StoredOrder {
   albumName: string;
   customer: { name: string; email: string };
   album: {
-    size: '17x24' | '20x30';
+    size: string;
     type: 'standard' | 'layflat';
     pageCount: number;
     totalPrice: number;
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
   if (baseDollars <= 0 || !Number.isFinite(baseDollars)) {
     return err(500, 'Invalid album price');
   }
-  const sizeLabel = order.album.size === '17x24' ? '17×24' : '20×30';
+  const sizeLabel = order.album.size.replace('x', '×');
   const bindingLabel = order.album.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)';
 
   const lineItems = [
