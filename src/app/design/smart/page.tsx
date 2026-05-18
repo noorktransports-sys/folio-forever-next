@@ -4738,7 +4738,9 @@ function LayoutThumb({
         borderRadius: 3,
         cursor: 'pointer',
         flexShrink: 0,
-        transformOrigin: 'center bottom',
+        // Grow DOWNWARD into the open spread area on hover — growing up
+        // gets clipped by the card's top edge / rounded corner.
+        transformOrigin: 'center top',
         transition: 'transform 0.12s ease, box-shadow 0.12s ease',
       }}
       onMouseEnter={(e) => {
@@ -4915,8 +4917,11 @@ function SpreadView({
             display: 'flex',
             gap: 5,
             alignItems: 'center',
-            overflowX: 'auto',
-            overflowY: 'visible',
+            flexWrap: 'wrap',
+            // overflow MUST stay visible so the hover-zoom isn't clipped.
+            // (overflow-x:auto would force overflow-y to clip too.) Up to
+            // 6 thumbs at 56px fit well under maxWidth, so no scroll needed.
+            overflow: 'visible',
             padding: '14px 2px',
             maxWidth: 470,
           }}
