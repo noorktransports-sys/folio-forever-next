@@ -1112,6 +1112,140 @@ const TEMPLATES: LayoutTemplate[] = [
     ],
   },
 
+  // ===== MATTED — BIGGER, VARIED COMPOSITIONS =====
+  // Generous photo blocks with clean breathing room (not thin strips).
+
+  // 1 photo
+  {
+    id: 'mat-1-xl',
+    name: 'Mat · XL framed',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 6, y: 7, w: 88, h: 86, isHero: true }],
+  },
+  {
+    id: 'mat-1-portrait-xl',
+    name: 'Mat · tall XL',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 27, y: 5, w: 46, h: 90, isHero: true }],
+  },
+  {
+    id: 'mat-1-band-xl',
+    name: 'Mat · wide band XL',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 7, y: 24, w: 86, h: 52, isHero: true }],
+  },
+
+  // 2 photos — big blocks
+  {
+    id: 'mat-2-big',
+    name: 'Mat · big pair',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 6, y: 10, w: 41, h: 80 },
+      { x: 53, y: 10, w: 41, h: 80 },
+    ],
+  },
+  {
+    id: 'mat-2-big-stack',
+    name: 'Mat · big stack',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 14, y: 7, w: 72, h: 40 },
+      { x: 14, y: 53, w: 72, h: 40 },
+    ],
+  },
+  {
+    id: 'mat-2-Lbig-Racc',
+    name: 'Mat · big left + accent',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 8, w: 44, h: 84, isHero: true },
+      { x: 55, y: 26, w: 38, h: 48 },
+    ],
+  },
+
+  // 3 photos — feature + supporting
+  {
+    id: 'mat-3-Lbig-Rstack',
+    name: 'Mat · feature + 2',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 8, w: 46, h: 84, isHero: true },
+      { x: 56, y: 8, w: 38, h: 40 },
+      { x: 56, y: 52, w: 38, h: 40 },
+    ],
+  },
+  {
+    id: 'mat-3-big-row',
+    name: 'Mat · big trio',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 20, w: 28, h: 60 },
+      { x: 36, y: 20, w: 28, h: 60 },
+      { x: 67, y: 20, w: 28, h: 60 },
+    ],
+  },
+  {
+    id: 'mat-3-top-2big',
+    name: 'Mat · banner + pair',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 8, y: 8, w: 84, h: 34 },
+      { x: 8, y: 48, w: 40, h: 44 },
+      { x: 52, y: 48, w: 40, h: 44 },
+    ],
+  },
+
+  // 4 photos — big grid / feature
+  {
+    id: 'mat-4-big-grid',
+    name: 'Mat · big 2×2',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 8, y: 9, w: 39, h: 39 },
+      { x: 53, y: 9, w: 39, h: 39 },
+      { x: 8, y: 53, w: 39, h: 39 },
+      { x: 53, y: 53, w: 39, h: 39 },
+    ],
+  },
+  {
+    id: 'mat-4-Lbig-R3',
+    name: 'Mat · feature + 3',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 8, w: 46, h: 84, isHero: true },
+      { x: 56, y: 8, w: 38, h: 25 },
+      { x: 56, y: 37, w: 38, h: 25 },
+      { x: 56, y: 67, w: 38, h: 25 },
+    ],
+  },
+
+  // 5 photos — generous (replaces the tiny-row feel)
+  {
+    id: 'mat-5-feature',
+    name: 'Mat · feature + 4',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 9, w: 45, h: 82, isHero: true },
+      { x: 54, y: 9, w: 20, h: 39 },
+      { x: 76, y: 9, w: 19, h: 39 },
+      { x: 54, y: 52, w: 20, h: 39 },
+      { x: 76, y: 52, w: 19, h: 39 },
+    ],
+  },
+  {
+    id: 'mat-5-2top-3',
+    name: 'Mat · 2 + 3 big',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 13, y: 9, w: 35, h: 37 },
+      { x: 52, y: 9, w: 35, h: 37 },
+      { x: 7, y: 53, w: 27, h: 38 },
+      { x: 37, y: 53, w: 27, h: 38 },
+      { x: 67, y: 53, w: 27, h: 38 },
+    ],
+  },
+
   // --- LAYFLAT-ONLY ---
   {
     id: 'panorama',
@@ -6006,7 +6140,7 @@ function SpreadView({
                     fontFamily: 'var(--font-body)',
                   }}
                 >
-                  {fam === 'bleed' ? 'Full bleed' : 'Background'}
+                  {fam === 'bleed' ? 'Full bleed' : 'Matted'}
                 </button>
               )
             })}
@@ -6043,7 +6177,7 @@ function SpreadView({
               if (ordered.length === 0) {
                 return (
                   <span style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                    No {pickerFamily === 'bleed' ? 'full-bleed' : 'background'} layouts for {spread.photoIds.length} photos
+                    No {pickerFamily === 'bleed' ? 'full-bleed' : 'matted'} layouts for {spread.photoIds.length} photos
                   </span>
                 )
               }
