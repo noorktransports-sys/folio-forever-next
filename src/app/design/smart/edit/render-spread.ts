@@ -58,6 +58,21 @@ interface SpreadLike {
   photoIds: (string | null)[]
 }
 
+/** Per-spread background. Mirrors SpreadBg in page.tsx (duplicated here
+ *  the same way Photo/PhotoAdjust are — render-spread is standalone). */
+export interface SpreadBgInput {
+  mode: 'paper' | 'color' | 'photo'
+  color?: string
+  photoId?: string
+  blur?: number
+  dim?: number
+  zoom?: number
+  panX?: number
+  panY?: number
+}
+
+const BG_PHOTO_MAX_ZOOM = 2
+
 export interface RenderSpreadInput {
   spread: SpreadLike
   template: LayoutTemplate
@@ -69,6 +84,9 @@ export interface RenderSpreadInput {
   spreadAspectRatio: number
   /** Standard albums show a gutter line; layflat doesn't. */
   showGutter: boolean
+  /** Per-spread background — paper (default) / colour / blurred photo.
+   *  Must match the editor exactly so proof = print (clause 2.3). */
+  bg?: SpreadBgInput
 }
 
 const DEFAULT_ADJUST: PhotoAdjust = {
@@ -115,6 +133,7 @@ export async function renderSpreadComposite({
   adjusts,
   spreadAspectRatio,
   showGutter,
+  bg,
 }: RenderSpreadInput): Promise<Blob> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('Canvas unavailable on server')
@@ -128,9 +147,56 @@ export async function renderSpreadComposite({
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 2d context unavailable')
 
-  // White paper background
-  ctx.fillStyle = '#ffffff'
+  // ── Background (paper / colour / blurred photo) ──
+  // Must match the editor's SpreadView render exactly so the printed
+  // album matches the approved proof (clause 2.3).
+  const fillHex =
+    !bg || bg.mode === 'paper'
+      ? '#ffffff'
+      : bg.mode === 'color'
+      ? bg.color || '#f5f0e8'
+      : '#ffffff'
+  ctx.fillStyle = fillHex
   ctx.fillRect(0, 0, W, H)
+
+  if (bg && bg.mode === 'photo' && bg.photoId) {
+    const bgPhoto = photos.get(bg.photoId)
+    if (bgPhoto) {
+      try {
+        const bgImg = await loadImage(bgPhoto.preview)
+        const z = Math.min(BG_PHOTO_MAX_ZOOM, Math.max(1, bg.zoom ?? 1))
+        // cover-fit the spread, then apply zoom
+        const ir = bgImg.naturalWidth / bgImg.naturalHeight
+        const sr = W / H
+        let cw: number
+        let ch: number
+        if (ir > sr) {
+          ch = H
+          cw = H * ir
+        } else {
+          cw = W
+          ch = W / ir
+        }
+        cw *= z
+        ch *= z
+        const overflowX = cw - W
+        const overflowY = ch - H
+        const offX = -((bg.panX ?? 50) / 100) * overflowX
+        const offY = -((bg.panY ?? 50) / 100) * overflowY
+        ctx.save()
+        ctx.filter = `blur(${bg.blur ?? 18}px)`
+        ctx.drawImage(bgImg, offX, offY, cw, ch)
+        ctx.restore()
+        // dim overlay
+        ctx.save()
+        ctx.fillStyle = `rgba(0,0,0,${bg.dim ?? 0.25})`
+        ctx.fillRect(0, 0, W, H)
+        ctx.restore()
+      } catch {
+        // bg photo failed to load — fall back to the flat fill already drawn
+      }
+    }
+  }
 
   for (let i = 0; i < template.slots.length; i++) {
     const slot = template.slots[i]

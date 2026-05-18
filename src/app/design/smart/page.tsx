@@ -263,6 +263,51 @@ const DEFAULT_ADJUST: PhotoAdjust = {
 }
 const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx}`
 
+// ============== SPREAD BACKGROUNDS ==============
+// Per-spread background. Stored in its OWN state map keyed by spread id
+// (NOT on the Spread object) so it never touches the undo/op system —
+// same pattern as `adjusts`. Persisted to localStorage alongside it.
+
+type SpreadBg = {
+  mode: 'paper' | 'color' | 'photo'
+  /** hex, when mode==='color' */
+  color?: string
+  /** photo id, when mode==='photo' (Phase 2) */
+  photoId?: string
+  /** 0..40 px gaussian blur for the bg photo (Phase 2) */
+  blur?: number
+  /** 0..0.7 black overlay opacity over the bg photo (Phase 2) */
+  dim?: number
+  /** bg-photo zoom 1..2 — HARD-CAPPED at 2.0 (200%) per owner */
+  zoom?: number
+  panX?: number
+  panY?: number
+}
+
+const DEFAULT_SPREAD_BG: SpreadBg = { mode: 'paper' }
+
+/** Max zoom for a background photo — 200%, owner spec. */
+const BG_PHOTO_MAX_ZOOM = 2
+
+const PAPER_HEX = '#ffffff'
+
+const BG_PALETTE: { id: string; label: string; hex: string }[] = [
+  { id: 'cream', label: 'Cream', hex: '#f5f0e8' },
+  { id: 'ivory', label: 'Ivory', hex: '#efe7d6' },
+  { id: 'warmgrey', label: 'Warm grey', hex: '#b9b2a4' },
+  { id: 'charcoal', label: 'Charcoal', hex: '#3a342c' },
+  { id: 'black', label: 'Black', hex: '#0e0c09' },
+  { id: 'blush', label: 'Blush', hex: '#e8d6d2' },
+]
+
+/** Resolve the solid fill colour for a spread's background (paper/color).
+ *  For mode==='photo' callers handle the image separately. */
+function bgFillColor(bg: SpreadBg | undefined): string {
+  if (!bg || bg.mode === 'paper') return PAPER_HEX
+  if (bg.mode === 'color') return bg.color || BG_PALETTE[0].hex
+  return PAPER_HEX
+}
+
 // ============== ALBUM SPECS ==============
 
 const ALBUM_SPECS: Record<
@@ -636,6 +681,75 @@ const TEMPLATES: LayoutTemplate[] = [
     slots: [
       { x: 0.5, y: 25, w: 49, h: 50 },
       { x: 50.5, y: 25, w: 49, h: 50 },
+    ],
+  },
+
+  // --- MATTED / NEGATIVE-SPACE FAMILY (Phase 1a) ---
+  // Slots are inset from the edges so the photo "floats" in a wide
+  // mat (paper / colour / blurred-photo background fills the margin).
+  // Naming: mat-<count>-<S|M|L> where S/M/L ≈ 8% / 18% / 30% margin.
+
+  // 1 photo, centred — three mat widths
+  {
+    id: 'mat-1-s',
+    name: 'Mat · single S',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 8, y: 8, w: 84, h: 84, isHero: true }],
+  },
+  {
+    id: 'mat-1-m',
+    name: 'Mat · single M',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 18, y: 18, w: 64, h: 64, isHero: true }],
+  },
+  {
+    id: 'mat-1-l',
+    name: 'Mat · single L',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 30, y: 26, w: 40, h: 48, isHero: true }],
+  },
+  // 1 photo, one page only — big empty facing page
+  {
+    id: 'mat-1-left',
+    name: 'Mat · solo left, open right',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 6, y: 14, w: 38, h: 72, isHero: true }],
+  },
+  {
+    id: 'mat-1-right',
+    name: 'Mat · solo right, open left',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 56, y: 14, w: 38, h: 72, isHero: true }],
+  },
+  // 2 photos, matted pair (one per page, generous margins + centre gap)
+  {
+    id: 'mat-2',
+    name: 'Mat · matted pair',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 9, y: 18, w: 33, h: 64 },
+      { x: 58, y: 18, w: 33, h: 64 },
+    ],
+  },
+  // 2 photos, offset — one large matted, one small accent + air
+  {
+    id: 'mat-2-offset',
+    name: 'Mat · offset duo',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 8, y: 12, w: 46, h: 76, isHero: true },
+      { x: 62, y: 30, w: 26, h: 40 },
+    ],
+  },
+  // 3 photos, matted row with breathing room
+  {
+    id: 'mat-3',
+    name: 'Mat · matted trio',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 7, y: 30, w: 26, h: 40 },
+      { x: 37, y: 30, w: 26, h: 40 },
+      { x: 67, y: 30, w: 26, h: 40 },
     ],
   },
 
@@ -1368,6 +1482,9 @@ export default function SmartDesignerPage() {
   } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
+  // Per-spread backgrounds (paper/color/photo). Keyed by spread id.
+  // Separate from the op system, persisted like `adjusts`.
+  const [spreadBgs, setSpreadBgs] = useState<Record<string, SpreadBg>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
@@ -1410,6 +1527,7 @@ export default function SmartDesignerPage() {
             photos: Photo[]
             spreads: Spread[]
             adjusts: Record<string, PhotoAdjust>
+            spreadBgs: Record<string, SpreadBg>
             unusedPhotoIds: string[]
             customEventNames: Record<string, string>
           }>
@@ -1430,6 +1548,7 @@ export default function SmartDesignerPage() {
           }
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
+          if (s.spreadBgs && typeof s.spreadBgs === 'object') setSpreadBgs(s.spreadBgs)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
           if (s.customEventNames && typeof s.customEventNames === 'object') {
             setCustomEventNames(s.customEventNames)
@@ -1517,6 +1636,7 @@ export default function SmartDesignerPage() {
         photos,
         spreads,
         adjusts,
+        spreadBgs,
         unusedPhotoIds,
         customEventNames,
       }
@@ -1525,7 +1645,7 @@ export default function SmartDesignerPage() {
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, step, photos, spreads, adjusts, spreadBgs, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -2023,6 +2143,7 @@ export default function SmartDesignerPage() {
         adjusts,
         spreadAspectRatio: ALBUM_SPECS[size].spreadAspectRatio,
         showGutter: type === 'standard',
+        spreadBgs,
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
@@ -3544,6 +3665,11 @@ export default function SmartDesignerPage() {
                 albumSize={size}
                 albumType={type}
                 adjusts={adjusts}
+                bg={spreadBgs[s.id] ?? DEFAULT_SPREAD_BG}
+                onBgChange={(next) =>
+                  setSpreadBgs((prev) => ({ ...prev, [s.id]: next }))
+                }
+                photoListForBg={photos}
                 onPhotoClick={(idx) => {
                   // Tap-to-place: a picked-up unused photo drops into the
                   // tapped slot. Works on touch where drag-drop can't.
@@ -4453,11 +4579,47 @@ export default function SmartDesignerPage() {
                     position: 'relative',
                     width: '100%',
                     aspectRatio: `${aspect}`,
-                    background: '#ffffff',
+                    background: bgFillColor(spreadBgs[s.id]),
                     overflow: 'hidden',
                     borderRadius: 6,
                   }}
                 >
+                  {(() => {
+                    const pbg = spreadBgs[s.id]
+                    if (!pbg || pbg.mode !== 'photo' || !pbg.photoId) return null
+                    const bgP = photos.find((p) => p.id === pbg.photoId)
+                    if (!bgP) return null
+                    const z = Math.min(BG_PHOTO_MAX_ZOOM, Math.max(1, pbg.zoom ?? 1))
+                    return (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={bgP.preview}
+                          alt=""
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: `${pbg.panX ?? 50}% ${pbg.panY ?? 50}%`,
+                            transform: `scale(${z})`,
+                            filter: `blur(${pbg.blur ?? 18}px)`,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: `rgba(0,0,0,${pbg.dim ?? 0.25})`,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      </>
+                    )
+                  })()}
                   {tpl.slots.map((slot, i) => {
                     const photoId = s.photoIds[i]
                     const photo = photoId ? photoMap.get(photoId) : undefined
@@ -5045,6 +5207,206 @@ function SpreadNavRail({
   )
 }
 
+/**
+ * SpreadBgControl — per-spread background picker in the header.
+ * Modes: Paper · Colour swatches · Photo (blurred, dimmed, zoom ≤200%).
+ */
+function SpreadBgControl({
+  bg,
+  onChange,
+  spreadPhotos,
+}: {
+  bg: SpreadBg
+  onChange: (next: SpreadBg) => void
+  spreadPhotos: Photo[]
+}) {
+  const [open, setOpen] = useState(false)
+  const swatch =
+    bg.mode === 'paper'
+      ? PAPER_HEX
+      : bg.mode === 'color'
+      ? bg.color || BG_PALETTE[0].hex
+      : '#b8965a'
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen((o) => !o)
+        }}
+        title="Spread background"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          background: 'transparent',
+          border: '0.5px solid rgba(184,150,90,0.3)',
+          borderRadius: 30,
+          padding: '4px 10px',
+          cursor: 'pointer',
+          color: GOLD,
+          fontSize: 9,
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          fontFamily: 'var(--font-body)',
+        }}
+      >
+        <span
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: 3,
+            background: bg.mode === 'photo' ? 'linear-gradient(135deg,#b8965a,#3a342c)' : swatch,
+            border: '0.5px solid rgba(184,150,90,0.5)',
+            display: 'inline-block',
+          }}
+        />
+        BG
+      </button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            right: 0,
+            zIndex: 60,
+            background: 'var(--dark3)',
+            border: `0.5px solid ${GOLD}`,
+            borderRadius: 8,
+            padding: 12,
+            width: 230,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+          }}
+        >
+          <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 8px' }}>
+            Spread background
+          </p>
+
+          {/* Paper + colour swatches */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            <button
+              type="button"
+              onClick={() => onChange({ mode: 'paper' })}
+              title="Paper (white)"
+              style={{
+                width: 26, height: 26, borderRadius: 4, cursor: 'pointer',
+                background: PAPER_HEX,
+                border: bg.mode === 'paper' ? `2px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.4)',
+              }}
+            />
+            {BG_PALETTE.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                title={c.label}
+                onClick={() => onChange({ mode: 'color', color: c.hex })}
+                style={{
+                  width: 26, height: 26, borderRadius: 4, cursor: 'pointer',
+                  background: c.hex,
+                  border:
+                    bg.mode === 'color' && bg.color === c.hex
+                      ? `2px solid ${GOLD}`
+                      : '0.5px solid rgba(184,150,90,0.4)',
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Photo background */}
+          <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 6px' }}>
+            Or a blurred photo
+          </p>
+          {spreadPhotos.length === 0 ? (
+            <p style={{ fontSize: 10, color: 'var(--muted2)', margin: 0 }}>
+              Add photos to this spread to use one as a background.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {spreadPhotos.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      mode: 'photo',
+                      photoId: p.id,
+                      blur: bg.blur ?? 18,
+                      dim: bg.dim ?? 0.25,
+                      zoom: Math.min(BG_PHOTO_MAX_ZOOM, bg.zoom ?? 1),
+                      panX: bg.panX ?? 50,
+                      panY: bg.panY ?? 50,
+                    })
+                  }
+                  style={{
+                    width: 34, height: 34, borderRadius: 4, overflow: 'hidden', padding: 0,
+                    cursor: 'pointer',
+                    border:
+                      bg.mode === 'photo' && bg.photoId === p.id
+                        ? `2px solid ${GOLD}`
+                        : '0.5px solid rgba(184,150,90,0.4)',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {bg.mode === 'photo' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+              <label style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Blur {bg.blur ?? 18}px
+                <input
+                  type="range" min={0} max={40} step={1}
+                  value={bg.blur ?? 18}
+                  onChange={(e) => onChange({ ...bg, blur: Number(e.target.value) })}
+                  style={{ width: '100%', accentColor: GOLD }}
+                />
+              </label>
+              <label style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Darken {Math.round((bg.dim ?? 0.25) * 100)}%
+                <input
+                  type="range" min={0} max={70} step={5}
+                  value={Math.round((bg.dim ?? 0.25) * 100)}
+                  onChange={(e) => onChange({ ...bg, dim: Number(e.target.value) / 100 })}
+                  style={{ width: '100%', accentColor: GOLD }}
+                />
+              </label>
+              <label style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Zoom {Math.round((bg.zoom ?? 1) * 100)}% (max 200%)
+                <input
+                  type="range" min={100} max={200} step={5}
+                  value={Math.round((bg.zoom ?? 1) * 100)}
+                  onChange={(e) =>
+                    onChange({ ...bg, zoom: Math.min(BG_PHOTO_MAX_ZOOM, Number(e.target.value) / 100) })
+                  }
+                  style={{ width: '100%', accentColor: GOLD }}
+                />
+              </label>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            style={{
+              marginTop: 10, width: '100%', background: 'transparent',
+              border: '0.5px solid rgba(184,150,90,0.3)', color: GOLD,
+              borderRadius: 4, padding: '5px 0', fontSize: 10, cursor: 'pointer',
+              letterSpacing: 1.5, textTransform: 'uppercase',
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type SlotDragHandlers = ReturnType<typeof useSlotDrag>['slotHandlers']
 type SpreadDropHandlers = ReturnType<typeof useSlotDrag>['spreadDropHandlers']
 
@@ -5065,6 +5427,9 @@ function SpreadView({
   albumSize,
   albumType,
   adjusts,
+  bg,
+  onBgChange,
+  photoListForBg,
   onPhotoClick,
   editingSlot,
   swappingSlot,
@@ -5091,6 +5456,9 @@ function SpreadView({
   albumSize: AlbumSize
   albumType: AlbumType
   adjusts: Record<string, PhotoAdjust>
+  bg: SpreadBg
+  onBgChange: (next: SpreadBg) => void
+  photoListForBg: Photo[]
   onPhotoClick: (idx: number) => void
   editingSlot: number
   swappingSlot: number
@@ -5239,6 +5607,14 @@ function SpreadView({
             ))
           })()}
         </div>
+        <SpreadBgControl
+          bg={bg}
+          onChange={onBgChange}
+          spreadPhotos={spread.photoIds
+            .filter((id): id is string => Boolean(id))
+            .map((id) => photoListForBg.find((p) => p.id === id))
+            .filter((p): p is Photo => Boolean(p))}
+        />
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>{eventName}</span>
       </div>
 
@@ -5251,11 +5627,47 @@ function SpreadView({
           position: 'relative',
           width: '100%',
           aspectRatio: `${aspect}`,
-          background: '#ffffff', // album paper — gaps appear white
+          background: bgFillColor(bg), // paper / chosen colour
           borderRadius: 2,
           overflow: 'hidden',
         }}
       >
+        {/* Blurred-photo background layer (Phase 2). Sits behind slots,
+            blurred + dimmed; zoom hard-capped at 200% per owner. */}
+        {bg.mode === 'photo' && bg.photoId && (() => {
+          const bgPhoto = photoListForBg.find((p) => p.id === bg.photoId)
+          if (!bgPhoto) return null
+          const z = Math.min(BG_PHOTO_MAX_ZOOM, Math.max(1, bg.zoom ?? 1))
+          return (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={bgPhoto.preview}
+                alt=""
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: `${bg.panX ?? 50}% ${bg.panY ?? 50}%`,
+                  transform: `scale(${z})`,
+                  filter: `blur(${bg.blur ?? 18}px)`,
+                  pointerEvents: 'none',
+                }}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: `rgba(0,0,0,${bg.dim ?? 0.25})`,
+                  pointerEvents: 'none',
+                }}
+              />
+            </>
+          )
+        })()}
         {tpl.slots.map((slot, i) => {
           const id = spread.photoIds[i]
           const photo = id ? photoMap.get(id) : undefined
