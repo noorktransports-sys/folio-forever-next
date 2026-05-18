@@ -3515,6 +3515,14 @@ export default function SmartDesignerPage() {
           </div>
         )}
 
+        {/* Hide the fixed page-rail when the viewport is too narrow to
+            have free left-margin (it would overlap the content). */}
+        <style>{`@media (max-width: 1180px){.ff-spread-rail{display:none !important}}`}</style>
+        <SpreadNavRail
+          spreads={spreads}
+          previewFor={(id) => photos.find((p) => p.id === id)?.preview}
+        />
+
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
           <div style={{ display: 'grid', gap: 10 }}>
             {spreads.map((s, i) => (
@@ -4936,6 +4944,107 @@ function LayoutThumb({
   )
 }
 
+/**
+ * SpreadNavRail — fixed left-edge page navigator. One mini card per
+ * spread (number + first-photo thumbnail). Click jumps straight to that
+ * spread instead of scrolling. Auto-hides on narrow screens where the
+ * left margin would overlap the content.
+ */
+function SpreadNavRail({
+  spreads,
+  previewFor,
+}: {
+  spreads: Spread[]
+  previewFor: (photoId: string) => string | undefined
+}) {
+  if (spreads.length < 2) return null
+  return (
+    <nav
+      aria-label="Spread navigator"
+      className="ff-spread-rail"
+      style={{
+        position: 'fixed',
+        left: 8,
+        top: 110,
+        bottom: 24,
+        width: 76,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: '8px 6px',
+        background: 'rgba(20,16,12,0.6)',
+        border: '0.5px solid rgba(184,150,90,0.2)',
+        borderRadius: 10,
+        zIndex: 40,
+      }}
+    >
+      {spreads.map((s, i) => {
+        const firstId = s.photoIds.find((id): id is string => Boolean(id))
+        const prev = firstId ? previewFor(firstId) : undefined
+        return (
+          <button
+            key={s.id}
+            type="button"
+            title={`Jump to spread ${i + 1}`}
+            onClick={() => {
+              document
+                .getElementById(`ff-spread-${s.id}`)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 3,
+              padding: 4,
+              background: 'transparent',
+              border: '0.5px solid rgba(184,150,90,0.25)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = GOLD)}
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.borderColor = 'rgba(184,150,90,0.25)')
+            }
+          >
+            <div
+              style={{
+                width: '100%',
+                aspectRatio: '4 / 3',
+                borderRadius: 3,
+                overflow: 'hidden',
+                background: '#1a1410',
+              }}
+            >
+              {prev ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={prev}
+                  alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : null}
+            </div>
+            <span
+              style={{
+                fontSize: 9,
+                letterSpacing: 1,
+                color: 'var(--muted2)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              {i + 1}
+            </span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
 type SlotDragHandlers = ReturnType<typeof useSlotDrag>['slotHandlers']
 type SpreadDropHandlers = ReturnType<typeof useSlotDrag>['spreadDropHandlers']
 
@@ -5006,12 +5115,14 @@ function SpreadView({
 
   return (
     <div
+      id={`ff-spread-${spread.id}`}
       onDragOver={onDragOver}
       onDrop={onDrop}
       style={{
         position: 'relative',
         opacity: isDragging ? 0.4 : 1,
         transition: 'opacity 0.15s',
+        scrollMarginTop: 80,
       }}
     >
       {/* Drop indicator (gold line above the spread when this is the drop target) */}
