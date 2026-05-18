@@ -6312,8 +6312,12 @@ function SpreadView({
                 position: 'absolute',
                 left: `${slot.x}%`,
                 top: `${slot.y}%`,
-                width: `${slot.w}%`,
-                height: `${slot.h}%`,
+                // +1px on width/height so adjacent full-bleed slots overlap
+                // by a hairline instead of leaving a sub-pixel seam that
+                // reveals the white page between photos. Invisible in
+                // matted layouts (it just grows 1px into the mat gap).
+                width: `calc(${slot.w}% + 1px)`,
+                height: `calc(${slot.h}% + 1px)`,
                 cursor: photo ? 'grab' : 'pointer',
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,

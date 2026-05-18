@@ -229,8 +229,11 @@ export async function renderSpreadComposite({
     ctx.save()
 
     // Clip to slot rect — anything we draw outside this rect is discarded.
+    // Inflate the clip by 1px on every side so adjacent full-bleed slots
+    // overlap a hairline instead of leaving an anti-aliased seam that
+    // reveals the white page between photos (matches the editor's +1px).
     ctx.beginPath()
-    ctx.rect(sx, sy, sw, sh)
+    ctx.rect(sx - 1, sy - 1, sw + 2, sh + 2)
     ctx.clip()
 
     // Cover dims at zoom=1: scale image so smaller dimension fills slot.
