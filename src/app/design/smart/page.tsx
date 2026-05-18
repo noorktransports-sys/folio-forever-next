@@ -251,6 +251,10 @@ type PhotoAdjust = {
   /** Rotation in degrees, any value (was constrained to 90° snaps). */
   rotate: number
   fit: 'fill' | 'contain'
+  /** Photo frame: 0 = none … 10 = thick. Rendered as a % of slot so it
+   *  looks consistent in the editor, proof preview, and print composite. */
+  borderWidth: number
+  borderColor: string
 }
 const DEFAULT_ADJUST: PhotoAdjust = {
   zoom: 1,
@@ -260,6 +264,25 @@ const DEFAULT_ADJUST: PhotoAdjust = {
   flipV: false,
   rotate: 0,
   fit: 'fill',
+  borderWidth: 0,
+  borderColor: '#ffffff',
+}
+
+/** Curated frame colours. */
+const BORDER_PALETTE: { id: string; label: string; hex: string }[] = [
+  { id: 'white', label: 'White', hex: '#ffffff' },
+  { id: 'cream', label: 'Cream', hex: '#f5f0e8' },
+  { id: 'black', label: 'Black', hex: '#0e0c09' },
+  { id: 'charcoal', label: 'Charcoal', hex: '#3a342c' },
+  { id: 'gold', label: 'Gold', hex: '#b8965a' },
+]
+
+/** Frame thickness in px for a given level + the element's rendered
+ *  width, so the frame is the SAME relative weight everywhere
+ *  (editor / proof / print composite). level 10 ≈ 2.2% of width. */
+function borderPx(level: number | undefined, renderedWidthPx: number): number {
+  if (!level || level <= 0) return 0
+  return Math.max(1, (level / 10) * 0.022 * renderedWidthPx)
 }
 const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx}`
 
@@ -5025,6 +5048,18 @@ export default function SmartDesignerPage() {
                         {photo && (
                           <SlotImage src={photo.preview} adjust={slotAdjust} fit={adj.fit} />
                         )}
+                        {photo && adj.borderWidth > 0 && (
+                          <div
+                            aria-hidden
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              border: `${(adj.borderWidth / 10) * 6}px solid ${adj.borderColor}`,
+                              boxSizing: 'border-box',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        )}
                       </div>
                     )
                   })}
@@ -6149,6 +6184,18 @@ function SpreadView({
                     // disabled, leaving HTML5 drag-to-swap unblocked. Pan
                     // and zoom continue to work via the toolbar sliders.
                   />
+                  {adj.borderWidth > 0 && (
+                    <div
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: `${(adj.borderWidth / 10) * 16}px solid ${adj.borderColor}`,
+                        boxSizing: 'border-box',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
                   {slot.isHero && (
                     <span
                       style={{
@@ -6479,6 +6526,50 @@ function PhotoToolbar({
             </div>
           )
         })()}
+
+        {/* BORDER — photo frame: thickness 0-10 + colour */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Border</span>
+          <input
+            type="range"
+            min="0"
+            max="10"
+            step="1"
+            value={adj.borderWidth ?? 0}
+            onChange={(e) => onChange({ borderWidth: parseInt(e.target.value) })}
+            style={{ width: 84, accentColor: GOLD }}
+          />
+          <span style={{ fontSize: 10, color: GOLD, minWidth: 22, textAlign: 'center' }}>
+            {adj.borderWidth ?? 0}
+          </span>
+          <div style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+            {BORDER_PALETTE.map((c) => {
+              const on = (adj.borderColor ?? '#ffffff') === c.hex
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  title={c.label}
+                  onClick={() =>
+                    onChange({
+                      borderColor: c.hex,
+                      // turning a colour on with no thickness yet → give it one
+                      borderWidth: (adj.borderWidth ?? 0) === 0 ? 4 : adj.borderWidth,
+                    })
+                  }
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 3,
+                    background: c.hex,
+                    cursor: 'pointer',
+                    border: on ? `2px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.4)',
+                  }}
+                />
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       {/* PAN sliders (only meaningful when fit=fill).

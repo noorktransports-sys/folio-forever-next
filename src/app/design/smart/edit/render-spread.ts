@@ -50,6 +50,8 @@ interface PhotoAdjust {
   flipV: boolean
   rotate: number
   fit: 'fill' | 'contain'
+  borderWidth?: number
+  borderColor?: string
 }
 
 interface SpreadLike {
@@ -274,6 +276,20 @@ export async function renderSpreadComposite({
       coverH,
     )
     ctx.restore()
+
+    // Photo frame (border) — drawn INSIDE the slot rect as 4 bars so it
+    // matches the editor's inset border. Width = 2.2% of slot width at
+    // level 10, the same relative weight the editor uses.
+    if (adj.borderWidth && adj.borderWidth > 0) {
+      const bw = Math.max(1, (adj.borderWidth / 10) * 0.022 * sw)
+      ctx.save()
+      ctx.fillStyle = adj.borderColor || '#ffffff'
+      ctx.fillRect(sx, sy, sw, bw) // top
+      ctx.fillRect(sx, sy + sh - bw, sw, bw) // bottom
+      ctx.fillRect(sx, sy, bw, sh) // left
+      ctx.fillRect(sx + sw - bw, sy, bw, sh) // right
+      ctx.restore()
+    }
 
     // Hero badge — small gold pill in the slot's top-left corner.
     if (slot.isHero) {
