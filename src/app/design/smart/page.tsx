@@ -1103,12 +1103,13 @@ const TEMPLATES: LayoutTemplate[] = [
     id: 'mat-5-row',
     name: 'Mat · row of 5',
     compat: ['standard', 'layflat'],
+    // 5 identical slots, evenly spaced: margin 5, gap 2.5, w 16 → ends at 95.
     slots: [
       { x: 5, y: 36, w: 16, h: 28 },
-      { x: 24, y: 36, w: 16, h: 28 },
-      { x: 43, y: 36, w: 16, h: 28 },
-      { x: 62, y: 36, w: 16, h: 28 },
-      { x: 81, y: 36, w: 14, h: 28 },
+      { x: 23.5, y: 36, w: 16, h: 28 },
+      { x: 42, y: 36, w: 16, h: 28 },
+      { x: 60.5, y: 36, w: 16, h: 28 },
+      { x: 79, y: 36, w: 16, h: 28 },
     ],
   },
 
