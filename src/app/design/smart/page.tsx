@@ -1685,15 +1685,28 @@ function buildSampleWeddingPhotos(): Photo[] {
   // presenting them already-tagged would skip the lesson and feel
   // confusing ("why are these in Other 1?").
   const blurryIdxs = new Set([4, 13, 22])
-  return Array.from({ length: 30 }, (_, i) => ({
-    id: `sample-${i}`,
-    preview: `https://picsum.photos/seed/wedding${i}/1200/800`,
-    width: 4000,
-    height: 4000,
-    tagged: 'none' as const,
-    eventId: 'unassigned' as EventId,
-    blurry: blurryIdxs.has(i),
-  }))
+  // Realistic, VARIED dimensions so the orientation scorer and the smart
+  // DPI zoom-cap behave like real wedding photos. ~60% portrait, ~30%
+  // landscape, ~10% square — and the picsum URL aspect matches the
+  // reported width/height so previews aren't distorted.
+  return Array.from({ length: 30 }, (_, i) => {
+    const kind = i % 10 === 0 ? 'square' : i % 3 === 1 ? 'landscape' : 'portrait'
+    const dims =
+      kind === 'portrait'
+        ? { width: 4000, height: 6000, pw: 1000, ph: 1500 }
+        : kind === 'landscape'
+        ? { width: 6000, height: 4000, pw: 1500, ph: 1000 }
+        : { width: 4000, height: 4000, pw: 1200, ph: 1200 }
+    return {
+      id: `sample-${i}`,
+      preview: `https://picsum.photos/seed/wedding${i}/${dims.pw}/${dims.ph}`,
+      width: dims.width,
+      height: dims.height,
+      tagged: 'none' as const,
+      eventId: 'unassigned' as EventId,
+      blurry: blurryIdxs.has(i),
+    }
+  })
 }
 
 // ============== STYLES ==============
