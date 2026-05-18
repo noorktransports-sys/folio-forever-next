@@ -3418,13 +3418,22 @@ export default function SmartDesignerPage() {
                   // Tap-to-place: a picked-up unused photo drops into the
                   // tapped slot. Works on touch where drag-drop can't.
                   if (pickedUnusedId) {
-                    const opState = {
-                      spreads: spreads as unknown as OpSpread[],
-                      unusedPhotoIds,
+                    const targetHasPhoto = Boolean(s.photoIds[idx])
+                    if (targetHasPhoto) {
+                      // Filled slot → swap (old photo returns to unused),
+                      // recorded on the undo stack.
+                      const opState = {
+                        spreads: spreads as unknown as OpSpread[],
+                        unusedPhotoIds,
+                      }
+                      undoApi.record(
+                        makeSwapWithUnusedOp(opState, s.id, idx, pickedUnusedId),
+                      )
+                    } else {
+                      // Empty slot → makeSwapWithUnusedOp has nothing to
+                      // swap out and no-ops. Use the proven fill path.
+                      fillEmptySlot(s.id, idx, pickedUnusedId)
                     }
-                    undoApi.record(
-                      makeSwapWithUnusedOp(opState, s.id, idx, pickedUnusedId),
-                    )
                     setPickedUnusedId(null)
                     setEditSlot({ spreadId: s.id, idx })
                     return
