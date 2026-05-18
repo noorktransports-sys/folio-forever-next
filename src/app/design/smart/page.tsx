@@ -1295,16 +1295,30 @@ function templateFamily(t: { id: string }): LayoutFamily {
 // to think about "full bleed vs matted" per page.
 //   clean → every spread matted (calm, white space, elegant)
 //   bold  → every spread full-bleed (edge-to-edge, immersive, dramatic)
-//   mix   → smart rhythm: hero/feature spreads go full-bleed for impact,
-//           supporting spreads go matted so the album breathes (default)
+//   mix   → designed rhythm by spread POSITION (not hero tags, which an
+//           innocent client never sets): the opening spread and then a
+//           recurring beat go full-bleed for drama; the rest are matted so
+//           the album breathes. Hero spreads are always full-bleed too.
 type AlbumStyle = 'clean' | 'bold' | 'mix'
 
-/** Which layout family a given spread should use, given the album mood
- *  and whether this spread is a hero/feature spread. */
-function familyForSpread(style: AlbumStyle, isHeroSpread: boolean): LayoutFamily {
+/** Which layout family a given spread should use.
+ *  @param isHeroSpread  this spread features a hero photo
+ *  @param spreadOrdinal 0-based running position across the whole album
+ *
+ *  Mix rhythm (0-based): spreads 0, 1, 4, 7, 10 … are full-bleed, the rest
+ *  matted — so even with ZERO hero tags every album opens bold and keeps a
+ *  bleed→matted→matted heartbeat instead of looking uniform. */
+function familyForSpread(
+  style: AlbumStyle,
+  isHeroSpread: boolean,
+  spreadOrdinal: number,
+): LayoutFamily {
   if (style === 'clean') return 'mat'
   if (style === 'bold') return 'bleed'
-  return isHeroSpread ? 'bleed' : 'mat' // mix
+  // mix
+  if (isHeroSpread) return 'bleed'
+  if (spreadOrdinal <= 1) return 'bleed' // bold opening
+  return spreadOrdinal % 3 === 1 ? 'bleed' : 'mat'
 }
 
 // After removing a photo from a spread, pick a smaller template that
@@ -1406,6 +1420,9 @@ function pickTemplate(
   photos?: { width: number; height: number }[],
   spreadAspectRatio?: number,
   family?: LayoutFamily,
+  /** Running spread ordinal — used to rotate between near-equally-good
+   *  templates so consecutive spreads don't all reuse the SAME layout. */
+  variety = 0,
 ): LayoutTemplate | null {
   let candidates = TEMPLATES.filter(
     (t) =>
@@ -1424,29 +1441,30 @@ function pickTemplate(
     if (fam.length > 0) candidates = fam
   }
 
-  // No photo info → preserve the old behaviour (preferred id, else first).
+  // No photo info → preserve the old behaviour (preferred id, else
+  // rotate through candidates so the album isn't all one layout).
   if (!photos || photos.length === 0 || spreadAspectRatio === undefined) {
     if (preferredId) {
       const pref = candidates.find((t) => t.id === preferredId)
       if (pref) return pref
     }
-    return candidates[0]
+    return candidates[((variety % candidates.length) + candidates.length) % candidates.length]
   }
 
-  // Orientation-aware: pick the best-scoring candidate. The paced
-  // preferred id (hero side rotation) only wins ties — pacing rhythm is
-  // decided OUTSIDE this function via isHeroSpot, so it's preserved.
-  let best = candidates[0]
-  let bestScore = -1
-  for (const c of candidates) {
-    let s = scoreTemplateForPhotos(c, photos, spreadAspectRatio)
-    if (c.id === preferredId) s += 0.04
-    if (s > bestScore) {
-      bestScore = s
-      best = c
-    }
-  }
-  return best
+  // Orientation-aware: score every candidate, then rotate among the ones
+  // that are NEARLY as good as the best (within VARIETY_EPS). This keeps
+  // layouts appropriate for the photos while making consecutive spreads
+  // visually different instead of hammering the single top template. The
+  // paced preferred id (hero side rotation) still gets a tie nudge.
+  const VARIETY_EPS = 0.06
+  const scored = candidates.map((c) => ({
+    t: c,
+    s: scoreTemplateForPhotos(c, photos, spreadAspectRatio) + (c.id === preferredId ? 0.04 : 0),
+  }))
+  scored.sort((a, b) => b.s - a.s)
+  const top = scored[0].s
+  const near = scored.filter((x) => x.s >= top - VARIETY_EPS)
+  return near[((variety % near.length) + near.length) % near.length].t
 }
 
 // ============== LAYOUT ENGINE ==============
@@ -1465,10 +1483,9 @@ function generateLayout(
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
 
-  // Family the album mood wants for hero spreads vs supporting spreads.
-  // Constant for the whole run.
-  const famHero = familyForSpread(style, true)
-  const famPair = familyForSpread(style, false)
+  // The layout family is decided PER SPREAD using the running spread
+  // ordinal `idx` (see familyForSpread) so the mix rhythm works even when
+  // the client tagged zero hero photos.
 
   const eventOrder: EventId[] = [
     'mehndi',
@@ -1624,8 +1641,8 @@ function generateLayout(
           const chunk = fillerQueue.splice(0, take)
           if (chunk.length === 0) continue
           const tpl =
-            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, famHero) ??
-            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, famHero)
+            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
+            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx)
           if (!tpl) continue
           eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
           continue
@@ -1639,11 +1656,11 @@ function generateLayout(
           : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
         const heroPhotos = [hero, ...fillers]
         const tpl =
-          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, famHero) ??
-          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, famHero)
+          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
+          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx)
         if (!tpl) {
           // Fall back: put hero into a 2-photo pair as if it were any photo
-          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, famHero)
+          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx)
           if (!fallback) continue
           eventSpreads.push({
             id: `s-${idx++}`,
@@ -1669,8 +1686,8 @@ function generateLayout(
         if (take === 0) continue
         const chunk = fillerQueue.splice(0, take)
         const tpl =
-          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, famPair) ??
-          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, famPair)
+          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx) ??
+          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx)
         if (!tpl) continue
         eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
       }
@@ -1684,7 +1701,7 @@ function generateLayout(
       const tgt = Math.min(5, last.photoIds.length + stillLeft.length)
       const upgrade = pickTemplate(
         type, tgt, false, undefined, undefined, undefined,
-        templateFamily({ id: last.templateId }),
+        templateFamily({ id: last.templateId }), idx,
       )
       if (upgrade) {
         last.templateId = upgrade.id
@@ -4120,7 +4137,7 @@ export default function SmartDesignerPage() {
                   key: 'mix' as AlbumStyle,
                   title: 'Smart mix',
                   tag: 'Recommended',
-                  desc: 'We mix bold full-bleed feature pages with calm matted pages — a designed, well-paced album.',
+                  desc: 'Opens bold edge-to-edge, then alternates dramatic full-bleed pages with calm matted ones — and varies the layout every spread so no two pages look the same.',
                 },
                 {
                   key: 'clean' as AlbumStyle,
