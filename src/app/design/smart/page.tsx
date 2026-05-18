@@ -801,6 +801,294 @@ const TEMPLATES: LayoutTemplate[] = [
     ],
   },
 
+  // ===== EXPANDED LIBRARY — lots more options per count =====
+  // Bleed = edge-to-edge classics; mat-* = float in negative space.
+
+  // ---- 1 PHOTO · bleed ----
+  {
+    id: 'one-full',
+    name: '1 · full bleed',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 0, y: 0, w: 100, h: 100, isHero: true }],
+  },
+
+  // ---- 1 PHOTO · more mat options ----
+  {
+    id: 'mat-1-tall',
+    name: 'Mat · tall centre',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 33, y: 6, w: 34, h: 88, isHero: true }],
+  },
+  {
+    id: 'mat-1-wide',
+    name: 'Mat · wide centre',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 12, y: 30, w: 76, h: 40, isHero: true }],
+  },
+  {
+    id: 'mat-1-top',
+    name: 'Mat · top-weighted',
+    compat: ['standard', 'layflat'],
+    slots: [{ x: 16, y: 8, w: 68, h: 58, isHero: true }],
+  },
+
+  // ---- 2 PHOTOS · bleed (target: lots of options) ----
+  {
+    id: 'b2-6040',
+    name: '2 · 60 / 40',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 59, h: 99, isHero: true },
+      { x: 60, y: 0.5, w: 39.5, h: 99 },
+    ],
+  },
+  {
+    id: 'b2-4060',
+    name: '2 · 40 / 60',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 39, h: 99 },
+      { x: 40, y: 0.5, w: 59.5, h: 99, isHero: true },
+    ],
+  },
+  {
+    id: 'b2-stack',
+    name: '2 · stacked full',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 49 },
+      { x: 0.5, y: 50, w: 99, h: 49.5 },
+    ],
+  },
+  {
+    id: 'b2-stack-7030',
+    name: '2 · stacked 70 / 30',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 68, isHero: true },
+      { x: 0.5, y: 69, w: 99, h: 30.5 },
+    ],
+  },
+  {
+    id: 'b2-stack-3070',
+    name: '2 · stacked 30 / 70',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 30 },
+      { x: 0.5, y: 31, w: 99, h: 68.5, isHero: true },
+    ],
+  },
+  {
+    id: 'b2-left-stack',
+    name: '2 · L tall + R tall (gap)',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 2, y: 2, w: 47, h: 96 },
+      { x: 51, y: 2, w: 47, h: 96 },
+    ],
+  },
+  {
+    id: 'b2-center-pair',
+    name: '2 · centre band pair',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 12, w: 49, h: 76 },
+      { x: 50.5, y: 12, w: 49, h: 76 },
+    ],
+  },
+
+  // ---- 2 PHOTOS · mat ----
+  {
+    id: 'mat-2-stack',
+    name: 'Mat · stacked duo',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 22, y: 8, w: 56, h: 40 },
+      { x: 22, y: 52, w: 56, h: 40 },
+    ],
+  },
+  {
+    id: 'mat-2-big-small',
+    name: 'Mat · big + accent',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 8, y: 14, w: 52, h: 72, isHero: true },
+      { x: 64, y: 34, w: 22, h: 32 },
+    ],
+  },
+  {
+    id: 'mat-2-tall',
+    name: 'Mat · twin tall',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 16, y: 12, w: 28, h: 76 },
+      { x: 56, y: 12, w: 28, h: 76 },
+    ],
+  },
+
+  // ---- 3 PHOTOS · bleed ----
+  {
+    id: 'b3-row',
+    name: '3 · equal columns',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 32.5, h: 99 },
+      { x: 33.5, y: 0.5, w: 32.5, h: 99 },
+      { x: 66.5, y: 0.5, w: 33, h: 99 },
+    ],
+  },
+  {
+    id: 'b3-stack',
+    name: '3 · stacked bands',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 99, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 99, h: 33 },
+    ],
+  },
+  {
+    id: 'b3-big-top',
+    name: '3 · big top + 2 below',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 60, isHero: true },
+      { x: 0.5, y: 61, w: 49, h: 38.5 },
+      { x: 50.5, y: 61, w: 49, h: 38.5 },
+    ],
+  },
+  {
+    id: 'b3-2top-big',
+    name: '3 · 2 top + big bottom',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 49, h: 38 },
+      { x: 50.5, y: 0.5, w: 49, h: 38 },
+      { x: 0.5, y: 39, w: 99, h: 60.5, isHero: true },
+    ],
+  },
+
+  // ---- 3 PHOTOS · mat ----
+  {
+    id: 'mat-3-stack',
+    name: 'Mat · stacked trio',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 30, y: 6, w: 40, h: 26 },
+      { x: 30, y: 37, w: 40, h: 26 },
+      { x: 30, y: 68, w: 40, h: 26 },
+    ],
+  },
+  {
+    id: 'mat-3-hero',
+    name: 'Mat · hero + 2 accents',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 8, y: 14, w: 50, h: 72, isHero: true },
+      { x: 64, y: 18, w: 24, h: 30 },
+      { x: 64, y: 54, w: 24, h: 30 },
+    ],
+  },
+
+  // ---- 4 PHOTOS · bleed ----
+  {
+    id: 'b4-strip',
+    name: '4 · equal columns',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 24.25, h: 99 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 99 },
+      { x: 50.5, y: 0.5, w: 24.25, h: 99 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 99 },
+    ],
+  },
+  {
+    id: 'b4-bands',
+    name: '4 · stacked bands',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 99, h: 24.25 },
+      { x: 0.5, y: 25.25, w: 99, h: 24.25 },
+      { x: 0.5, y: 50, w: 99, h: 24.25 },
+      { x: 0.5, y: 75, w: 99, h: 24.5 },
+    ],
+  },
+  {
+    id: 'b4-big-3',
+    name: '4 · big left + 3 right bands',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 64, h: 99, isHero: true },
+      { x: 65, y: 0.5, w: 34.5, h: 32.5 },
+      { x: 65, y: 33.5, w: 34.5, h: 32.5 },
+      { x: 65, y: 66.5, w: 34.5, h: 33 },
+    ],
+  },
+
+  // ---- 4 PHOTOS · mat ----
+  {
+    id: 'mat-4-grid',
+    name: 'Mat · 2×2 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 16, y: 14, w: 32, h: 34 },
+      { x: 52, y: 14, w: 32, h: 34 },
+      { x: 16, y: 52, w: 32, h: 34 },
+      { x: 52, y: 52, w: 32, h: 34 },
+    ],
+  },
+  {
+    id: 'mat-4-row',
+    name: 'Mat · row of 4',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 6, y: 34, w: 20, h: 32 },
+      { x: 29, y: 34, w: 20, h: 32 },
+      { x: 52, y: 34, w: 20, h: 32 },
+      { x: 75, y: 34, w: 20, h: 32 },
+    ],
+  },
+
+  // ---- 5 PHOTOS · bleed ----
+  {
+    id: 'b5-strip',
+    name: '5 · equal columns',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 19.3, h: 99 },
+      { x: 20.3, y: 0.5, w: 19.3, h: 99 },
+      { x: 40.1, y: 0.5, w: 19.3, h: 99 },
+      { x: 59.9, y: 0.5, w: 19.3, h: 99 },
+      { x: 79.7, y: 0.5, w: 19.8, h: 99 },
+    ],
+  },
+  {
+    id: 'b5-big-4',
+    name: '5 · big + 4 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 64, h: 99, isHero: true },
+      { x: 65, y: 0.5, w: 17, h: 49 },
+      { x: 82.5, y: 0.5, w: 17, h: 49 },
+      { x: 65, y: 50, w: 17, h: 49.5 },
+      { x: 82.5, y: 50, w: 17, h: 49.5 },
+    ],
+  },
+
+  // ---- 5 PHOTOS · mat ----
+  {
+    id: 'mat-5-row',
+    name: 'Mat · row of 5',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 36, w: 16, h: 28 },
+      { x: 24, y: 36, w: 16, h: 28 },
+      { x: 43, y: 36, w: 16, h: 28 },
+      { x: 62, y: 36, w: 16, h: 28 },
+      { x: 81, y: 36, w: 14, h: 28 },
+    ],
+  },
+
   // --- LAYFLAT-ONLY ---
   {
     id: 'panorama',
@@ -834,6 +1122,14 @@ const TEMPLATE_BY_ID = new Map(TEMPLATES.map((t) => [t.id, t] as const))
 
 function templatesForCount(count: number, type: AlbumType): LayoutTemplate[] {
   return TEMPLATES.filter((t) => t.compat.includes(type) && t.slots.length === count)
+}
+
+/** Two layout families: 'mat' = floats photos in negative space (a
+ *  colour / blurred-photo background shows around them); 'bleed' =
+ *  edge-to-edge classic layouts. Matted templates are all id 'mat-*'. */
+type LayoutFamily = 'bleed' | 'mat'
+function templateFamily(t: { id: string }): LayoutFamily {
+  return t.id.startsWith('mat-') ? 'mat' : 'bleed'
 }
 
 // After removing a photo from a spread, pick a smaller template that
@@ -5520,6 +5816,11 @@ function SpreadView({
    *  the upload/pick picker. */
   placementArmed: boolean
 }) {
+  // Layout-picker family tab. Hook MUST be before any early return
+  // (rules of hooks). Defaults to the family of the current template.
+  const [pickerFamily, setPickerFamily] = useState<LayoutFamily>(
+    TEMPLATE_BY_ID.get(spread.templateId)?.id.startsWith('mat-') ? 'mat' : 'bleed',
+  )
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
 
@@ -5600,60 +5901,95 @@ function SpreadView({
           onChange={onPhotoCountChange}
         />
 
-        {/* Visual layout picker (Part C + D). Mini diagrams of every
-            template for this photo count, best ORIENTATION match first.
-            Hover a thumb to enlarge it. Click to apply. */}
+        {/* Visual layout picker — Full-bleed vs Background (matted)
+            families, best ORIENTATION match first. Hover to enlarge,
+            click to apply. */}
         <div
           onClick={(e) => e.stopPropagation()}
-          title="Tap a layout to apply · hover to enlarge"
           style={{
             display: 'flex',
-            gap: 5,
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            // overflow MUST stay visible so the hover-zoom isn't clipped.
-            // (overflow-x:auto would force overflow-y to clip too.) Up to
-            // 6 thumbs at 56px fit well under maxWidth, so no scroll needed.
-            overflow: 'visible',
-            padding: '14px 2px',
-            maxWidth: 470,
+            flexDirection: 'column',
+            gap: 6,
+            maxWidth: 560,
           }}
         >
-          {(() => {
-            const spreadPhotosForScore = spread.photoIds
-              .filter((id): id is string => Boolean(id))
-              .map((id) => photoMap.get(id))
-              .filter((p): p is Photo => Boolean(p))
-            const all = templatesForCount(spread.photoIds.length, albumType)
-            const scored = all
-              .map((t) => ({
-                t,
-                s: spreadPhotosForScore.length
-                  ? scoreTemplateForPhotos(t, spreadPhotosForScore, aspect)
-                  : 0,
-              }))
-              .sort((a, b) => b.s - a.s)
-            let ordered = scored.map((x) => x.t).slice(0, 6)
-            if (tpl && !ordered.find((t) => t.id === tpl.id)) {
-              ordered = [tpl, ...ordered].slice(0, 6)
-            }
-            if (ordered.length === 0) {
+          {/* Family toggle */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {(['bleed', 'mat'] as LayoutFamily[]).map((fam) => {
+              const on = pickerFamily === fam
               return (
-                <span style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {tpl?.name ?? 'Layout'}
-                </span>
+                <button
+                  key={fam}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPickerFamily(fam)
+                  }}
+                  style={{
+                    background: on ? GOLD : 'transparent',
+                    color: on ? '#0e0c09' : GOLD,
+                    border: `0.5px solid ${on ? GOLD : 'rgba(184,150,90,0.35)'}`,
+                    borderRadius: 30,
+                    padding: '3px 12px',
+                    fontSize: 9,
+                    letterSpacing: 1.4,
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-body)',
+                  }}
+                >
+                  {fam === 'bleed' ? 'Full bleed' : 'Background'}
+                </button>
               )
-            }
-            return ordered.map((t) => (
-              <LayoutThumb
-                key={t.id}
-                tpl={t}
-                aspect={aspect}
-                active={t.id === spread.templateId}
-                onClick={() => onPickTemplate(t.id)}
-              />
-            ))
-          })()}
+            })}
+          </div>
+          <div
+            title="Tap a layout to apply · hover to enlarge"
+            style={{
+              display: 'flex',
+              gap: 5,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              // overflow stays visible so the hover-zoom isn't clipped.
+              overflow: 'visible',
+              padding: '12px 2px',
+            }}
+          >
+            {(() => {
+              const spreadPhotosForScore = spread.photoIds
+                .filter((id): id is string => Boolean(id))
+                .map((id) => photoMap.get(id))
+                .filter((p): p is Photo => Boolean(p))
+              const all = templatesForCount(spread.photoIds.length, albumType).filter(
+                (t) => templateFamily(t) === pickerFamily,
+              )
+              const scored = all
+                .map((t) => ({
+                  t,
+                  s: spreadPhotosForScore.length
+                    ? scoreTemplateForPhotos(t, spreadPhotosForScore, aspect)
+                    : 0,
+                }))
+                .sort((a, b) => b.s - a.s)
+              const ordered = scored.map((x) => x.t).slice(0, 14)
+              if (ordered.length === 0) {
+                return (
+                  <span style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    No {pickerFamily === 'bleed' ? 'full-bleed' : 'background'} layouts for {spread.photoIds.length} photos
+                  </span>
+                )
+              }
+              return ordered.map((t) => (
+                <LayoutThumb
+                  key={t.id}
+                  tpl={t}
+                  aspect={aspect}
+                  active={t.id === spread.templateId}
+                  onClick={() => onPickTemplate(t.id)}
+                />
+              ))
+            })()}
+          </div>
         </div>
         <SpreadBgControl
           bg={bg}
