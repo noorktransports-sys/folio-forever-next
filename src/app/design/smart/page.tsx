@@ -532,6 +532,93 @@ const TEMPLATES: LayoutTemplate[] = [
     ],
   },
 
+  // --- PORTRAIT-COLUMN VARIANTS (Part A) ---
+  // The original library was almost entirely landscape/grid. These
+  // column layouts give the orientation scorer real choices when a
+  // spread's photos are vertical (the common wedding-portrait case).
+
+  // 3 PHOTOS — all-portrait: 1 tall + 2 tall columns
+  {
+    id: 'tri-cols-r',
+    name: '3 · tall columns (R)',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 24, h: 99 },
+      { x: 75, y: 0.5, w: 24.5, h: 99 },
+    ],
+  },
+  {
+    id: 'tri-cols-l',
+    name: '3 · tall columns (L)',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 24, h: 99 },
+      { x: 25, y: 0.5, w: 24.5, h: 99 },
+      { x: 50.5, y: 0.5, w: 49, h: 99, isHero: true },
+    ],
+  },
+  // 4 PHOTOS — all-portrait: 4 tall columns (2 per page)
+  {
+    id: 'quad-cols',
+    name: '4 · tall columns',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 24, h: 99 },
+      { x: 25, y: 0.5, w: 24.5, h: 99 },
+      { x: 50.5, y: 0.5, w: 24, h: 99 },
+      { x: 75, y: 0.5, w: 24.5, h: 99 },
+    ],
+  },
+  // 4 PHOTOS — portrait hero + 3 stacked accents on the right
+  {
+    id: 'hero-stack-r4',
+    name: '4 · hero + stacked (R)',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 49, h: 32.5 },
+      { x: 50.5, y: 66.5, w: 49, h: 33 },
+    ],
+  },
+  // 5 PHOTOS — all-portrait: 2 columns left + 3 columns right
+  {
+    id: 'five-cols',
+    name: '5 · tall columns',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 24, h: 99 },
+      { x: 25, y: 0.5, w: 24.5, h: 99 },
+      { x: 50.5, y: 0.5, w: 16, h: 99 },
+      { x: 66.83, y: 0.5, w: 16, h: 99 },
+      { x: 83.17, y: 0.5, w: 16.33, h: 99 },
+    ],
+  },
+  // 5 PHOTOS — landscape: 1 tall portrait + 4 stacked landscape bands
+  {
+    id: 'solo-quadband-r',
+    name: '5 · solo + 4 bands',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 49, h: 99, isHero: true },
+      { x: 50.5, y: 0.5, w: 49, h: 24.25 },
+      { x: 50.5, y: 25.25, w: 49, h: 24.25 },
+      { x: 50.5, y: 50, w: 49, h: 24.25 },
+      { x: 50.5, y: 75, w: 49, h: 24.5 },
+    ],
+  },
+  // 2 PHOTOS — landscape stack on each page (good for wide photos)
+  {
+    id: 'duo-band',
+    name: '2 · stacked bands',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 25, w: 49, h: 50 },
+      { x: 50.5, y: 25, w: 49, h: 50 },
+    ],
+  },
+
   // --- LAYFLAT-ONLY ---
   {
     id: 'panorama',
@@ -593,11 +680,78 @@ function pickFitTemplate(
   return currentTplId
 }
 
+/* ─── Orientation-aware scoring (Part B) ────────────────────────────────
+ *
+ * The original engine picked candidates[0] — purely by photo count. That
+ * dumped tall portrait photos into wide landscape slots and vice-versa.
+ *
+ * Now: classify every photo and every slot as portrait / landscape /
+ * square, then score how well a template's slot shapes match the actual
+ * photos going into it. A slot's TRUE shape depends on the spread's wide
+ * aspect ratio (24/17 or 30/20), so a "half page" slot is actually
+ * portrait-ish, and a half-height band is landscape.
+ */
+
+type AspectClass = 'portrait' | 'landscape' | 'square'
+
+function classifyAspect(ratio: number): AspectClass {
+  if (!Number.isFinite(ratio) || ratio <= 0) return 'square'
+  if (ratio < 0.85) return 'portrait'
+  if (ratio > 1.18) return 'landscape'
+  return 'square'
+}
+
+function photoAspectClass(p: { width: number; height: number }): AspectClass {
+  if (!p.width || !p.height) return 'square'
+  return classifyAspect(p.width / p.height)
+}
+
+function slotAspectClass(
+  slot: { w: number; h: number },
+  spreadAspectRatio: number,
+): AspectClass {
+  if (!slot.w || !slot.h) return 'square'
+  // pixel aspect = (slot.w / slot.h) × (spreadW / spreadH)
+  return classifyAspect((slot.w / slot.h) * spreadAspectRatio)
+}
+
+/**
+ * 0..1 — how well this template's slots fit these photos by orientation.
+ * Exact class matches are worth most; square acts as a flexible wildcard.
+ */
+function scoreTemplateForPhotos(
+  tpl: LayoutTemplate,
+  photos: { width: number; height: number }[],
+  spreadAspectRatio: number,
+): number {
+  if (tpl.slots.length === 0) return 0
+  const slotCounts = { portrait: 0, landscape: 0, square: 0 }
+  for (const s of tpl.slots) slotCounts[slotAspectClass(s, spreadAspectRatio)]++
+  const photoCounts = { portrait: 0, landscape: 0, square: 0 }
+  for (const p of photos) photoCounts[photoAspectClass(p)]++
+
+  const pMatch = Math.min(slotCounts.portrait, photoCounts.portrait)
+  const lMatch = Math.min(slotCounts.landscape, photoCounts.landscape)
+  let score = (pMatch + lMatch) * 2
+
+  // Whatever's left over — square slots take any photo, square photos
+  // fit any slot — counts as a soft (half-value) match.
+  const slotsLeft =
+    slotCounts.portrait - pMatch + (slotCounts.landscape - lMatch) + slotCounts.square
+  const photosLeft =
+    photoCounts.portrait - pMatch + (photoCounts.landscape - lMatch) + photoCounts.square
+  score += Math.min(slotsLeft, photosLeft) * 1
+
+  return score / (tpl.slots.length * 2)
+}
+
 function pickTemplate(
   type: AlbumType,
   count: number,
   needsHero: boolean,
   preferredId?: string,
+  photos?: { width: number; height: number }[],
+  spreadAspectRatio?: number,
 ): LayoutTemplate | null {
   const candidates = TEMPLATES.filter(
     (t) =>
@@ -605,11 +759,31 @@ function pickTemplate(
       t.slots.length === count &&
       (needsHero ? t.slots.some((s) => s.isHero) : !t.slots.some((s) => s.isHero)),
   )
-  if (preferredId) {
-    const pref = candidates.find((t) => t.id === preferredId)
-    if (pref) return pref
+  if (candidates.length === 0) return null
+
+  // No photo info → preserve the old behaviour (preferred id, else first).
+  if (!photos || photos.length === 0 || spreadAspectRatio === undefined) {
+    if (preferredId) {
+      const pref = candidates.find((t) => t.id === preferredId)
+      if (pref) return pref
+    }
+    return candidates[0]
   }
-  return candidates[0] ?? null
+
+  // Orientation-aware: pick the best-scoring candidate. The paced
+  // preferred id (hero side rotation) only wins ties — pacing rhythm is
+  // decided OUTSIDE this function via isHeroSpot, so it's preserved.
+  let best = candidates[0]
+  let bestScore = -1
+  for (const c of candidates) {
+    let s = scoreTemplateForPhotos(c, photos, spreadAspectRatio)
+    if (c.id === preferredId) s += 0.04
+    if (s > bestScore) {
+      bestScore = s
+      best = c
+    }
+  }
+  return best
 }
 
 // ============== LAYOUT ENGINE ==============
@@ -618,7 +792,12 @@ function pickTemplate(
 // Density only steps up when math requires it to fit all photos.
 // Strict event grouping: each spread contains photos from ONE event.
 
-function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Spread[] {
+function generateLayout(
+  photos: Photo[],
+  pageCount: number,
+  type: AlbumType,
+  spreadAspectRatio: number,
+): Spread[] {
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
 
@@ -775,7 +954,9 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
           const take = Math.min(sizes[i], fillerQueue.length)
           const chunk = fillerQueue.splice(0, take)
           if (chunk.length === 0) continue
-          const tpl = pickTemplate(type, chunk.length, false) ?? pickTemplate(type, chunk.length, true)
+          const tpl =
+            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio) ??
+            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio)
           if (!tpl) continue
           eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
           continue
@@ -787,10 +968,13 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
         const tplId = alternateLeft
           ? total === 5 ? 'hero-4r' : total === 4 ? 'hero-3r' : total === 3 ? 'hero-2r' : 'hero-1r'
           : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
-        const tpl = pickTemplate(type, total, true, tplId) ?? pickTemplate(type, total, true)
+        const heroPhotos = [hero, ...fillers]
+        const tpl =
+          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio) ??
+          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio)
         if (!tpl) {
           // Fall back: put hero into a 2-photo pair as if it were any photo
-          const fallback = pickTemplate(type, total, false)
+          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio)
           if (!fallback) continue
           eventSpreads.push({
             id: `s-${idx++}`,
@@ -815,7 +999,9 @@ function generateLayout(photos: Photo[], pageCount: number, type: AlbumType): Sp
         const take = Math.min(sizes[i], fillerQueue.length)
         if (take === 0) continue
         const chunk = fillerQueue.splice(0, take)
-        const tpl = pickTemplate(type, chunk.length, false) ?? pickTemplate(type, chunk.length, true)
+        const tpl =
+          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio) ??
+          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio)
         if (!tpl) continue
         eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
       }
@@ -1457,12 +1643,13 @@ export default function SmartDesignerPage() {
     setGenerating(true)
     setStep('generate')
     setAdjusts({})
+    const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
     setTimeout(() => {
-      installLayout(generateLayout(photos, pageCount, type))
+      installLayout(generateLayout(photos, pageCount, type, aspect))
       setGenerating(false)
       setStep('adjust')
     }, 1400)
-  }, [photos, pageCount, type, undoApi, installLayout])
+  }, [photos, pageCount, type, size, undoApi, installLayout])
 
   const regenerate = () => {
     if (!type) return
@@ -1471,7 +1658,10 @@ export default function SmartDesignerPage() {
       if (!ok) return
     }
     undoApi.clearStack()
-    installLayout(generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type))
+    const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
+    installLayout(
+      generateLayout([...photos].sort(() => Math.random() - 0.5), pageCount, type, aspect),
+    )
     setAdjusts({})
   }
 
@@ -1887,14 +2077,33 @@ export default function SmartDesignerPage() {
       const currentCount = filled.length
       if (newCount === currentCount) return
 
-      // Pick a template with the new slot count. Prefer same hero/non-hero kind.
+      // Pick a template with the new slot count. Prefer same hero/non-hero
+      // kind, then pick the best ORIENTATION match among those for the
+      // spread's actual photos (Part B).
       const currentTpl = TEMPLATE_BY_ID.get(spread.templateId)
       const wantsHero = currentTpl?.slots.some((s) => s.isHero) && newCount >= 2
+      const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
+      const spreadPhotos = filled
+        .map((id) => photos.find((p) => p.id === id))
+        .filter((p): p is Photo => Boolean(p))
       const candidates = TEMPLATES.filter(
         (t) => t.compat.includes(type) && t.slots.length === newCount,
       )
-      const newTpl =
-        candidates.find((t) => t.slots.some((s) => s.isHero) === wantsHero) ?? candidates[0]
+      const sameKind = candidates.filter(
+        (t) => t.slots.some((s) => s.isHero) === wantsHero,
+      )
+      const pool = sameKind.length > 0 ? sameKind : candidates
+      let newTpl = pool[0]
+      if (spreadPhotos.length > 0) {
+        let bestScore = -1
+        for (const c of pool) {
+          const sc = scoreTemplateForPhotos(c, spreadPhotos, aspect)
+          if (sc > bestScore) {
+            bestScore = sc
+            newTpl = c
+          }
+        }
+      }
       if (!newTpl) {
         showToast(`No layout available for ${newCount} photos`)
         return
@@ -1924,7 +2133,7 @@ export default function SmartDesignerPage() {
         setUnusedPhotoIds(nextUnused)
       }
     },
-    [type, spreads, unusedPhotoIds, undoApi, showToast],
+    [type, size, photos, spreads, unusedPhotoIds, undoApi, showToast],
   )
   // useSlotDrag gives us slot draggability + drop targets + spread-bg
   // drop handler. record + state are passed in; the hooks call our op
@@ -3299,8 +3508,6 @@ export default function SmartDesignerPage() {
                   setSwapSlot(null)
                 }}
                 onAdjustChange={(idx, patch) => updateAdjust(adjustKey(s.id, idx), patch)}
-                layoutMenuOpen={layoutMenuId === s.id}
-                onToggleLayoutMenu={() => setLayoutMenuId(layoutMenuId === s.id ? null : s.id)}
                 onPickTemplate={(tplId) => swapTemplate(s.id, tplId)}
               />
             ))}
@@ -4493,6 +4700,76 @@ function getImageDimensions(file: File): Promise<{ width: number; height: number
 
 // ============== SPREAD RENDER ==============
 
+/**
+ * LayoutThumb (Part C + D) — a mini visual diagram of a template's slots,
+ * drawn proportionally to the album's spread aspect ratio. Hovering
+ * enlarges it (scale + raised z-index + shadow) so the arrangement is
+ * easy to read on a small screen before picking.
+ */
+function LayoutThumb({
+  tpl,
+  aspect,
+  active,
+  onClick,
+}: {
+  tpl: LayoutTemplate
+  aspect: number
+  active: boolean
+  onClick: () => void
+}) {
+  const W = 56
+  const H = Math.max(28, Math.round(W / aspect))
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      title={`${tpl.name}${active ? ' (current)' : ''}`}
+      style={{
+        position: 'relative',
+        width: W,
+        height: H,
+        padding: 0,
+        background: '#0e0c09',
+        border: active ? `1.5px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.3)',
+        borderRadius: 3,
+        cursor: 'pointer',
+        flexShrink: 0,
+        transformOrigin: 'center bottom',
+        transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'scale(2.4)'
+        e.currentTarget.style.zIndex = '50'
+        e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.7)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'scale(1)'
+        e.currentTarget.style.zIndex = '1'
+        e.currentTarget.style.boxShadow = 'none'
+      }}
+    >
+      {tpl.slots.map((s, i) => (
+        <span
+          key={i}
+          style={{
+            position: 'absolute',
+            left: `${s.x}%`,
+            top: `${s.y}%`,
+            width: `${s.w}%`,
+            height: `${s.h}%`,
+            background: s.isHero ? 'rgba(184,150,90,0.6)' : 'rgba(184,150,90,0.28)',
+            border: '0.5px solid rgba(184,150,90,0.55)',
+            boxSizing: 'border-box',
+          }}
+        />
+      ))}
+    </button>
+  )
+}
+
 type SlotDragHandlers = ReturnType<typeof useSlotDrag>['slotHandlers']
 type SpreadDropHandlers = ReturnType<typeof useSlotDrag>['spreadDropHandlers']
 
@@ -4520,8 +4797,6 @@ function SpreadView({
   onResetAdjust,
   onRemovePhoto,
   onAdjustChange,
-  layoutMenuOpen,
-  onToggleLayoutMenu,
   onPickTemplate,
 }: {
   spread: Spread
@@ -4547,8 +4822,6 @@ function SpreadView({
   onResetAdjust: (idx: number) => void
   onRemovePhoto: (idx: number) => void
   onAdjustChange: (idx: number, patch: Partial<PhotoAdjust>) => void
-  layoutMenuOpen: boolean
-  onToggleLayoutMenu: () => void
   onPickTemplate: (tplId: string) => void
 }) {
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
@@ -4559,10 +4832,6 @@ function SpreadView({
     : EVENTS.find((e) => e.id === spread.eventId)?.name ?? ''
   const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
   const showGutter = albumType === 'standard'
-
-  const alternates = templatesForCount(spread.photoIds.length, albumType).filter(
-    (t) => t.id !== spread.templateId,
-  )
 
   return (
     <div
@@ -4630,76 +4899,57 @@ function SpreadView({
           onChange={onPhotoCountChange}
         />
 
-        <div style={{ position: 'relative' }}>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleLayoutMenu()
-            }}
-            style={{
-              background: 'transparent',
-              border: '0.5px solid rgba(184,150,90,0.3)',
-              color: GOLD,
-              fontSize: 9,
-              letterSpacing: 1,
-              padding: '4px 10px',
-              borderRadius: 30,
-              cursor: alternates.length > 0 ? 'pointer' : 'default',
-              opacity: alternates.length > 0 ? 1 : 0.6,
-              fontFamily: 'var(--font-body)',
-              textTransform: 'uppercase',
-            }}
-          >
-            {tpl.name} {alternates.length > 0 ? '▾' : ''}
-          </button>
-          {layoutMenuOpen && alternates.length > 0 && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                right: 0,
-                zIndex: 10,
-                background: 'var(--dark3)',
-                border: `0.5px solid ${GOLD}`,
-                borderRadius: 8,
-                padding: 6,
-                minWidth: 220,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                maxHeight: 320,
-                overflowY: 'auto',
-              }}
-            >
-              <p style={{ fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', padding: '6px 10px', textTransform: 'uppercase' }}>
-                Switch layout ({alternates.length} options)
-              </p>
-              {alternates.map((alt) => (
-                <button
-                  key={alt.id}
-                  type="button"
-                  onClick={() => onPickTemplate(alt.id)}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '8px 12px',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--cream)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                    fontFamily: 'var(--font-body)',
-                  }}
-                  onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(184,150,90,0.15)')}
-                  onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
-                >
-                  {alt.name}
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Visual layout picker (Part C + D). Mini diagrams of every
+            template for this photo count, best ORIENTATION match first.
+            Hover a thumb to enlarge it. Click to apply. */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          title="Tap a layout to apply · hover to enlarge"
+          style={{
+            display: 'flex',
+            gap: 5,
+            alignItems: 'center',
+            overflowX: 'auto',
+            overflowY: 'visible',
+            padding: '14px 2px',
+            maxWidth: 470,
+          }}
+        >
+          {(() => {
+            const spreadPhotosForScore = spread.photoIds
+              .filter((id): id is string => Boolean(id))
+              .map((id) => photoMap.get(id))
+              .filter((p): p is Photo => Boolean(p))
+            const all = templatesForCount(spread.photoIds.length, albumType)
+            const scored = all
+              .map((t) => ({
+                t,
+                s: spreadPhotosForScore.length
+                  ? scoreTemplateForPhotos(t, spreadPhotosForScore, aspect)
+                  : 0,
+              }))
+              .sort((a, b) => b.s - a.s)
+            let ordered = scored.map((x) => x.t).slice(0, 6)
+            if (tpl && !ordered.find((t) => t.id === tpl.id)) {
+              ordered = [tpl, ...ordered].slice(0, 6)
+            }
+            if (ordered.length === 0) {
+              return (
+                <span style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  {tpl?.name ?? 'Layout'}
+                </span>
+              )
+            }
+            return ordered.map((t) => (
+              <LayoutThumb
+                key={t.id}
+                tpl={t}
+                aspect={aspect}
+                active={t.id === spread.templateId}
+                onClick={() => onPickTemplate(t.id)}
+              />
+            ))
+          })()}
         </div>
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>{eventName}</span>
       </div>
