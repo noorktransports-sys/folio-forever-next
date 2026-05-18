@@ -1330,6 +1330,22 @@ export default function SmartDesignerPage() {
   // touch-friendly alternative to HTML5 drag-and-drop (which is
   // mouse-only and silently does nothing on touchscreens).
   const [pickedUnusedId, setPickedUnusedId] = useState<string | null>(null)
+  // Universal pointer-drag (mouse + touch + pen). Native HTML5 DnD is
+  // mouse-only; this works on every device. A floating ghost follows the
+  // pointer; on release we hit-test the slot under it via
+  // document.elementFromPoint + data-ff-slot attributes.
+  const pointerDragRef = useRef<{
+    photoId: string
+    startX: number
+    startY: number
+    active: boolean
+    suppressClick: boolean
+  } | null>(null)
+  const [dragGhost, setDragGhost] = useState<{
+    preview: string
+    x: number
+    y: number
+  } | null>(null)
   const [editSlot, setEditSlot] = useState<{ spreadId: string; idx: number } | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, PhotoAdjust>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
@@ -1800,6 +1816,92 @@ export default function SmartDesignerPage() {
       setEmptySlotPicker(null)
     },
     [],
+  )
+
+  // Shared placement: drop an unused photo into a slot. Empty slot →
+  // fill; filled slot → swap (old photo back to unused, undoable).
+  // Used by BOTH tap-to-place and the universal pointer-drag.
+  const placeUnusedIntoSlot = useCallback(
+    (spreadId: string, slotIdx: number, photoId: string) => {
+      const target = spreads.find((s) => s.id === spreadId)
+      const filled = target ? Boolean(target.photoIds[slotIdx]) : false
+      if (filled) {
+        undoApi.record(
+          makeSwapWithUnusedOp(
+            { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+            spreadId,
+            slotIdx,
+            photoId,
+          ),
+        )
+      } else {
+        fillEmptySlot(spreadId, slotIdx, photoId)
+      }
+      setPickedUnusedId(null)
+      setEditSlot({ spreadId, idx: slotIdx })
+    },
+    [spreads, unusedPhotoIds, undoApi, fillEmptySlot],
+  )
+
+  // ----- Universal pointer-drag for unused photos -----
+  const beginPointerDrag = useCallback(
+    (e: React.PointerEvent, photoId: string, preview: string) => {
+      // Left button / primary touch only
+      if (e.button !== 0 && e.pointerType === 'mouse') return
+      pointerDragRef.current = {
+        photoId,
+        startX: e.clientX,
+        startY: e.clientY,
+        active: false,
+        suppressClick: false,
+      }
+
+      const DRAG_THRESHOLD = 7 // px before it counts as a drag (vs a tap)
+
+      const onMove = (ev: PointerEvent) => {
+        const st = pointerDragRef.current
+        if (!st) return
+        const dx = ev.clientX - st.startX
+        const dy = ev.clientY - st.startY
+        if (!st.active && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+        if (!st.active) {
+          st.active = true
+          st.suppressClick = true
+        }
+        ev.preventDefault()
+        setDragGhost({ preview, x: ev.clientX, y: ev.clientY })
+      }
+
+      const onUp = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        const st = pointerDragRef.current
+        setDragGhost(null)
+        if (!st || !st.active) {
+          // No real movement → it was a tap; let onClick handle it.
+          pointerDragRef.current = null
+          return
+        }
+        // Hit-test whatever is under the release point.
+        const el = document.elementFromPoint(ev.clientX, ev.clientY)
+        const slotEl = el?.closest('[data-ff-slot]') as HTMLElement | null
+        if (slotEl) {
+          const sId = slotEl.getAttribute('data-ff-spread')
+          const sIdx = slotEl.getAttribute('data-ff-slot')
+          if (sId && sIdx !== null) {
+            placeUnusedIntoSlot(sId, Number(sIdx), st.photoId)
+          }
+        }
+        // keep suppressClick true until the click fires, then it resets
+        setTimeout(() => {
+          if (pointerDragRef.current === st) pointerDragRef.current = null
+        }, 0)
+      }
+
+      window.addEventListener('pointermove', onMove, { passive: false })
+      window.addEventListener('pointerup', onUp)
+    },
+    [placeUnusedIntoSlot],
   )
 
   const onEmptySlotUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3615,7 +3717,14 @@ export default function SmartDesignerPage() {
                         draggable
                         onDragStart={slotDrag.unusedHandlers(p.id).onDragStart}
                         onDragEnd={slotDrag.unusedHandlers(p.id).onDragEnd}
+                        onPointerDown={(e) => beginPointerDrag(e, p.id, p.preview)}
                         onClick={() => {
+                          // If a pointer-drag just happened, swallow the
+                          // click so we don't also toggle pick-up state.
+                          if (pointerDragRef.current?.suppressClick) {
+                            pointerDragRef.current = null
+                            return
+                          }
                           // Legacy path: a slot's swap button is armed →
                           // this click fills it (unchanged behaviour).
                           if (swapSlot) {
@@ -3630,7 +3739,8 @@ export default function SmartDesignerPage() {
                           aspectRatio: '1',
                           borderRadius: 4,
                           overflow: 'hidden',
-                          cursor: 'pointer',
+                          cursor: 'grab',
+                          touchAction: 'none',
                           border:
                             pickedUnusedId === p.id
                               ? `2px solid ${GOLD}`
@@ -4691,6 +4801,30 @@ export default function SmartDesignerPage() {
         </div>
       )}
 
+      {/* Floating ghost for the universal pointer-drag (mouse + touch). */}
+      {dragGhost && (
+        <img
+          src={dragGhost.preview}
+          alt=""
+          aria-hidden
+          style={{
+            position: 'fixed',
+            left: dragGhost.x,
+            top: dragGhost.y,
+            width: 96,
+            height: 96,
+            objectFit: 'cover',
+            transform: 'translate(-50%, -50%) rotate(-3deg)',
+            borderRadius: 6,
+            border: `2px solid ${GOLD}`,
+            boxShadow: '0 12px 36px rgba(0,0,0,0.55)',
+            pointerEvents: 'none',
+            zIndex: 99999,
+            opacity: 0.92,
+          }}
+        />
+      )}
+
       {/* Toast for op announcements (undo/redo/etc.) */}
       {Toast}
     </div>
@@ -5010,6 +5144,8 @@ function SpreadView({
           return (
             <div
               key={i}
+              data-ff-spread={spread.id}
+              data-ff-slot={i}
               onClick={(e) => {
                 e.stopPropagation()
                 onPhotoClick(i)
