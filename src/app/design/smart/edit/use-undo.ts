@@ -22,7 +22,10 @@ interface UseUndoArgs {
 export function useUndo({ albumId, state, setState, onAnnounce }: UseUndoArgs) {
   // One stack per album, swapped when albumId changes.
   const stackRef = useRef<OperationStack>(new OperationStack())
-  const [, force] = useState(0)
+  // `version` bumps on every push/undo/redo/clear/hydrate. It MUST be a
+  // dependency of the snapshot useMemo below — otherwise canUndo/canRedo
+  // freeze at their initial `false` and the buttons never enable.
+  const [version, force] = useState(0)
   const tick = useCallback(() => force(n => n + 1), [])
 
   // Latest state in a ref so the keyboard handler sees current values.
@@ -105,5 +108,5 @@ export function useUndo({ albumId, state, setState, onAnnounce }: UseUndoArgs) {
     canRedo: stackRef.current.canRedo(),
     nextUndoLabel: stackRef.current.peekUndo()?.label ?? null,
     nextRedoLabel: stackRef.current.peekRedo()?.label ?? null,
-  }), [record, undo, redo, clearStack, /* tick triggers re-memo via state change */])
+  }), [record, undo, redo, clearStack, version])
 }
