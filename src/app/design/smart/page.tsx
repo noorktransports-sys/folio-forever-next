@@ -23,6 +23,38 @@ import {
 import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
+import dynamic from 'next/dynamic'
+import { type CoverState } from '../cover-builder'
+
+// Lazy: pulls Three.js (Album3D). Only load when the client actually
+// reaches the Cover step — keeps the main designer bundle lean.
+const CoverBuilder = dynamic(() => import('../cover-builder'), {
+  ssr: false,
+  loading: () => (
+    <div
+      style={{
+        minHeight: '60vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#b8965a',
+        fontSize: 12,
+        letterSpacing: 2,
+        textTransform: 'uppercase',
+      }}
+    >
+      Loading cover studio…
+    </div>
+  ),
+})
+
+/** Cover add-on price by style (owner spec): photo included, leather
+ *  +$25, acrylic +$39. Used in displayed totals + the order. */
+const COVER_PRICE: Record<CoverState['type'], number> = {
+  photo: 0,
+  leather: 25,
+  acrylic: 39,
+}
 
 import {
   TEMPLATES,
@@ -181,6 +213,7 @@ type Step =
   | 'pages'
   | 'generate'
   | 'adjust'
+  | 'cover'
   | 'proof'
   | 'submit'
 
@@ -1153,6 +1186,9 @@ function SmartDesignerInner() {
   // session-only random one we generate at mount time).
   const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(null)
   const [polishHandoff, setPolishHandoff] = useState(false)
+  // Album cover (leather / acrylic / photo). null until the client
+  // completes the required Cover step.
+  const [coverState, setCoverState] = useState<CoverState | null>(null)
 
   // ────── Phase 1: Proof approval (clause 2.3) ──────
   // Tracks which spreads the customer has personally reviewed. Required
@@ -1273,6 +1309,7 @@ function SmartDesignerInner() {
             spreadBgs: Record<string, SpreadBg>
             spreadTexts: Record<string, SpreadText[]>
             savedColors: string[]
+            coverState: CoverState
             unusedPhotoIds: string[]
             customEventNames: Record<string, string>
           }>
@@ -1297,6 +1334,7 @@ function SmartDesignerInner() {
           if (s.spreadBgs && typeof s.spreadBgs === 'object') setSpreadBgs(s.spreadBgs)
           if (s.spreadTexts && typeof s.spreadTexts === 'object') setSpreadTexts(s.spreadTexts)
           if (Array.isArray(s.savedColors)) setSavedColors(s.savedColors)
+          if (s.coverState && typeof s.coverState === 'object') setCoverState(s.coverState)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
           if (s.customEventNames && typeof s.customEventNames === 'object') {
             setCustomEventNames(s.customEventNames)
@@ -1388,6 +1426,7 @@ function SmartDesignerInner() {
         spreadBgs,
         spreadTexts,
         savedColors,
+        coverState,
         unusedPhotoIds,
         customEventNames,
       }
@@ -1396,7 +1435,7 @@ function SmartDesignerInner() {
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, savedColors, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, savedColors, coverState, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -1420,6 +1459,11 @@ function SmartDesignerInner() {
     if (!size || !type) return 0
     return computePrice(size, type, pageCount)
   }, [size, type, pageCount])
+
+  // Cover add-on (0 until they've chosen on the Cover step).
+  const coverPrice = coverState ? COVER_PRICE[coverState.type] : 0
+  // Everything-in total shown at proof / submit / payment.
+  const orderTotal = albumPrice + (polishHandoff ? 99 : 0) + coverPrice
 
   // Phase 2: gate any path that adds photos behind the content-rights modal.
   // Returns true if photos may be added now; false if the modal was opened
@@ -2163,6 +2207,26 @@ function SmartDesignerInner() {
         }
       })
 
+      // Resolve the cover photo(s) to real uploaded URLs. If the client
+      // picked a SPREAD photo, its src is a local blob: preview — swap it
+      // for the uploaded original so the printer/admin can fetch it.
+      // CoverBuilder's own uploads are already https URLs → kept as-is.
+      const previewToOriginal = new Map<string, string>()
+      for (const p of photos) {
+        const up = result.photos.find((r) => r.photoId === p.id)
+        if (up) previewToOriginal.set(p.preview, up.originalUrl)
+      }
+      const resolveCover = (src: string | null): string | null =>
+        src ? previewToOriginal.get(src) ?? src : null
+      const coverPayload = coverState
+        ? {
+            ...coverState,
+            photoSrc: resolveCover(coverState.photoSrc),
+            backPhotoSrc: resolveCover(coverState.backPhotoSrc),
+            priceAdd: coverPrice,
+          }
+        : null
+
       const res = await fetch('/api/submit-smart-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2185,8 +2249,9 @@ function SmartDesignerInner() {
             size,
             type,
             pageCount,
-            totalPrice: albumPrice + (polishHandoff ? 99 : 0),
+            totalPrice: orderTotal,
           },
+          cover: coverPayload,
           photos: photosPayload,
           spreads,
           spreadComposites: result.spreadComposites,
@@ -2532,7 +2597,7 @@ function SmartDesignerInner() {
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'proof', 'submit']
+    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'cover', 'proof', 'submit']
     const stepForIdx = step === 'generate' ? 'adjust' : step
     const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
@@ -4239,16 +4304,15 @@ function SmartDesignerInner() {
             type="button"
             style={css.btnPrimary}
             onClick={() => {
-              // Proof review (clause 2.3) is required before the order can
-              // be submitted. We always send the customer through the proof
-              // step — even if they've been here before — so any edits since
-              // the last review must be re-acknowledged.
+              // Proof review (clause 2.3) is required before submit. Any
+              // edits since last review must be re-acknowledged, so reset
+              // it here. Next stop is the required Cover step → then proof.
               setReviewedSpreadIds(new Set())
               setProofApproval(null)
-              setStep('proof')
+              setStep('cover')
             }}
           >
-            Review proof & submit · ${albumPrice + (polishHandoff ? 99 : 0)} →
+            Choose your cover → ${orderTotal}
           </button>
         </div>
 
@@ -4326,7 +4390,7 @@ function SmartDesignerInner() {
                 {ALBUM_SPECS[size].label} · {type === 'standard' ? 'Standard' : 'Layflat'} · {pageCount} spreads · {photos.length} photos
                 <br />
                 <strong style={{ color: GOLD, fontSize: 14 }}>
-                  Total: ${albumPrice + (polishHandoff ? 99 : 0)}
+                  Total: ${orderTotal}
                   {polishHandoff && (
                     <span style={{ fontSize: 10, color: 'var(--muted2)', fontWeight: 400 }}> (incl. $99 polish hand-off)</span>
                   )}
@@ -4494,7 +4558,7 @@ function SmartDesignerInner() {
                 >
                   {submitting.stage === 'uploading' || submitting.stage === 'persisting'
                     ? 'Submitting…'
-                    : `Continue to secure payment · $${albumPrice + (polishHandoff ? 99 : 0)} →`}
+                    : `Continue to secure payment · $${orderTotal} →`}
                 </button>
               </div>
               <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginTop: 14 }}>
@@ -4633,6 +4697,21 @@ function SmartDesignerInner() {
   //  Audit record captured here is sent to the server with the
   //  submission and stored in KV at `proof_approval:{orderId}`.
   // ─────────────────────────────────────────────────────────────────────
+
+  // Required Cover step — reuses the manual builder's CoverBuilder so the
+  // smart album shares the exact same cover engine (leather / acrylic /
+  // photo, 3D preview, fonts, foil). They cannot skip it.
+  const renderCover = () => (
+    <CoverBuilder
+      uploadedPhotos={photos.map((p) => ({ id: p.id, src: p.preview }))}
+      onBack={() => setStep('adjust')}
+      onContinue={(cover) => {
+        setCoverState(cover)
+        setStep('proof')
+      }}
+    />
+  )
+
   const renderProof = () => {
     if (!size || !type) return null
     const aspect = ALBUM_SPECS[size].spreadAspectRatio
@@ -5040,7 +5119,7 @@ function SmartDesignerInner() {
         Order <em style={css.titleEm}>placed.</em>
       </h2>
       <p style={css.subtitle}>
-        Order #{submittedOrderId ?? orderId} · ${albumPrice + (polishHandoff ? 99 : 0)}
+        Order #{submittedOrderId ?? orderId} · ${orderTotal}
         <br />
         <span style={{ fontSize: 11, color: 'var(--muted2)' }}>
           We&apos;ll email {customerForm.email || 'you'} once payment is confirmed.
@@ -5127,6 +5206,7 @@ function SmartDesignerInner() {
       {step === 'pages' && renderPages()}
       {step === 'generate' && renderGenerate()}
       {step === 'adjust' && renderAdjust()}
+      {step === 'cover' && renderCover()}
       {step === 'proof' && renderProof()}
       {step === 'submit' && renderSubmit()}
 
