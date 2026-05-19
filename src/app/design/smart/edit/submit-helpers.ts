@@ -235,7 +235,7 @@ export interface SubmissionInput {
       sizePct: number
       color: string
       align: 'left' | 'center' | 'right'
-      font: 'display' | 'serif' | 'sans'
+      font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand'
       weight: 400 | 700
     }>
   >

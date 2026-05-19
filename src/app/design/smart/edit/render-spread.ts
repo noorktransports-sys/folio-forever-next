@@ -145,7 +145,7 @@ export interface SpreadTextInput {
   sizePct: number
   color: string
   align: 'left' | 'center' | 'right'
-  font: 'display' | 'serif' | 'sans'
+  font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand'
   weight: 400 | 700
 }
 
@@ -153,6 +153,9 @@ const TEXT_FONT_CANVAS: Record<SpreadTextInput['font'], string> = {
   display: 'Georgia, "Times New Roman", serif',
   serif: 'Georgia, "Times New Roman", serif',
   sans: 'system-ui, -apple-system, sans-serif',
+  elegant: '"Playfair Display", Georgia, serif',
+  script: '"Great Vibes", cursive',
+  hand: '"Dancing Script", cursive',
 }
 
 export interface RenderSpreadInput {
@@ -438,6 +441,23 @@ export async function renderSpreadComposite({
   // Sizing/positioning mirrors the editor exactly (sizePct% of H,
   // xPct/yPct % of the spread) so proof === print.
   if (texts && texts.length) {
+    // Make sure custom (Google) fonts are loaded before we measure/draw,
+    // otherwise the canvas silently falls back and proof !== print.
+    const docFonts = (document as unknown as { fonts?: FontFaceSet }).fonts
+    if (docFonts) {
+      try {
+        await Promise.all(
+          texts.map((t) =>
+            docFonts.load(
+              `${t.weight} 40px ${TEXT_FONT_CANVAS[t.font]}`,
+            ).catch(() => undefined),
+          ),
+        )
+        await docFonts.ready
+      } catch {
+        /* fall back to system fonts */
+      }
+    }
     for (const t of texts) {
       if (!t.text) continue
       const fontPx = Math.max(6, (t.sizePct / 100) * H)

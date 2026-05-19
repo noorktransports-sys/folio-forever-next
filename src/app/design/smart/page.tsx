@@ -309,20 +309,46 @@ type SpreadText = {
   sizePct: number
   color: string
   align: 'left' | 'center' | 'right'
-  font: 'display' | 'serif' | 'sans'
+  font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand'
   weight: 400 | 700
 }
 // CSS font stacks (editor / proof). Canvas can't use CSS vars so it has
-// its own concrete stack — kept visually equivalent.
+// its own concrete stack — kept visually equivalent. Script/Hand/Elegant
+// are Google fonts loaded by ensureTextFonts().
 const TEXT_FONT_CSS: Record<SpreadText['font'], string> = {
   display: 'var(--font-display), Georgia, serif',
   serif: 'Georgia, "Times New Roman", serif',
   sans: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+  elegant: '"Playfair Display", Georgia, serif',
+  script: '"Great Vibes", "Snell Roundhand", cursive',
+  hand: '"Dancing Script", "Segoe Script", cursive',
 }
 const TEXT_FONT_CANVAS: Record<SpreadText['font'], string> = {
   display: 'Georgia, "Times New Roman", serif',
   serif: 'Georgia, "Times New Roman", serif',
   sans: 'system-ui, -apple-system, sans-serif',
+  elegant: '"Playfair Display", Georgia, serif',
+  script: '"Great Vibes", cursive',
+  hand: '"Dancing Script", cursive',
+}
+const TEXT_FONT_LABEL: Record<SpreadText['font'], string> = {
+  display: 'Display',
+  serif: 'Serif',
+  sans: 'Sans',
+  elegant: 'Elegant',
+  script: 'Script ✒',
+  hand: 'Handwriting',
+}
+/** Inject the Google Fonts stylesheet once (client only). */
+function ensureTextFonts() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('ff-text-fonts')) return
+  const l = document.createElement('link')
+  l.id = 'ff-text-fonts'
+  l.rel = 'stylesheet'
+  l.href =
+    'https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@400;700&family=Playfair+Display:wght@400;700&display=swap'
+  document.head.appendChild(l)
 }
 const TEXT_COLOR_PRESETS = ['#ffffff', '#0e0c09', '#b8965a', '#7a1f1f', '#3a3a3a']
 // Keep text inside the trim-safe area so nothing prints off the edge.
@@ -5350,7 +5376,15 @@ function SpreadTextLayer({
 }) {
   const layerRef = useRef<HTMLDivElement>(null)
   const [selId, setSelId] = useState<string | null>(null)
+  // Center guides (Photoshop-style): show a line + snap when the text is
+  // within SNAP% of the spread's centre on that axis.
+  const [guide, setGuide] = useState<{ v: boolean; h: boolean }>({ v: false, h: false })
   const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(null)
+  const SNAP = 1.6 // % distance from centre that snaps
+
+  useEffect(() => {
+    ensureTextFonts()
+  }, [])
 
   const update = (id: string, patch: Partial<SpreadText>) =>
     onChange(texts.map((t) => (t.id === id ? { ...t, ...patch } : t)))
@@ -5376,10 +5410,18 @@ function SpreadTextLayer({
     if (!d || !rect) return
     const dx = ((e.clientX - d.startX) / rect.width) * 100
     const dy = ((e.clientY - d.startY) / rect.height) * 100
-    update(d.id, { xPct: clamp(d.ox + dx), yPct: clamp(d.oy + dy) })
+    let nx = clamp(d.ox + dx)
+    let ny = clamp(d.oy + dy)
+    const nearV = Math.abs(nx - 50) <= SNAP
+    const nearH = Math.abs(ny - 50) <= SNAP
+    if (nearV) nx = 50 // snap to horizontal centre
+    if (nearH) ny = 50 // snap to vertical centre
+    setGuide({ v: nearV, h: nearH })
+    update(d.id, { xPct: nx, yPct: ny })
   }
   const onPointerUp = (e: React.PointerEvent) => {
     dragRef.current = null
+    setGuide({ v: false, h: false })
     ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
   }
 
@@ -5420,6 +5462,37 @@ function SpreadTextLayer({
         zIndex: 6,
       }}
     >
+      {/* Photoshop-style centre guides — appear while dragging near centre */}
+      {guide.v && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 0,
+            borderLeft: `1px dashed ${GOLD}`,
+            transform: 'translateX(-0.5px)',
+            pointerEvents: 'none',
+            zIndex: 8,
+          }}
+        />
+      )}
+      {guide.h && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: 0,
+            right: 0,
+            height: 0,
+            borderTop: `1px dashed ${GOLD}`,
+            transform: 'translateY(-0.5px)',
+            pointerEvents: 'none',
+            zIndex: 8,
+          }}
+        />
+      )}
       {texts.map((t) => {
         const selected = t.id === selId
         return (
@@ -5532,11 +5605,22 @@ function SpreadTextLayer({
           <select
             value={sel.font}
             onChange={(e) => update(sel.id, { font: e.target.value as SpreadText['font'] })}
-            style={{ fontSize: 11, padding: '2px 4px' }}
+            style={{
+              fontSize: 11,
+              padding: '3px 6px',
+              color: '#0e0c09',
+              background: '#ffffff',
+              border: `0.5px solid ${GOLD}`,
+              borderRadius: 4,
+            }}
           >
-            <option value="display">Display</option>
-            <option value="serif">Serif</option>
-            <option value="sans">Sans</option>
+            {(
+              ['display', 'elegant', 'serif', 'sans', 'script', 'hand'] as SpreadText['font'][]
+            ).map((f) => (
+              <option key={f} value={f} style={{ color: '#0e0c09', background: '#fff' }}>
+                {TEXT_FONT_LABEL[f]}
+              </option>
+            ))}
           </select>
           <input
             type="range"
