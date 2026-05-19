@@ -23,6 +23,7 @@ import {
 import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
+import { renderCoverComposite } from './edit/render-cover'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
 
@@ -1189,6 +1190,64 @@ function SmartDesignerInner() {
   // Album cover (leather / acrylic / photo). null until the client
   // completes the required Cover step.
   const [coverState, setCoverState] = useState<CoverState | null>(null)
+  // Flat-rendered cover preview URLs (front + back) shown on the proof
+  // step. Generated on-the-fly client-side from the same render-cover
+  // used at submit, so what they approve = what prints.
+  const [proofCoverImgs, setProofCoverImgs] = useState<{
+    front: string | null
+    back: string | null
+  }>({ front: null, back: null })
+
+  // Render the flat cover preview(s) for the proof step. Front always
+  // (every type), back as well for photo covers — the owner asked for
+  // both. Uses the SAME render-cover the print composite uses, so the
+  // proof image matches the printed cover.
+  useEffect(() => {
+    if (step !== 'proof' || !coverState) {
+      setProofCoverImgs({ front: null, back: null })
+      return
+    }
+    let cancelled = false
+    const made: string[] = []
+    ;(async () => {
+      const common = {
+        type: coverState.type,
+        leatherColor: coverState.leatherColor,
+        foilColor: coverState.foilColor,
+        customTextHex: coverState.customTextHex,
+        fontId: coverState.fontId,
+        fontSize: coverState.fontSize,
+        primaryText: coverState.primaryText,
+        subtitleText: coverState.subtitleText,
+        position: coverState.position,
+        photoSrc: coverState.photoSrc,
+        backPhotoSrc: coverState.backPhotoSrc,
+        photoScale: coverState.photoScale,
+        photoX: coverState.photoX,
+        photoY: coverState.photoY,
+      }
+      try {
+        const fb = await renderCoverComposite({ ...common, side: 'front' })
+        if (cancelled) return
+        const fUrl = URL.createObjectURL(fb)
+        made.push(fUrl)
+        let bUrl: string | null = null
+        if (coverState.type === 'photo') {
+          const bb = await renderCoverComposite({ ...common, side: 'back' })
+          if (cancelled) return
+          bUrl = URL.createObjectURL(bb)
+          made.push(bUrl)
+        }
+        setProofCoverImgs({ front: fUrl, back: bUrl })
+      } catch {
+        /* silent — proof falls back to the summary card */
+      }
+    })()
+    return () => {
+      cancelled = true
+      for (const u of made) URL.revokeObjectURL(u)
+    }
+  }, [step, coverState])
 
   // ────── Phase 1: Proof approval (clause 2.3) ──────
   // Tracks which spreads the customer has personally reviewed. Required
@@ -4801,43 +4860,107 @@ function SmartDesignerInner() {
           <div style={{ marginTop: 8 }}>{CLAUSE_PROOF_APPROVAL}</div>
         </div>
 
-        {/* Cover summary — the client confirms the cover as part of the
-            proof. They designed it live one step earlier. */}
+        {/* Cover summary + rendered preview(s) — the client confirms the
+            cover as part of the proof. Photo covers show front AND back
+            so the back can't be missed. */}
         {coverState && (
-          <div
-            style={{
-              ...css.card,
-              marginBottom: 24,
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 16,
-              alignItems: 'center',
-            }}
-          >
-            <div style={{ flex: '1 1 200px' }}>
-              <p style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', margin: '0 0 6px' }}>
-                Your cover
-              </p>
-              <p style={{ fontSize: 14, color: 'var(--cream)', margin: '0 0 4px' }}>
-                {coverState.type === 'leather'
-                  ? 'Leather'
-                  : coverState.type === 'acrylic'
-                  ? 'Acrylic'
-                  : 'Photo cover'}
-                {coverPrice > 0 ? ` · +$${coverPrice}` : ' · included'}
-              </p>
-              <p style={{ fontSize: 12, color: 'var(--muted2)', margin: 0 }}>
-                {coverState.primaryText || '(no title)'}
-                {coverState.subtitleText ? ` · ${coverState.subtitleText}` : ''}
-              </p>
-            </div>
-            <button
-              type="button"
-              style={{ ...css.btnGhost }}
-              onClick={() => setStep('cover')}
+          <div style={{ ...css.card, marginBottom: 24 }}>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 16,
+                alignItems: 'center',
+                marginBottom: proofCoverImgs.front ? 14 : 0,
+              }}
             >
-              ← Edit cover
-            </button>
+              <div style={{ flex: '1 1 200px' }}>
+                <p
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    color: GOLD,
+                    textTransform: 'uppercase',
+                    margin: '0 0 6px',
+                  }}
+                >
+                  Your cover
+                </p>
+                <p style={{ fontSize: 14, color: 'var(--cream)', margin: '0 0 4px' }}>
+                  {coverState.type === 'leather'
+                    ? 'Leather'
+                    : coverState.type === 'acrylic'
+                    ? 'Acrylic'
+                    : 'Photo cover'}
+                  {coverPrice > 0 ? ` · +$${coverPrice}` : ' · included'}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--muted2)', margin: 0 }}>
+                  {coverState.primaryText || '(no title)'}
+                  {coverState.subtitleText ? ` · ${coverState.subtitleText}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                style={{ ...css.btnGhost }}
+                onClick={() => setStep('cover')}
+              >
+                ← Edit cover
+              </button>
+            </div>
+            {(proofCoverImgs.front || proofCoverImgs.back) && (
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                {proofCoverImgs.front && (
+                  <figure style={{ margin: 0, textAlign: 'center' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={proofCoverImgs.front}
+                      alt="Cover front"
+                      style={{
+                        maxHeight: 280,
+                        border: '1px solid rgba(184,150,90,0.3)',
+                        borderRadius: 4,
+                      }}
+                    />
+                    <figcaption
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: 2,
+                        color: 'var(--muted2)',
+                        textTransform: 'uppercase',
+                        marginTop: 6,
+                      }}
+                    >
+                      Front
+                    </figcaption>
+                  </figure>
+                )}
+                {proofCoverImgs.back && (
+                  <figure style={{ margin: 0, textAlign: 'center' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={proofCoverImgs.back}
+                      alt="Cover back"
+                      style={{
+                        maxHeight: 280,
+                        border: '1px solid rgba(184,150,90,0.3)',
+                        borderRadius: 4,
+                      }}
+                    />
+                    <figcaption
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: 2,
+                        color: 'var(--muted2)',
+                        textTransform: 'uppercase',
+                        marginTop: 6,
+                      }}
+                    >
+                      Back
+                    </figcaption>
+                  </figure>
+                )}
+              </div>
+            )}
           </div>
         )}
 

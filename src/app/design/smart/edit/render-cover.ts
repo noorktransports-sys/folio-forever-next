@@ -130,19 +130,17 @@ export async function renderCoverComposite(
     }
   }
 
-  // Acrylic: leather binding strip on the spine side + sheen.
+  // Acrylic: leather binding strip on the spine side. The cover photo
+  // is left alone — earlier versions painted a white sheen over the
+  // whole face which washed colours out. Real acrylic prints render
+  // the photo at full saturation; the binding strip is enough to read
+  // the cover as acrylic without faking a gloss.
   if (input.type === 'acrylic' && input.side === 'front') {
     ctx.save()
     ctx.fillStyle = leatherHex
     ctx.fillRect(0, 0, W * 0.12, H)
     ctx.fillStyle = 'rgba(0,0,0,0.35)'
     ctx.fillRect(W * 0.12 - 3, 0, 3, H)
-    // soft diagonal sheen
-    const g = ctx.createLinearGradient(0, 0, W, H)
-    g.addColorStop(0, 'rgba(255,255,255,0.10)')
-    g.addColorStop(0.5, 'rgba(255,255,255,0)')
-    ctx.fillStyle = g
-    ctx.fillRect(0, 0, W, H)
     ctx.restore()
   }
 
