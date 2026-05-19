@@ -5276,29 +5276,74 @@ function SpreadBgControl({
     }
   }, [open, spreadPhotos])
 
+  // Custom photo eyedropper (works in EVERY browser). Opens a modal
+  // with the spread's photos enlarged; click/tap anywhere on a photo
+  // to grab that exact pixel's colour.
+  const [dropper, setDropper] = useState(false)
+
   const eyedrop = async () => {
     interface EyeDropperCtor {
       new (): { open: () => Promise<{ sRGBHex: string }> }
     }
     const ED = (window as unknown as { EyeDropper?: EyeDropperCtor }).EyeDropper
-    if (!ED) {
-      alert(
-        'Your browser does not support the screen colour picker. Use the photo swatches below instead.',
-      )
+    if (ED) {
+      // Native screen picker when available — fastest, whole screen.
+      try {
+        setPicking(true)
+        const res = await new ED().open()
+        if (res?.sRGBHex) {
+          onChange({ mode: 'color', color: res.sRGBHex })
+          onSaveColor(res.sRGBHex)
+        }
+      } catch {
+        /* cancelled */
+      } finally {
+        setPicking(false)
+      }
       return
     }
-    try {
-      setPicking(true)
-      const res = await new ED().open()
-      if (res?.sRGBHex) {
-        onChange({ mode: 'color', color: res.sRGBHex })
-        onSaveColor(res.sRGBHex)
-      }
-    } catch {
-      /* user cancelled */
-    } finally {
-      setPicking(false)
+    // Fallback: our own click-on-photo picker.
+    if (spreadPhotos.length === 0) {
+      alert('Add a photo to this spread first, then pick a colour from it.')
+      return
     }
+    setDropper(true)
+  }
+
+  const pickFromImage = (e: React.MouseEvent<HTMLImageElement>, src: string) => {
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    const rx = Math.min(0.999, Math.max(0, (e.clientX - rect.left) / rect.width))
+    const ry = Math.min(0.999, Math.max(0, (e.clientY - rect.top) / rect.height))
+    const img = new window.Image()
+    if (/^https?:\/\//.test(src)) img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const W = Math.min(1200, img.naturalWidth || 1200)
+        const H = Math.round(W * ((img.naturalHeight || 1) / (img.naturalWidth || 1)))
+        const c = document.createElement('canvas')
+        c.width = W
+        c.height = H
+        const ctx = c.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0, W, H)
+        const d = ctx.getImageData(
+          Math.floor(rx * W),
+          Math.floor(ry * H),
+          1,
+          1,
+        ).data
+        const toHex = (n: number) => n.toString(16).padStart(2, '0')
+        const hex = `#${toHex(d[0])}${toHex(d[1])}${toHex(d[2])}`
+        onChange({ mode: 'color', color: hex })
+        onSaveColor(hex)
+        setDropper(false)
+      } catch {
+        alert('Could not read that photo. Try another image.')
+      }
+    }
+    img.onerror = () => alert('Could not load that photo.')
+    img.src = src
   }
   const swatch =
     bg.mode === 'paper'
@@ -5609,6 +5654,83 @@ function SpreadBgControl({
             }}
           >
             Done
+          </button>
+        </div>
+      )}
+
+      {dropper && (
+        <div
+          onClick={() => setDropper(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <p
+            style={{
+              color: GOLD,
+              fontSize: 13,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              marginBottom: 16,
+            }}
+          >
+            Click anywhere on a photo to grab its colour
+          </p>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              gap: 14,
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              maxWidth: '90vw',
+              maxHeight: '70vh',
+              overflow: 'auto',
+            }}
+          >
+            {spreadPhotos.map((p) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={p.id}
+                src={p.preview}
+                alt=""
+                onClick={(e) => pickFromImage(e, p.preview)}
+                style={{
+                  maxHeight: '60vh',
+                  maxWidth: '42vw',
+                  objectFit: 'contain',
+                  cursor: 'crosshair',
+                  border: `1px solid ${GOLD}`,
+                  borderRadius: 6,
+                }}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setDropper(false)}
+            style={{
+              marginTop: 18,
+              background: 'transparent',
+              border: `0.5px solid ${GOLD}`,
+              color: GOLD,
+              borderRadius: 30,
+              padding: '8px 22px',
+              fontSize: 11,
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >
+            Cancel
           </button>
         </div>
       )}
