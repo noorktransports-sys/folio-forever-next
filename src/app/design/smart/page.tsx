@@ -1299,6 +1299,72 @@ function templateFamily(t: { id: string }): LayoutFamily {
   return t.id.startsWith('mat-') ? 'mat' : 'bleed'
 }
 
+/**
+ * Snap a FULL-BLEED template's slots to be genuinely edge-to-edge.
+ *
+ * The hand-authored bleed templates have ~0.5% outer margins and ~1%
+ * gaps between slots — on a real spread that's a ~10px WHITE line of the
+ * page showing through. Full bleed must mean no gaps. Rather than
+ * hand-fixing ~40 templates, we close every gap mathematically:
+ *
+ * For each slot edge, find the nearest neighbouring slot edge that
+ * overlaps on the other axis; move this edge to the midpoint of the gap
+ * (so two neighbours meet exactly on a shared line). If there's no
+ * neighbour on that side, snap to the page edge (0 or 100). Adjacent
+ * slots end up sharing an exact boundary → combined with the +1px CSS
+ * overlap there is zero white. mat-* templates are returned unchanged
+ * (their negative space is intentional).
+ */
+function bleedFillSlots(slots: Slot[]): Slot[] {
+  // Two intervals overlap if they share more than a hair of length.
+  const overlaps = (a0: number, a1: number, b0: number, b1: number) =>
+    Math.min(a1, b1) - Math.max(a0, b0) > 0.5
+
+  return slots.map((s) => {
+    const sx0 = s.x
+    const sx1 = s.x + s.w
+    const sy0 = s.y
+    const sy1 = s.y + s.h
+
+    let left = 0
+    let right = 100
+    let top = 0
+    let bottom = 100
+
+    for (const o of slots) {
+      if (o === s) continue
+      const ox0 = o.x
+      const ox1 = o.x + o.w
+      const oy0 = o.y
+      const oy1 = o.y + o.h
+
+      // Horizontal neighbours must overlap vertically.
+      if (overlaps(sy0, sy1, oy0, oy1)) {
+        if (ox1 <= sx0 + 0.5) left = Math.max(left, (sx0 + ox1) / 2)
+        if (ox0 >= sx1 - 0.5) right = Math.min(right, (sx1 + ox0) / 2)
+      }
+      // Vertical neighbours must overlap horizontally.
+      if (overlaps(sx0, sx1, ox0, ox1)) {
+        if (oy1 <= sy0 + 0.5) top = Math.max(top, (sy0 + oy1) / 2)
+        if (oy0 >= sy1 - 0.5) bottom = Math.min(bottom, (sy1 + oy0) / 2)
+      }
+    }
+
+    return {
+      ...s,
+      x: left,
+      y: top,
+      w: Math.max(1, right - left),
+      h: Math.max(1, bottom - top),
+    }
+  })
+}
+
+/** Slots to actually RENDER: bleed → snapped edge-to-edge; mat → as-is. */
+function renderSlots(t: LayoutTemplate): Slot[] {
+  return templateFamily(t) === 'bleed' ? bleedFillSlots(t.slots) : t.slots
+}
+
 // The single "mood" the client picks once (right after upload). The engine
 // turns this into a per-spread family decision so a non-designer never has
 // to think about "full bleed vs matted" per page.
@@ -5472,7 +5538,7 @@ export default function SmartDesignerPage() {
                       </>
                     )
                   })()}
-                  {tpl.slots.map((slot, i) => {
+                  {renderSlots(tpl).map((slot, i) => {
                     const photoId = s.photoIds[i]
                     const photo = photoId ? photoMap.get(photoId) : undefined
                     const adj = adjusts[adjustKey(s.id, i)] ?? DEFAULT_ADJUST
@@ -5951,7 +6017,7 @@ function LayoutThumb({
         e.currentTarget.style.boxShadow = 'none'
       }}
     >
-      {tpl.slots.map((s, i) => (
+      {renderSlots(tpl).map((s, i) => (
         <span
           key={i}
           style={{
@@ -6343,6 +6409,8 @@ function SpreadView({
   )
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
+  // Edge-to-edge slots for bleed layouts (no white gaps); mat unchanged.
+  const rslots = renderSlots(tpl)
 
   const eventName = spread.eventId === 'unassigned'
     ? 'Untagged'
@@ -6602,7 +6670,7 @@ function SpreadView({
             </>
           )
         })()}
-        {tpl.slots.map((slot, i) => {
+        {rslots.map((slot, i) => {
           const id = spread.photoIds[i]
           const photo = id ? photoMap.get(id) : undefined
           const editing = editingSlot === i
@@ -6762,7 +6830,7 @@ function SpreadView({
         const editAdj = adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST
         const editPhotoId = spread.photoIds[editingSlot]
         const editPhoto = editPhotoId ? photoMap.get(editPhotoId) : undefined
-        const editSlotDef = tpl.slots[editingSlot]
+        const editSlotDef = rslots[editingSlot]
         // Smart cap: how far THIS photo can zoom in THIS slot at THIS
         // album size before dropping under 200 DPI.
         const cap =

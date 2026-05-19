@@ -35,6 +35,51 @@ interface LayoutTemplate {
   slots: Slot[]
 }
 
+// MUST mirror page.tsx's bleedFillSlots/renderSlots exactly so the
+// printed composite equals the approved on-screen proof (clause 2.3).
+// Full-bleed templates are snapped edge-to-edge (no white page gaps);
+// mat-* templates keep their intentional negative space.
+function bleedFillSlots(slots: Slot[]): Slot[] {
+  const overlaps = (a0: number, a1: number, b0: number, b1: number) =>
+    Math.min(a1, b1) - Math.max(a0, b0) > 0.5
+  return slots.map((s) => {
+    const sx0 = s.x
+    const sx1 = s.x + s.w
+    const sy0 = s.y
+    const sy1 = s.y + s.h
+    let left = 0
+    let right = 100
+    let top = 0
+    let bottom = 100
+    for (const o of slots) {
+      if (o === s) continue
+      const ox0 = o.x
+      const ox1 = o.x + o.w
+      const oy0 = o.y
+      const oy1 = o.y + o.h
+      if (overlaps(sy0, sy1, oy0, oy1)) {
+        if (ox1 <= sx0 + 0.5) left = Math.max(left, (sx0 + ox1) / 2)
+        if (ox0 >= sx1 - 0.5) right = Math.min(right, (sx1 + ox0) / 2)
+      }
+      if (overlaps(sx0, sx1, ox0, ox1)) {
+        if (oy1 <= sy0 + 0.5) top = Math.max(top, (sy0 + oy1) / 2)
+        if (oy0 >= sy1 - 0.5) bottom = Math.min(bottom, (sy1 + oy0) / 2)
+      }
+    }
+    return {
+      ...s,
+      x: left,
+      y: top,
+      w: Math.max(1, right - left),
+      h: Math.max(1, bottom - top),
+    }
+  })
+}
+
+function renderSlots(t: LayoutTemplate): Slot[] {
+  return t.id.startsWith('mat-') ? t.slots : bleedFillSlots(t.slots)
+}
+
 interface Photo {
   id: string
   preview: string
@@ -202,8 +247,9 @@ export async function renderSpreadComposite({
     }
   }
 
-  for (let i = 0; i < template.slots.length; i++) {
-    const slot = template.slots[i]
+  const drawSlots = renderSlots(template)
+  for (let i = 0; i < drawSlots.length; i++) {
+    const slot = drawSlots[i]
     const photoId = spread.photoIds[i]
     if (!photoId) continue
     const photo = photos.get(photoId)
