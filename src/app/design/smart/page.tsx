@@ -638,7 +638,7 @@ const IconBlur = (props: React.SVGProps<SVGSVGElement>) => (
 
 // ============== MAIN ==============
 
-export default function SmartDesignerPage() {
+function SmartDesignerInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const urlAlbumId = searchParams?.get('album') ?? null
@@ -5788,4 +5788,282 @@ function PhotoToolbar({
       </div>
     </div>
   )
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * NEW-CLIENT EMAIL GATE
+ *
+ * Before anyone can use the designer they register with name + email +
+ * phone and verify the email with a 6-digit code. This both protects
+ * the tool and gives the owner a list of every lead.
+ * ──────────────────────────────────────────────────────────────────── */
+
+const FF_CLIENT_LS = 'ff_client_v1'
+
+function ClientRegister({ onVerified }: { onVerified: (name: string) => void }) {
+  const [phase, setPhase] = useState<'form' | 'code'>('form')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [resentAt, setResentAt] = useState(0)
+
+  const sendCode = async () => {
+    setError('')
+    if (!name.trim()) return setError('Please enter your name')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return setError('Please enter a valid email address')
+    if (phone.replace(/\D/g, '').length < 7)
+      return setError('Please enter a valid phone number')
+    setBusy(true)
+    try {
+      const r = await fetch('/api/client/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), phone: phone.trim() }),
+      })
+      const j = (await r.json()) as { ok: boolean; error?: string }
+      if (!j.ok) {
+        setError(j.error || 'Could not send the code. Please try again.')
+      } else {
+        setPhase('code')
+        setResentAt(Date.now())
+      }
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const verify = async () => {
+    setError('')
+    if (!/^\d{6}$/.test(code.trim())) return setError('Enter the 6-digit code')
+    setBusy(true)
+    try {
+      const r = await fetch('/api/client/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+      })
+      const j = (await r.json()) as { ok: boolean; name?: string; error?: string }
+      if (!j.ok) {
+        setError(j.error || 'Invalid code.')
+      } else {
+        try {
+          window.localStorage.setItem(
+            FF_CLIENT_LS,
+            JSON.stringify({ name: j.name || name, email: email.trim().toLowerCase() }),
+          )
+        } catch {
+          /* ignore */
+        }
+        onVerified(j.name || name)
+      }
+    } catch {
+      setError('Network error. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const wrap: React.CSSProperties = {
+    minHeight: '100vh',
+    background: '#0e0c09',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  }
+  const card: React.CSSProperties = {
+    width: '100%',
+    maxWidth: 440,
+    background: '#1a1611',
+    border: '1px solid rgba(184,150,90,0.25)',
+    borderRadius: 16,
+    padding: 36,
+  }
+  const input: React.CSSProperties = {
+    width: '100%',
+    background: '#0e0c09',
+    border: '1px solid rgba(184,150,90,0.3)',
+    borderRadius: 9,
+    padding: '12px 14px',
+    color: 'var(--cream)',
+    fontSize: 14,
+    fontFamily: 'var(--font-body)',
+    marginBottom: 12,
+    boxSizing: 'border-box',
+  }
+  const primary: React.CSSProperties = {
+    width: '100%',
+    background: GOLD,
+    color: '#0e0c09',
+    border: 'none',
+    borderRadius: 30,
+    padding: '13px 0',
+    fontSize: 12,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    cursor: busy ? 'wait' : 'pointer',
+    opacity: busy ? 0.6 : 1,
+  }
+
+  return (
+    <div style={wrap}>
+      <div style={card}>
+        <p style={{ fontSize: 11, letterSpacing: 3, color: GOLD, textTransform: 'uppercase', margin: '0 0 14px' }}>
+          Folio &amp; Forever
+        </p>
+        {phase === 'form' ? (
+          <>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--cream)', margin: '0 0 8px' }}>
+              Let&apos;s start your album
+            </h1>
+            <p style={{ fontSize: 13, color: 'var(--muted2)', lineHeight: 1.6, margin: '0 0 22px' }}>
+              Quick sign-up so we can save your design and send your proof. We&apos;ll email you a code to confirm your address.
+            </p>
+            <input
+              style={input}
+              placeholder="Full name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+            />
+            <input
+              style={input}
+              placeholder="Email address"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+            <input
+              style={input}
+              placeholder="Phone number"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              autoComplete="tel"
+            />
+            {error && (
+              <p style={{ color: '#ff8a8a', fontSize: 12, margin: '4px 0 14px' }}>{error}</p>
+            )}
+            <button style={primary} disabled={busy} onClick={sendCode}>
+              {busy ? 'Sending…' : 'Send verification code'}
+            </button>
+          </>
+        ) : (
+          <>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--cream)', margin: '0 0 8px' }}>
+              Check your email
+            </h1>
+            <p style={{ fontSize: 13, color: 'var(--muted2)', lineHeight: 1.6, margin: '0 0 22px' }}>
+              We sent a 6-digit code to <strong style={{ color: 'var(--cream)' }}>{email}</strong>. Enter it below.
+            </p>
+            <input
+              style={{ ...input, letterSpacing: 8, textAlign: 'center', fontSize: 22 }}
+              placeholder="••••••"
+              inputMode="numeric"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            />
+            {error && (
+              <p style={{ color: '#ff8a8a', fontSize: 12, margin: '4px 0 14px' }}>{error}</p>
+            )}
+            <button style={primary} disabled={busy} onClick={verify}>
+              {busy ? 'Verifying…' : 'Verify & continue'}
+            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase('form')
+                  setCode('')
+                  setError('')
+                }}
+                style={{ background: 'none', border: 'none', color: 'var(--muted2)', fontSize: 11, cursor: 'pointer' }}
+              >
+                ← Change details
+              </button>
+              <button
+                type="button"
+                disabled={busy || Date.now() - resentAt < 20000}
+                onClick={sendCode}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: Date.now() - resentAt < 20000 ? 'var(--muted2)' : GOLD,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                Resend code
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function SmartDesignerPage() {
+  const [gate, setGate] = useState<'checking' | 'need' | 'ok'>('checking')
+
+  useEffect(() => {
+    let cancelled = false
+    // Fast path: a verified flag in localStorage unlocks instantly.
+    try {
+      if (window.localStorage.getItem(FF_CLIENT_LS)) {
+        setGate('ok')
+        return
+      }
+    } catch {
+      /* ignore */
+    }
+    // Otherwise ask the server if a valid signed cookie exists.
+    fetch('/api/client/session')
+      .then((r) => r.json())
+      .then((j: { ok?: boolean }) => {
+        if (cancelled) return
+        setGate(j && j.ok ? 'ok' : 'need')
+      })
+      .catch(() => {
+        if (!cancelled) setGate('need')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (gate === 'checking') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#0e0c09',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#b8965a',
+          fontSize: 12,
+          letterSpacing: 2,
+          textTransform: 'uppercase',
+        }}
+      >
+        Loading…
+      </div>
+    )
+  }
+
+  if (gate === 'need') {
+    return <ClientRegister onVerified={() => setGate('ok')} />
+  }
+
+  return <SmartDesignerInner />
 }
