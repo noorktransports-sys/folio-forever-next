@@ -784,6 +784,7 @@ function SmartDesignerInner() {
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [showSourcePicker, setShowSourcePicker] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ----- Undo / redo (5-deep, per-album, persisted) -----
@@ -1025,6 +1026,135 @@ function SmartDesignerInner() {
     setPhotos([...photos, ...newPhotos])
     setTimeout(() => setUploadProgress(0), 600)
   }
+
+  /**
+   * Shared ingest used by device upload AND cloud sources (Dropbox /
+   * Google). Takes already-fetched blobs and runs the exact same
+   * pipeline: measure dimensions, make a preview URL, persist the blob
+   * to IndexedDB, append to `photos`. Caller is responsible for the
+   * content-rights gate (same as handleFileSelect).
+   */
+  const ingestImageBlobs = async (
+    items: { blob: Blob; name: string }[],
+  ): Promise<void> => {
+    const remaining = PHOTO_CAP - photos.length
+    if (remaining <= 0) {
+      alert(`You've reached the ${PHOTO_CAP}-photo limit.`)
+      return
+    }
+    const toProcess = items.slice(0, remaining)
+    if (items.length > remaining) {
+      alert(
+        `Only ${remaining} more photos can fit (limit ${PHOTO_CAP}). Adding the first ${remaining}.`,
+      )
+    }
+    setUploadProgress(0.0001)
+    const newPhotos: Photo[] = []
+    for (let i = 0; i < toProcess.length; i++) {
+      const { blob, name } = toProcess[i]
+      const file =
+        blob instanceof File
+          ? blob
+          : new File([blob], name || `cloud-${i}.jpg`, {
+              type: blob.type || 'image/jpeg',
+            })
+      let dim: { width: number; height: number }
+      try {
+        dim = await getImageDimensions(file)
+      } catch {
+        continue // skip anything that isn't a decodable image
+      }
+      const photoId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`
+      newPhotos.push({
+        id: photoId,
+        preview: URL.createObjectURL(file),
+        width: dim.width,
+        height: dim.height,
+        tagged: 'none',
+        eventId: 'unassigned',
+        blurry: false,
+      })
+      if (albumId) saveBlob(albumId, photoId, file)
+      setUploadProgress((i + 1) / toProcess.length)
+    }
+    if (newPhotos.length) setPhotos([...photos, ...newPhotos])
+    setTimeout(() => setUploadProgress(0), 600)
+  }
+
+  /**
+   * Dropbox Chooser (official drop-in). Loads dropins.js once with the
+   * public app key, opens Dropbox's own trusted popup, then downloads
+   * the chosen files and feeds them through the same ingest pipeline.
+   * Needs NEXT_PUBLIC_DROPBOX_APP_KEY (Dropbox App Console → Chooser).
+   */
+  const openDropboxChooser = useCallback(() => {
+    const appKey = process.env.NEXT_PUBLIC_DROPBOX_APP_KEY
+    if (!appKey) {
+      alert(
+        'Dropbox is not configured yet. (Owner: set NEXT_PUBLIC_DROPBOX_APP_KEY.)',
+      )
+      return
+    }
+    type DbxFile = { link: string; name: string }
+    interface DbxChooser {
+      choose: (opts: {
+        success: (files: DbxFile[]) => void
+        cancel?: () => void
+        linkType: 'direct' | 'preview'
+        multiselect: boolean
+        extensions?: string[]
+      }) => void
+    }
+    const w = window as unknown as { Dropbox?: DbxChooser }
+
+    const run = () => {
+      if (!w.Dropbox) {
+        alert('Dropbox could not load. Please try again.')
+        return
+      }
+      w.Dropbox.choose({
+        linkType: 'direct',
+        multiselect: true,
+        extensions: ['.jpg', '.jpeg', '.png', '.heic', '.webp'],
+        cancel: () => {},
+        success: async (files) => {
+          try {
+            setUploadProgress(0.0001)
+            const items: { blob: Blob; name: string }[] = []
+            for (const f of files) {
+              const r = await fetch(f.link)
+              if (!r.ok) continue
+              items.push({ blob: await r.blob(), name: f.name })
+            }
+            await ingestImageBlobs(items)
+          } catch {
+            alert('Could not import from Dropbox. Please try again.')
+            setUploadProgress(0)
+          }
+        },
+      })
+    }
+
+    if (w.Dropbox) {
+      run()
+      return
+    }
+    const existing = document.getElementById(
+      'dropboxjs',
+    ) as HTMLScriptElement | null
+    if (existing) {
+      existing.addEventListener('load', run, { once: true })
+      return
+    }
+    const s = document.createElement('script')
+    s.src = 'https://www.dropbox.com/static/api/2/dropins.js'
+    s.id = 'dropboxjs'
+    s.setAttribute('data-app-key', appKey)
+    s.onload = run
+    s.onerror = () => alert('Dropbox could not load. Check your connection.')
+    document.body.appendChild(s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos, albumId])
 
   // Functional update so the helper composes correctly when called in a
   // loop (e.g. multi-drag drop on a tag fires recategorize once per id).
@@ -2164,10 +2294,7 @@ function SmartDesignerInner() {
         <div
           onClick={() => {
             if (photos.length >= PHOTO_CAP) return
-            // Surface the rights modal BEFORE the native file picker opens,
-            // so the customer can't sneak past it by cancelling the picker.
-            if (!ensureContentRights()) return
-            fileInputRef.current?.click()
+            setShowSourcePicker(true)
           }}
           style={{
             ...css.uploadZone,
@@ -2181,10 +2308,10 @@ function SmartDesignerInner() {
         >
           <IconUpload width={36} height={36} style={{ marginBottom: 12 }} />
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--cream)' }}>
-            {photos.length >= PHOTO_CAP ? 'Photo limit reached' : 'Click to select photos'}
+            {photos.length >= PHOTO_CAP ? 'Photo limit reached' : 'Add photos'}
           </p>
           <p style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1, marginTop: 8 }}>
-            Up to {PHOTO_CAP - photos.length} more
+            Device · Dropbox · Google · up to {PHOTO_CAP - photos.length} more
           </p>
         </div>
 
@@ -2208,6 +2335,138 @@ function SmartDesignerInner() {
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
+
+        {showSourcePicker && (
+          <div
+            onClick={() => setShowSourcePicker(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              padding: 20,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: 420,
+                background: '#1a1611',
+                border: '1px solid rgba(184,150,90,0.25)',
+                borderRadius: 16,
+                padding: 28,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 18,
+                }}
+              >
+                <h2
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 20,
+                    color: 'var(--cream)',
+                    margin: 0,
+                  }}
+                >
+                  Add images
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowSourcePicker(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted2)',
+                    fontSize: 20,
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {(() => {
+                const row: React.CSSProperties = {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '14px 16px',
+                  marginBottom: 10,
+                  background: '#0e0c09',
+                  border: '1px solid rgba(184,150,90,0.25)',
+                  borderRadius: 10,
+                  color: 'var(--cream)',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-body)',
+                }
+                const soon: React.CSSProperties = {
+                  ...row,
+                  cursor: 'not-allowed',
+                  opacity: 0.5,
+                }
+                const tag: React.CSSProperties = {
+                  marginLeft: 'auto',
+                  fontSize: 9,
+                  letterSpacing: 1,
+                  textTransform: 'uppercase',
+                  color: 'var(--muted2)',
+                }
+                return (
+                  <>
+                    <button
+                      type="button"
+                      style={row}
+                      onClick={() => {
+                        setShowSourcePicker(false)
+                        if (!ensureContentRights()) return
+                        fileInputRef.current?.click()
+                      }}
+                    >
+                      <span style={{ fontSize: 18 }}>📱</span> Your device
+                    </button>
+
+                    <button
+                      type="button"
+                      style={row}
+                      onClick={() => {
+                        setShowSourcePicker(false)
+                        if (!ensureContentRights()) return
+                        openDropboxChooser()
+                      }}
+                    >
+                      <span style={{ fontSize: 18, color: '#0061FF' }}>▾</span>{' '}
+                      Dropbox
+                    </button>
+
+                    <button type="button" style={soon} disabled>
+                      <span style={{ fontSize: 18 }}>🟢</span> Google Drive
+                      <span style={tag}>Coming soon</span>
+                    </button>
+
+                    <button type="button" style={soon} disabled>
+                      <span style={{ fontSize: 18 }}>🟡</span> Google Photos
+                      <span style={tag}>Coming soon</span>
+                    </button>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+        )}
 
         {photos.length > 0 && (
           <>
