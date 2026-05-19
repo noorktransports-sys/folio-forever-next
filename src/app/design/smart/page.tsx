@@ -5756,6 +5756,22 @@ function SpreadTextLayer({
 }) {
   const layerRef = useRef<HTMLDivElement>(null)
   const [selId, setSelId] = useState<string | null>(null)
+  // editId = the text whose textarea is open (double-click to edit).
+  const [editId, setEditId] = useState<string | null>(null)
+
+  // Click ANYWHERE outside a text block or its toolbar → auto-finish
+  // (no "Done" needed). Pointerdown so it fires before slot handlers.
+  useEffect(() => {
+    if (!selId && !editId) return
+    const onDocDown = (ev: PointerEvent) => {
+      const el = ev.target as HTMLElement | null
+      if (el && (el.closest('[data-fftext]') || el.closest('[data-fftb]'))) return
+      setSelId(null)
+      setEditId(null)
+    }
+    document.addEventListener('pointerdown', onDocDown, true)
+    return () => document.removeEventListener('pointerdown', onDocDown, true)
+  }, [selId, editId])
   // Snap guides (Photoshop-style): while dragging, snap X to the nearest
   // of LEFT-PAGE centre (25), SPREAD centre (50), RIGHT-PAGE centre (75)
   // and Y to the middle (50); highlight the active line in bright gold.
@@ -5774,6 +5790,9 @@ function SpreadTextLayer({
 
   const onPointerDownText = (e: React.PointerEvent, t: SpreadText) => {
     e.stopPropagation()
+    // If this text is in edit mode, let the textarea handle the pointer
+    // (caret placement / selection) — don't start a drag.
+    if (editId === t.id) return
     setSelId(t.id)
     const rect = layerRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -5813,13 +5832,16 @@ function SpreadTextLayer({
     ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
   }
 
-  const add = (preset: 'text' | 'title') =>
-    onChange([
-      ...texts,
+  const add = (preset: 'text' | 'title') => {
+    const created =
       preset === 'title'
         ? makeSpreadText({ text: 'Title', sizePct: 11, widthPct: 84, weight: 700 })
-        : makeSpreadText(),
-    ])
+        : makeSpreadText()
+    onChange([...texts, created])
+    // Select + open it for editing right away so they can just type.
+    setSelId(created.id)
+    setEditId(created.id)
+  }
 
   const sel = texts.find((t) => t.id === selId) || null
   const pill: React.CSSProperties = {
@@ -5883,14 +5905,22 @@ function SpreadTextLayer({
       )}
       {texts.map((t) => {
         const selected = t.id === selId
+        const editing = t.id === editId
         return (
           <div
             key={t.id}
+            data-fftext
             onPointerDown={(e) => onPointerDownText(e, t)}
             onClick={(e) => {
               e.stopPropagation()
               setSelId(t.id)
             }}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              setSelId(t.id)
+              setEditId(t.id) // double-click = rewrite
+            }}
+            title={editing ? '' : 'Drag to move · double-click to edit text'}
             style={{
               position: 'absolute',
               left: `${t.xPct}%`,
@@ -5898,17 +5928,19 @@ function SpreadTextLayer({
               width: `${t.widthPct}%`,
               transform: 'translate(-50%, -50%)',
               pointerEvents: 'auto',
-              cursor: 'move',
+              cursor: editing ? 'text' : 'move',
               textAlign: t.align,
               outline: selected ? `1px dashed ${GOLD}` : 'none',
               outlineOffset: 4,
             }}
           >
-            {selected ? (
+            {editing ? (
               <textarea
                 value={t.text}
                 autoFocus
                 onChange={(e) => update(t.id, { text: e.target.value })}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={() => setEditId(null)} // click away = done editing
                 onPointerDown={(e) => e.stopPropagation()}
                 style={{
                   width: '100%',
@@ -5936,6 +5968,7 @@ function SpreadTextLayer({
                   lineHeight: 1.15,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
+                  userSelect: 'none',
                   textShadow:
                     t.color.toLowerCase() === '#ffffff'
                       ? '0 1px 4px rgba(0,0,0,0.45)'
@@ -5972,6 +6005,7 @@ function SpreadTextLayer({
       {/* Style toolbar — shown when a text is selected */}
       {sel && (
         <div
+          data-fftb
           onPointerDown={(e) => e.stopPropagation()}
           style={{
             position: 'absolute',
@@ -6078,6 +6112,7 @@ function SpreadTextLayer({
             onClick={() => {
               onChange(texts.filter((x) => x.id !== sel.id))
               setSelId(null)
+              setEditId(null)
             }}
             style={{ ...pill, color: '#ff8a8a', borderColor: '#ff8a8a', padding: '2px 8px' }}
           >
@@ -6085,7 +6120,10 @@ function SpreadTextLayer({
           </button>
           <button
             type="button"
-            onClick={() => setSelId(null)}
+            onClick={() => {
+              setSelId(null)
+              setEditId(null)
+            }}
             style={{ ...pill, padding: '2px 8px' }}
           >
             Done
