@@ -186,7 +186,9 @@ export async function renderSpreadComposite({
         const offX = -((bg.panX ?? 50) / 100) * overflowX
         const offY = -((bg.panY ?? 50) / 100) * overflowY
         ctx.save()
-        ctx.filter = `blur(${bg.blur ?? 18}px)`
+        // Default must match the editor's DEFAULT_BG_BLUR (9px) so the
+        // printed proof equals what the client approved.
+        ctx.filter = `blur(${bg.blur ?? 9}px)`
         ctx.drawImage(bgImg, offX, offY, cw, ch)
         ctx.restore()
         // dim overlay

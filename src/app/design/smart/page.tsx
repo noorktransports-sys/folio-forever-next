@@ -313,6 +313,10 @@ type SpreadBg = {
 }
 
 const DEFAULT_SPREAD_BG: SpreadBg = { mode: 'paper' }
+// Softer default blur for photo backgrounds — the old 18px was a heavy
+// frosted-glass look; ~9px keeps the subject readable as a tasteful
+// "blurred mirror" behind the matted photos.
+const DEFAULT_BG_BLUR = 9
 
 /** Max zoom for a background photo — 200%, owner spec. */
 const BG_PHOTO_MAX_ZOOM = 2
@@ -1428,6 +1432,9 @@ function pickTemplate(
   /** Running spread ordinal — used to rotate between near-equally-good
    *  templates so consecutive spreads don't all reuse the SAME layout. */
   variety = 0,
+  /** templateId used by the PREVIOUS spread of this photo-count. Strongly
+   *  avoided so two spreads in a row never share the same layout. */
+  avoidId?: string,
 ): LayoutTemplate | null {
   let candidates = TEMPLATES.filter(
     (t) =>
@@ -1453,18 +1460,29 @@ function pickTemplate(
       const pref = candidates.find((t) => t.id === preferredId)
       if (pref) return pref
     }
-    return candidates[((variety % candidates.length) + candidates.length) % candidates.length]
+    // Skip the previous spread's template if we have an alternative.
+    const pool =
+      avoidId && candidates.length > 1
+        ? candidates.filter((t) => t.id !== avoidId)
+        : candidates
+    return pool[((variety % pool.length) + pool.length) % pool.length]
   }
 
-  // Orientation-aware: score every candidate, then rotate among the ones
-  // that are NEARLY as good as the best (within VARIETY_EPS). This keeps
-  // layouts appropriate for the photos while making consecutive spreads
-  // visually different instead of hammering the single top template. The
-  // paced preferred id (hero side rotation) still gets a tie nudge.
+  // Orientation-aware: score every candidate by how well its slot shapes
+  // match the photos' orientations (portrait vs landscape). Then:
+  //  • strongly penalise the previous spread's template so the SAME layout
+  //    never repeats back-to-back, and
+  //  • rotate among the templates that are NEARLY as good as the best so
+  //    the album keeps visual variety instead of one hammered template.
   const VARIETY_EPS = 0.06
   const scored = candidates.map((c) => ({
     t: c,
-    s: scoreTemplateForPhotos(c, photos, spreadAspectRatio) + (c.id === preferredId ? 0.04 : 0),
+    s:
+      scoreTemplateForPhotos(c, photos, spreadAspectRatio) +
+      (c.id === preferredId ? 0.04 : 0) -
+      // Big penalty (more than the full orientation score range) so the
+      // repeated layout loses unless it's the ONLY option.
+      (c.id === avoidId ? 1.5 : 0),
   }))
   scored.sort((a, b) => b.s - a.s)
   const top = scored[0].s
@@ -1607,6 +1625,13 @@ function generateLayout(
   // by side on the same spread) when the album has ≥2 heroes total.
   let doubleHeroPlaced = false
   const totalHeroes = useable.filter((p) => heroIds.has(p.id)).length
+  // Remember the last template used for each photo-count so the next
+  // same-count spread is forced to a DIFFERENT layout (no repeats).
+  const lastTplByCount: Record<number, string> = {}
+  const avoidFor = (n: number) => lastTplByCount[n]
+  const remember = (tplId: string, n: number) => {
+    lastTplByCount[n] = tplId
+  }
 
   for (const { eid, bucket, spreads: spreadBudget } of rawBudgets) {
     // Heroes = anything in the auto-selected hero set (manual + auto).
@@ -1721,8 +1746,8 @@ function generateLayout(
           const h2 = heroes.shift()!
           const duo = [h1, h2]
           const dualTpl =
-            pickTemplate(type, 2, false, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
-            pickTemplate(type, 2, true, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx)
+            pickTemplate(type, 2, false, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(2)) ??
+            pickTemplate(type, 2, true, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(2))
           if (dualTpl) {
             eventSpreads.push({
               id: `s-${idx++}`,
@@ -1730,6 +1755,7 @@ function generateLayout(
               photoIds: duo.map((p) => p.id),
               eventId: eid,
             })
+            remember(dualTpl.id, 2)
             doubleHeroPlaced = true
             continue
           }
@@ -1743,10 +1769,11 @@ function generateLayout(
           const chunk = fillerQueue.splice(0, take)
           if (chunk.length === 0) continue
           const tpl =
-            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
-            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx)
+            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(chunk.length)) ??
+            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(chunk.length))
           if (!tpl) continue
           eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
+          remember(tpl.id, tpl.slots.length)
           continue
         }
         const fillerCount = Math.max(0, sizes[i] - 1)
@@ -1758,11 +1785,11 @@ function generateLayout(
           : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
         const heroPhotos = [hero, ...fillers]
         const tpl =
-          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
-          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx)
+          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total)) ??
+          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total))
         if (!tpl) {
           // Fall back: put hero into a 2-photo pair as if it were any photo
-          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx)
+          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total))
           if (!fallback) continue
           eventSpreads.push({
             id: `s-${idx++}`,
@@ -1770,6 +1797,7 @@ function generateLayout(
             photoIds: [hero, ...fillers].map((p) => p.id),
             eventId: eid,
           })
+          remember(fallback.id, fallback.slots.length)
           continue
         }
         const heroSlotIdx = tpl.slots.findIndex((s) => s.isHero)
@@ -1781,6 +1809,7 @@ function generateLayout(
           if (fillers[fi]) photoIds[s] = fillers[fi++].id
         }
         eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: photoIds.filter(Boolean), eventId: eid })
+        remember(tpl.id, tpl.slots.length)
         alternateLeft = !alternateLeft
       } else {
         // Pair (or higher density) spread
@@ -1788,10 +1817,11 @@ function generateLayout(
         if (take === 0) continue
         const chunk = fillerQueue.splice(0, take)
         const tpl =
-          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx) ??
-          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx)
+          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx, avoidFor(chunk.length)) ??
+          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx, avoidFor(chunk.length))
         if (!tpl) continue
         eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
+        remember(tpl.id, tpl.slots.length)
       }
     }
 
@@ -2464,6 +2494,28 @@ export default function SmartDesignerPage() {
       const newUnused = photos.filter((p) => !p.blurry && !placed.has(p.id)).map((p) => p.id)
       setSpreads(newSpreads)
       setUnusedPhotoIds(newUnused)
+      // Auto-style backgrounds: a MATTED spread looks flat on plain paper,
+      // so we mirror one of its own photos behind it, softly blurred and
+      // gently dimmed — the "blurred mirror" look. Full-bleed spreads keep
+      // paper (the photos cover the page anyway). Fresh on every generate.
+      const bgs: Record<string, SpreadBg> = {}
+      for (const s of newSpreads) {
+        if (templateFamily({ id: s.templateId }) === 'mat') {
+          const firstPhoto = s.photoIds.find((id): id is string => Boolean(id))
+          if (firstPhoto) {
+            bgs[s.id] = {
+              mode: 'photo',
+              photoId: firstPhoto,
+              blur: DEFAULT_BG_BLUR,
+              dim: 0.18,
+              zoom: 1,
+              panX: 50,
+              panY: 50,
+            }
+          }
+        }
+      }
+      setSpreadBgs(bgs)
     },
     [photos],
   )
@@ -2673,7 +2725,7 @@ export default function SmartDesignerPage() {
           [spreadId]: {
             mode: 'photo',
             photoId,
-            blur: cur?.blur ?? 18,
+            blur: cur?.blur ?? DEFAULT_BG_BLUR,
             dim: cur?.dim ?? 0.25,
             zoom: Math.min(BG_PHOTO_MAX_ZOOM, cur?.zoom ?? 1),
             panX: cur?.panX ?? 50,
@@ -5405,7 +5457,7 @@ export default function SmartDesignerPage() {
                             objectFit: 'cover',
                             objectPosition: `${pbg.panX ?? 50}% ${pbg.panY ?? 50}%`,
                             transform: `scale(${z})`,
-                            filter: `blur(${pbg.blur ?? 18}px)`,
+                            filter: `blur(${pbg.blur ?? DEFAULT_BG_BLUR}px)`,
                             pointerEvents: 'none',
                           }}
                         />
@@ -6144,7 +6196,7 @@ function SpreadBgControl({
                     onChange({
                       mode: 'photo',
                       photoId: p.id,
-                      blur: bg.blur ?? 18,
+                      blur: bg.blur ?? DEFAULT_BG_BLUR,
                       dim: bg.dim ?? 0.25,
                       zoom: Math.min(BG_PHOTO_MAX_ZOOM, bg.zoom ?? 1),
                       panX: bg.panX ?? 50,
@@ -6170,10 +6222,10 @@ function SpreadBgControl({
           {bg.mode === 'photo' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
               <label style={{ fontSize: 9, color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Blur {bg.blur ?? 18}px
+                Blur {bg.blur ?? DEFAULT_BG_BLUR}px
                 <input
                   type="range" min={0} max={40} step={1}
-                  value={bg.blur ?? 18}
+                  value={bg.blur ?? DEFAULT_BG_BLUR}
                   onChange={(e) => onChange({ ...bg, blur: Number(e.target.value) })}
                   style={{ width: '100%', accentColor: GOLD }}
                 />
@@ -6381,8 +6433,10 @@ function SpreadView({
             maxWidth: 560,
           }}
         >
-          {/* Family toggle */}
-          <div style={{ display: 'flex', gap: 4 }}>
+          {/* Family toggle — ONE CLICK switches this spread's whole look:
+              it both filters the picker AND immediately applies the best
+              matching layout of that family to the spread. */}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {(['bleed', 'mat'] as LayoutFamily[]).map((fam) => {
               const on = pickerFamily === fam
               return (
@@ -6392,24 +6446,49 @@ function SpreadView({
                   onClick={(e) => {
                     e.stopPropagation()
                     setPickerFamily(fam)
+                    // Apply the best layout of the chosen family right away
+                    // so the switch is truly one-click.
+                    const spreadPhotos = spread.photoIds
+                      .filter((id): id is string => Boolean(id))
+                      .map((id) => photoMap.get(id))
+                      .filter((p): p is Photo => Boolean(p))
+                    const famTpls = templatesForCount(
+                      spread.photoIds.length,
+                      albumType,
+                    ).filter((t) => templateFamily(t) === fam)
+                    if (famTpls.length > 0) {
+                      const best = famTpls
+                        .map((t) => ({
+                          t,
+                          s: spreadPhotos.length
+                            ? scoreTemplateForPhotos(t, spreadPhotos, aspect)
+                            : 0,
+                        }))
+                        .sort((a, b) => b.s - a.s)[0].t
+                      if (best.id !== spread.templateId) onPickTemplate(best.id)
+                    }
                   }}
                   style={{
                     background: on ? GOLD : 'transparent',
                     color: on ? '#0e0c09' : GOLD,
                     border: `0.5px solid ${on ? GOLD : 'rgba(184,150,90,0.35)'}`,
                     borderRadius: 30,
-                    padding: '3px 12px',
+                    padding: '4px 14px',
                     fontSize: 9,
                     letterSpacing: 1.4,
                     textTransform: 'uppercase',
                     cursor: 'pointer',
                     fontFamily: 'var(--font-body)',
+                    fontWeight: on ? 700 : 400,
                   }}
                 >
                   {fam === 'bleed' ? 'Full bleed' : 'Matted'}
                 </button>
               )
             })}
+            <span style={{ fontSize: 8, letterSpacing: 1, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+              one-click switch
+            </span>
           </div>
           <div
             title="Tap a layout to apply · hover to enlarge"
@@ -6508,7 +6587,7 @@ function SpreadView({
                   objectFit: 'cover',
                   objectPosition: `${bg.panX ?? 50}% ${bg.panY ?? 50}%`,
                   transform: `scale(${z})`,
-                  filter: `blur(${bg.blur ?? 18}px)`,
+                  filter: `blur(${bg.blur ?? DEFAULT_BG_BLUR}px)`,
                   pointerEvents: 'none',
                 }}
               />
