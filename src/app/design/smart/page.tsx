@@ -449,6 +449,32 @@ function smartMaxZoom(
 
 const PAPER_HEX = '#ffffff'
 
+/* ── Colour maths for the RGB / brightness editor ── */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim())
+  if (!m) return { r: 245, g: 240, b: 232 }
+  const n = parseInt(m[1], 16)
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+const clamp255 = (n: number) => Math.max(0, Math.min(255, Math.round(n)))
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (n: number) => clamp255(n).toString(16).padStart(2, '0')
+  return `#${h(r)}${h(g)}${h(b)}`
+}
+/** amt -100..100 → toward black / toward white */
+function shiftBrightness(hex: string, amt: number): string {
+  const { r, g, b } = hexToRgb(hex)
+  if (amt >= 0) {
+    const t = amt / 100
+    return rgbToHex(r + (255 - r) * t, g + (255 - g) * t, b + (255 - b) * t)
+  }
+  const t = 1 + amt / 100 // 0..1
+  return rgbToHex(r * t, g * t, b * t)
+}
+// Eyedropper cursor (gold pen/dropper SVG as a data-URI cursor).
+const DROPPER_CURSOR =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='%23b8965a' stroke-width='2'><path d='M18 4l6 6-9 9-6 1 1-6z'/><path d='M3 25l6-6' stroke-linecap='round'/></g></svg>\") 2 26, crosshair"
+
 const BG_PALETTE: { id: string; label: string; hex: string }[] = [
   { id: 'cream', label: 'Cream', hex: '#f5f0e8' },
   { id: 'ivory', label: 'Ivory', hex: '#efe7d6' },
@@ -5280,6 +5306,121 @@ function SpreadBgControl({
   // with the spread's photos enlarged; click/tap anywhere on a photo
   // to grab that exact pixel's colour.
   const [dropper, setDropper] = useState(false)
+  // Cached drawn photos so we can sample any pixel instantly on hover.
+  const srcCanvases = useRef<Map<string, HTMLCanvasElement>>(new Map())
+  const [dropReady, setDropReady] = useState(0) // bump when a photo loads
+  const loupeRef = useRef<HTMLCanvasElement>(null)
+  const [loupe, setLoupe] = useState<{ hex: string; x: number; y: number } | null>(
+    null,
+  )
+
+  // Pre-draw the spread's photos to offscreen canvases when the dropper
+  // opens — sampling/zoom then needs no per-move image decode.
+  useEffect(() => {
+    if (!dropper) return
+    let cancelled = false
+    srcCanvases.current.clear()
+    setDropReady(0)
+    for (const p of spreadPhotos) {
+      const img = new window.Image()
+      if (/^https?:\/\//.test(p.preview)) img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        if (cancelled) return
+        const W = Math.min(1400, img.naturalWidth || 1400)
+        const H = Math.round(
+          W * ((img.naturalHeight || 1) / (img.naturalWidth || 1)),
+        )
+        const c = document.createElement('canvas')
+        c.width = W
+        c.height = H
+        const cx = c.getContext('2d')
+        if (!cx) return
+        try {
+          cx.drawImage(img, 0, 0, W, H)
+          srcCanvases.current.set(p.preview, c)
+          setDropReady((n) => n + 1)
+        } catch {
+          /* tainted — skip */
+        }
+      }
+      img.src = p.preview
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [dropper, spreadPhotos])
+
+  const sampleAt = (
+    src: string,
+    rx: number,
+    ry: number,
+  ): { hex: string; px: number; py: number; cv: HTMLCanvasElement } | null => {
+    const cv = srcCanvases.current.get(src)
+    if (!cv) return null
+    const px = Math.min(cv.width - 1, Math.max(0, Math.floor(rx * cv.width)))
+    const py = Math.min(cv.height - 1, Math.max(0, Math.floor(ry * cv.height)))
+    const cx = cv.getContext('2d')
+    if (!cx) return null
+    try {
+      const d = cx.getImageData(px, py, 1, 1).data
+      const toHex = (n: number) => n.toString(16).padStart(2, '0')
+      return { hex: `#${toHex(d[0])}${toHex(d[1])}${toHex(d[2])}`, px, py, cv }
+    } catch {
+      return null
+    }
+  }
+
+  const onDropperMove = (
+    e: React.MouseEvent<HTMLImageElement>,
+    src: string,
+  ) => {
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    const rx = Math.min(0.999, Math.max(0, (e.clientX - rect.left) / rect.width))
+    const ry = Math.min(0.999, Math.max(0, (e.clientY - rect.top) / rect.height))
+    const s = sampleAt(src, rx, ry)
+    if (!s) return
+    setLoupe({ hex: s.hex, x: e.clientX, y: e.clientY })
+    // Draw a magnified, pixelated patch into the loupe canvas.
+    const lc = loupeRef.current
+    if (lc) {
+      const g = lc.getContext('2d')
+      if (g) {
+        const span = 11 // source px sampled (odd → centred)
+        const size = lc.width
+        g.imageSmoothingEnabled = false
+        g.clearRect(0, 0, size, size)
+        g.drawImage(
+          s.cv,
+          s.px - (span - 1) / 2,
+          s.py - (span - 1) / 2,
+          span,
+          span,
+          0,
+          0,
+          size,
+          size,
+        )
+        // crosshair on the centre pixel
+        const cell = size / span
+        g.strokeStyle = '#000'
+        g.lineWidth = 1
+        g.strokeRect(
+          Math.floor((size - cell) / 2) + 0.5,
+          Math.floor((size - cell) / 2) + 0.5,
+          cell,
+          cell,
+        )
+        g.strokeStyle = '#fff'
+        g.strokeRect(
+          Math.floor((size - cell) / 2) - 0.5,
+          Math.floor((size - cell) / 2) - 0.5,
+          cell + 2,
+          cell + 2,
+        )
+      }
+    }
+  }
 
   const eyedrop = async () => {
     interface EyeDropperCtor {
@@ -5315,35 +5456,15 @@ function SpreadBgControl({
     const rect = el.getBoundingClientRect()
     const rx = Math.min(0.999, Math.max(0, (e.clientX - rect.left) / rect.width))
     const ry = Math.min(0.999, Math.max(0, (e.clientY - rect.top) / rect.height))
-    const img = new window.Image()
-    if (/^https?:\/\//.test(src)) img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      try {
-        const W = Math.min(1200, img.naturalWidth || 1200)
-        const H = Math.round(W * ((img.naturalHeight || 1) / (img.naturalWidth || 1)))
-        const c = document.createElement('canvas')
-        c.width = W
-        c.height = H
-        const ctx = c.getContext('2d')
-        if (!ctx) return
-        ctx.drawImage(img, 0, 0, W, H)
-        const d = ctx.getImageData(
-          Math.floor(rx * W),
-          Math.floor(ry * H),
-          1,
-          1,
-        ).data
-        const toHex = (n: number) => n.toString(16).padStart(2, '0')
-        const hex = `#${toHex(d[0])}${toHex(d[1])}${toHex(d[2])}`
-        onChange({ mode: 'color', color: hex })
-        onSaveColor(hex)
-        setDropper(false)
-      } catch {
-        alert('Could not read that photo. Try another image.')
-      }
+    const s = sampleAt(src, rx, ry)
+    if (!s) {
+      alert('That photo is still loading — try again in a second.')
+      return
     }
-    img.onerror = () => alert('Could not load that photo.')
-    img.src = src
+    onChange({ mode: 'color', color: s.hex })
+    onSaveColor(s.hex)
+    setLoupe(null)
+    setDropper(false) // close — refine it in the RGB editor next
   }
   const swatch =
     bg.mode === 'paper'
@@ -5351,6 +5472,17 @@ function SpreadBgControl({
       : bg.mode === 'color'
       ? bg.color || BG_PALETTE[0].hex
       : '#b8965a'
+  const pillSm: React.CSSProperties = {
+    background: 'transparent',
+    border: `0.5px solid ${GOLD}`,
+    color: GOLD,
+    borderRadius: 30,
+    padding: '3px 9px',
+    fontSize: 9,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+  }
   return (
     <div style={{ position: 'relative' }}>
       <button
@@ -5568,6 +5700,104 @@ function SpreadBgControl({
             ))}
           </div>
 
+          {/* Fine-tune the colour (RGB + darker/lighter) */}
+          {bg.mode === 'color' &&
+            (() => {
+              const cur = bgFillColor(bg)
+              const { r, g, b } = hexToRgb(cur)
+              const setRGB = (nr: number, ng: number, nb: number) =>
+                onChange({ mode: 'color', color: rgbToHex(nr, ng, nb) })
+              const rows: {
+                label: string
+                val: number
+                tint: string
+                on: (v: number) => void
+              }[] = [
+                { label: 'R', val: r, tint: '#e06666', on: (v) => setRGB(v, g, b) },
+                { label: 'G', val: g, tint: '#7bbf6a', on: (v) => setRGB(r, v, b) },
+                { label: 'B', val: b, tint: '#6a9be0', on: (v) => setRGB(r, g, v) },
+              ]
+              return (
+                <div style={{ margin: '0 0 12px' }}>
+                  <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 6px' }}>
+                    Fine-tune colour
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <input
+                      type="color"
+                      value={cur}
+                      onChange={(e) => onChange({ mode: 'color', color: e.target.value })}
+                      title="Full colour picker"
+                      style={{ width: 34, height: 34, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                    />
+                    <input
+                      type="text"
+                      value={cur.toUpperCase()}
+                      onChange={(e) => {
+                        const v = e.target.value.trim()
+                        if (/^#?[0-9a-f]{6}$/i.test(v))
+                          onChange({ mode: 'color', color: v.startsWith('#') ? v : `#${v}` })
+                      }}
+                      style={{
+                        width: 84,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        padding: '5px 6px',
+                        color: '#0e0c09',
+                        background: '#fff',
+                        border: `0.5px solid ${GOLD}`,
+                        borderRadius: 4,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      title="Darker"
+                      onClick={() => onChange({ mode: 'color', color: shiftBrightness(cur, -8) })}
+                      style={{ ...pillSm, marginLeft: 'auto' }}
+                    >
+                      − Dark
+                    </button>
+                    <button
+                      type="button"
+                      title="Lighter"
+                      onClick={() => onChange({ mode: 'color', color: shiftBrightness(cur, 8) })}
+                      style={pillSm}
+                    >
+                      + Light
+                    </button>
+                  </div>
+                  {rows.map((rw) => (
+                    <div
+                      key={rw.label}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
+                    >
+                      <span style={{ width: 12, fontSize: 10, color: rw.tint }}>
+                        {rw.label}
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={255}
+                        value={rw.val}
+                        onChange={(e) => rw.on(Number(e.target.value))}
+                        style={{ flex: 1, accentColor: rw.tint }}
+                      />
+                      <span
+                        style={{
+                          width: 26,
+                          fontSize: 10,
+                          color: 'var(--muted2)',
+                          textAlign: 'right',
+                        }}
+                      >
+                        {rw.val}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
           {/* Photo background */}
           <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 6px' }}>
             Or a blurred photo
@@ -5682,7 +5912,9 @@ function SpreadBgControl({
               marginBottom: 16,
             }}
           >
-            Click anywhere on a photo to grab its colour
+            {dropReady < spreadPhotos.length
+              ? 'Loading photos…'
+              : 'Hover to preview · click to pick the colour'}
           </p>
           <div
             onClick={(e) => e.stopPropagation()}
@@ -5702,18 +5934,82 @@ function SpreadBgControl({
                 key={p.id}
                 src={p.preview}
                 alt=""
+                onMouseMove={(e) => onDropperMove(e, p.preview)}
+                onMouseLeave={() => setLoupe(null)}
                 onClick={(e) => pickFromImage(e, p.preview)}
                 style={{
                   maxHeight: '60vh',
                   maxWidth: '42vw',
                   objectFit: 'contain',
-                  cursor: 'crosshair',
+                  cursor: DROPPER_CURSOR,
                   border: `1px solid ${GOLD}`,
                   borderRadius: 6,
                 }}
               />
             ))}
           </div>
+
+          {/* Magnifier loupe that follows the cursor */}
+          {loupe && (
+            <div
+              style={{
+                position: 'fixed',
+                left: Math.min(window.innerWidth - 130, loupe.x + 20),
+                top: Math.max(10, loupe.y - 130),
+                pointerEvents: 'none',
+                zIndex: 210,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <canvas
+                ref={loupeRef}
+                width={108}
+                height={108}
+                style={{
+                  width: 108,
+                  height: 108,
+                  borderRadius: '50%',
+                  border: `2px solid ${GOLD}`,
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
+                  background: '#000',
+                }}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(14,12,9,0.95)',
+                  border: `1px solid ${GOLD}`,
+                  borderRadius: 30,
+                  padding: '3px 10px',
+                }}
+              >
+                <span
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: loupe.hex,
+                    border: '1px solid rgba(255,255,255,0.4)',
+                  }}
+                />
+                <span
+                  style={{
+                    color: '#fff',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1,
+                  }}
+                >
+                  {loupe.hex.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setDropper(false)}
