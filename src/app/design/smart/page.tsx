@@ -370,6 +370,23 @@ function bgFillColor(bg: SpreadBg | undefined): string {
   return PAPER_HEX
 }
 
+/** Auto frame colour for a MATTED photo: a thin border so the photo
+ *  edge always reads as intentional (never a stray seam). White on
+ *  dark / photo backgrounds; dark on light/white backgrounds so it
+ *  stays visible (per owner spec). */
+function frameColorForBg(bg: SpreadBg | undefined): string {
+  if (bg && bg.mode === 'photo') return '#ffffff' // classic mat over imagery
+  const hex = bgFillColor(bg)
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return '#ffffff'
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return L > 0.7 ? '#1a1a1a' : '#ffffff'
+}
+
 // ============== ALBUM SPECS ==============
 
 const ALBUM_SPECS: Record<
@@ -4125,16 +4142,25 @@ function SmartDesignerInner() {
                           position: 'absolute',
                           left: `${slot.x}%`,
                           top: `${slot.y}%`,
-                          width: `${slot.w}%`,
-                          height: `${slot.h}%`,
+                          width: `calc(${slot.w}% + 1px)`,
+                          height: `calc(${slot.h}% + 1px)`,
                           overflow: 'hidden',
-                          background: '#f5f0e8',
+                          background: photo ? 'transparent' : '#f5f0e8',
                         }}
                       >
                         {photo && (
-                          <SlotImage src={photo.preview} adjust={slotAdjust} fit={adj.fit} />
+                          <SlotImage
+                            src={photo.preview}
+                            adjust={slotAdjust}
+                            fit={adj.fit}
+                            style={{
+                              width: 'calc(100% + 4px)',
+                              height: 'calc(100% + 4px)',
+                              margin: '-2px',
+                            }}
+                          />
                         )}
-                        {photo && adj.borderWidth > 0 && (
+                        {photo && adj.borderWidth > 0 ? (
                           <div
                             aria-hidden
                             style={{
@@ -4145,7 +4171,18 @@ function SmartDesignerInner() {
                               pointerEvents: 'none',
                             }}
                           />
-                        )}
+                        ) : photo && templateFamily(tpl) === 'mat' ? (
+                          <div
+                            aria-hidden
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              border: `1px solid ${frameColorForBg(spreadBgs[s.id])}`,
+                              boxSizing: 'border-box',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        ) : null}
                       </div>
                     )
                   })}
@@ -5011,6 +5048,9 @@ function SpreadView({
   if (!tpl) return null
   // Edge-to-edge slots for bleed layouts (no white gaps); mat unchanged.
   const rslots = renderSlots(tpl)
+  // Matted photos get an automatic thin frame (contrast-aware) so the
+  // edge always looks intentional — never a stray cream/white seam.
+  const matFrame = templateFamily(tpl) === 'mat' ? frameColorForBg(bg) : null
 
   const eventName = spread.eventId === 'unassigned'
     ? 'Untagged'
@@ -5321,7 +5361,9 @@ function SpreadView({
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,
                 overflow: 'hidden',
-                background: '#f5f0e8',
+                // Transparent (not cream): any residual sub-pixel gap shows
+                // the spread background, never a contrasting white line.
+                background: photo ? 'transparent' : '#f5f0e8',
               }}
               title={slot.isHero ? 'Hero photo · drag to swap' : 'Photo · drag to swap'}
             >
@@ -5331,11 +5373,19 @@ function SpreadView({
                     src={photo.preview}
                     adjust={slotAdjust}
                     fit={adj.fit}
+                    // Overscan ~2px each side so the photo ALWAYS fully
+                    // covers its slot — kills the hairline margin the
+                    // owner kept seeing. Clipped by the slot's overflow.
+                    style={{
+                      width: 'calc(100% + 4px)',
+                      height: 'calc(100% + 4px)',
+                      margin: '-2px',
+                    }}
                     // No onAdjustChange → SlotImage's pointer capture is
                     // disabled, leaving HTML5 drag-to-swap unblocked. Pan
                     // and zoom continue to work via the toolbar sliders.
                   />
-                  {adj.borderWidth > 0 && (
+                  {adj.borderWidth > 0 ? (
                     <div
                       aria-hidden
                       style={{
@@ -5346,7 +5396,18 @@ function SpreadView({
                         pointerEvents: 'none',
                       }}
                     />
-                  )}
+                  ) : matFrame ? (
+                    <div
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: `1.5px solid ${matFrame}`,
+                        boxSizing: 'border-box',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ) : null}
                   {slot.isHero && (
                     <span
                       style={{

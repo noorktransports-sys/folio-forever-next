@@ -80,6 +80,22 @@ function renderSlots(t: LayoutTemplate): Slot[] {
   return t.id.startsWith('mat-') ? t.slots : bleedFillSlots(t.slots)
 }
 
+// Mirrors page.tsx frameColorForBg so the printed auto-frame matches
+// the on-screen proof (clause 2.3).
+function frameColorForBgInput(bg: { mode: string; color?: string } | undefined): string {
+  if (bg && bg.mode === 'photo') return '#ffffff'
+  const hex =
+    !bg || bg.mode === 'paper' ? '#ffffff' : bg.color || '#f5f0e8'
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return '#ffffff'
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return L > 0.7 ? '#1a1a1a' : '#ffffff'
+}
+
 interface Photo {
   id: string
   preview: string
@@ -339,6 +355,16 @@ export async function renderSpreadComposite({
       ctx.fillRect(sx, sy + sh - bw, sw, bw) // bottom
       ctx.fillRect(sx, sy, bw, sh) // left
       ctx.fillRect(sx + sw - bw, sy, bw, sh) // right
+      ctx.restore()
+    } else if (template.id.startsWith('mat-')) {
+      // Automatic thin contrast frame for matted photos (matches editor).
+      const bw = Math.max(1, 0.004 * sw)
+      ctx.save()
+      ctx.fillStyle = frameColorForBgInput(bg)
+      ctx.fillRect(sx, sy, sw, bw)
+      ctx.fillRect(sx, sy + sh - bw, sw, bw)
+      ctx.fillRect(sx, sy, bw, sh)
+      ctx.fillRect(sx + sw - bw, sy, bw, sh)
       ctx.restore()
     }
 
