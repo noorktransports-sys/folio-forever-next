@@ -208,6 +208,7 @@ export default async function AdminPage({
           <h1>Orders dashboard</h1>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
+          <Link href="/admin/clients" className="admin-logout">Clients</Link>
           <Link href="/admin/audit" className="admin-logout">Audit log</Link>
           <Link href="/admin/photographers" className="admin-logout">Photographers</Link>
           <form action="/api/admin/logout" method="post">
