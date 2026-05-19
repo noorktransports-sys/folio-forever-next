@@ -859,6 +859,22 @@ function SmartDesignerInner() {
   // Separate from the op system, persisted like `adjusts`.
   const [spreadBgs, setSpreadBgs] = useState<Record<string, SpreadBg>>({})
   const [spreadTexts, setSpreadTexts] = useState<Record<string, SpreadText[]>>({})
+  // Reusable saved background colours (e.g. picked from a photo) — shared
+  // across every spread so the client keeps a consistent palette.
+  const [savedColors, setSavedColors] = useState<string[]>(['', '', ''])
+  const saveColor = useCallback((hex: string) => {
+    setSavedColors((prev) => {
+      if (!hex || prev.includes(hex)) return prev
+      const empty = prev.indexOf('')
+      const next = [...prev]
+      if (empty >= 0) next[empty] = hex
+      else {
+        next.shift()
+        next.push(hex)
+      }
+      return next
+    })
+  }, [])
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
@@ -905,6 +921,7 @@ function SmartDesignerInner() {
             adjusts: Record<string, PhotoAdjust>
             spreadBgs: Record<string, SpreadBg>
             spreadTexts: Record<string, SpreadText[]>
+            savedColors: string[]
             unusedPhotoIds: string[]
             customEventNames: Record<string, string>
           }>
@@ -928,6 +945,7 @@ function SmartDesignerInner() {
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
           if (s.spreadBgs && typeof s.spreadBgs === 'object') setSpreadBgs(s.spreadBgs)
           if (s.spreadTexts && typeof s.spreadTexts === 'object') setSpreadTexts(s.spreadTexts)
+          if (Array.isArray(s.savedColors)) setSavedColors(s.savedColors)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
           if (s.customEventNames && typeof s.customEventNames === 'object') {
             setCustomEventNames(s.customEventNames)
@@ -1018,6 +1036,7 @@ function SmartDesignerInner() {
         adjusts,
         spreadBgs,
         spreadTexts,
+        savedColors,
         unusedPhotoIds,
         customEventNames,
       }
@@ -1026,7 +1045,7 @@ function SmartDesignerInner() {
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, savedColors, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -3518,6 +3537,8 @@ function SmartDesignerInner() {
                 onTextsChange={(next) =>
                   setSpreadTexts((prev) => ({ ...prev, [s.id]: next }))
                 }
+                savedColors={savedColors}
+                onSaveColor={saveColor}
                 photoListForBg={photos}
                 onPhotoClick={(idx) => {
                   // Tap-to-place: a picked-up unused photo drops into the
@@ -5166,12 +5187,101 @@ function SpreadBgControl({
   bg,
   onChange,
   spreadPhotos,
+  savedColors,
+  onSaveColor,
 }: {
   bg: SpreadBg
   onChange: (next: SpreadBg) => void
   spreadPhotos: Photo[]
+  savedColors: string[]
+  onSaveColor: (hex: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [photoColors, setPhotoColors] = useState<string[]>([])
+  const [picking, setPicking] = useState(false)
+
+  // Sample a few representative colours from this spread's photos so the
+  // client can match the background to the imagery in one click.
+  useEffect(() => {
+    if (!open || spreadPhotos.length === 0) {
+      setPhotoColors([])
+      return
+    }
+    let cancelled = false
+    const toHex = (n: number) => n.toString(16).padStart(2, '0')
+    const sampleOne = (src: string) =>
+      new Promise<string | null>((resolve) => {
+        const img = new window.Image()
+        if (/^https?:\/\//.test(src)) img.crossOrigin = 'anonymous'
+        img.onload = () => {
+          try {
+            const c = document.createElement('canvas')
+            c.width = 20
+            c.height = 20
+            const ctx = c.getContext('2d')
+            if (!ctx) return resolve(null)
+            ctx.drawImage(img, 0, 0, 20, 20)
+            const d = ctx.getImageData(0, 0, 20, 20).data
+            let r = 0
+            let g = 0
+            let b = 0
+            let n = 0
+            for (let i = 0; i < d.length; i += 4) {
+              r += d[i]
+              g += d[i + 1]
+              b += d[i + 2]
+              n++
+            }
+            resolve(
+              `#${toHex(Math.round(r / n))}${toHex(Math.round(g / n))}${toHex(
+                Math.round(b / n),
+              )}`,
+            )
+          } catch {
+            resolve(null) // tainted canvas — skip
+          }
+        }
+        img.onerror = () => resolve(null)
+        img.src = src
+      })
+    Promise.all(spreadPhotos.slice(0, 6).map((p) => sampleOne(p.preview))).then(
+      (cols) => {
+        if (cancelled) return
+        const uniq = Array.from(
+          new Set(cols.filter((c): c is string => Boolean(c))),
+        )
+        setPhotoColors(uniq)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open, spreadPhotos])
+
+  const eyedrop = async () => {
+    interface EyeDropperCtor {
+      new (): { open: () => Promise<{ sRGBHex: string }> }
+    }
+    const ED = (window as unknown as { EyeDropper?: EyeDropperCtor }).EyeDropper
+    if (!ED) {
+      alert(
+        'Your browser does not support the screen colour picker. Use the photo swatches below instead.',
+      )
+      return
+    }
+    try {
+      setPicking(true)
+      const res = await new ED().open()
+      if (res?.sRGBHex) {
+        onChange({ mode: 'color', color: res.sRGBHex })
+        onSaveColor(res.sRGBHex)
+      }
+    } catch {
+      /* user cancelled */
+    } finally {
+      setPicking(false)
+    }
+  }
   const swatch =
     bg.mode === 'paper'
       ? PAPER_HEX
@@ -5260,6 +5370,136 @@ function SpreadBgControl({
                     bg.mode === 'color' && bg.color === c.hex
                       ? `2px solid ${GOLD}`
                       : '0.5px solid rgba(184,150,90,0.4)',
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Colour FROM your photos + eyedropper */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              margin: '0 0 6px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 9,
+                letterSpacing: 1.5,
+                color: 'var(--muted2)',
+                textTransform: 'uppercase',
+              }}
+            >
+              From your photos
+            </span>
+            <button
+              type="button"
+              onClick={eyedrop}
+              title="Pick any colour from the screen"
+              style={{
+                background: 'transparent',
+                border: `0.5px solid ${GOLD}`,
+                color: GOLD,
+                borderRadius: 30,
+                padding: '2px 8px',
+                fontSize: 9,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >
+              {picking ? 'Picking…' : '⊙ Pick'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {photoColors.length === 0 ? (
+              <span style={{ fontSize: 9, color: 'var(--muted2)' }}>
+                {spreadPhotos.length
+                  ? 'Reading colours…'
+                  : 'Add photos to sample colours.'}
+              </span>
+            ) : (
+              photoColors.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  title={`Use ${hex} · click ☆ to save`}
+                  onClick={() => onChange({ mode: 'color', color: hex })}
+                  onDoubleClick={() => onSaveColor(hex)}
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    background: hex,
+                    border:
+                      bg.mode === 'color' && bg.color === hex
+                        ? `2px solid ${GOLD}`
+                        : '0.5px solid rgba(184,150,90,0.4)',
+                  }}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Saved colours — kept across every spread */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              margin: '0 0 6px',
+            }}
+          >
+            <span
+              style={{
+                fontSize: 9,
+                letterSpacing: 1.5,
+                color: 'var(--muted2)',
+                textTransform: 'uppercase',
+              }}
+            >
+              Saved colours
+            </span>
+            <button
+              type="button"
+              onClick={() => onSaveColor(bgFillColor(bg))}
+              title="Save the current colour"
+              style={{
+                background: 'transparent',
+                border: `0.5px solid ${GOLD}`,
+                color: GOLD,
+                borderRadius: 30,
+                padding: '2px 8px',
+                fontSize: 9,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+            >
+              ☆ Save current
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {savedColors.map((hex, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={!hex}
+                title={hex ? `Use ${hex}` : 'Empty slot'}
+                onClick={() => hex && onChange({ mode: 'color', color: hex })}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 4,
+                  cursor: hex ? 'pointer' : 'default',
+                  background: hex || 'transparent',
+                  border:
+                    bg.mode === 'color' && bg.color === hex && hex
+                      ? `2px solid ${GOLD}`
+                      : '1px dashed rgba(184,150,90,0.4)',
                 }}
               />
             ))}
@@ -5376,11 +5616,13 @@ function SpreadTextLayer({
 }) {
   const layerRef = useRef<HTMLDivElement>(null)
   const [selId, setSelId] = useState<string | null>(null)
-  // Center guides (Photoshop-style): show a line + snap when the text is
-  // within SNAP% of the spread's centre on that axis.
-  const [guide, setGuide] = useState<{ v: boolean; h: boolean }>({ v: false, h: false })
+  // Snap guides (Photoshop-style): while dragging, snap X to the nearest
+  // of LEFT-PAGE centre (25), SPREAD centre (50), RIGHT-PAGE centre (75)
+  // and Y to the middle (50); highlight the active line in bright gold.
+  const [guide, setGuide] = useState<{ x: number | null; h: boolean }>({ x: null, h: false })
   const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(null)
-  const SNAP = 1.6 // % distance from centre that snaps
+  const SNAP = 2 // % distance that snaps
+  const SNAP_XS = [25, 50, 75]
 
   useEffect(() => {
     ensureTextFonts()
@@ -5412,16 +5654,22 @@ function SpreadTextLayer({
     const dy = ((e.clientY - d.startY) / rect.height) * 100
     let nx = clamp(d.ox + dx)
     let ny = clamp(d.oy + dy)
-    const nearV = Math.abs(nx - 50) <= SNAP
+    let snapX: number | null = null
+    for (const gx of SNAP_XS) {
+      if (Math.abs(nx - gx) <= SNAP) {
+        nx = gx
+        snapX = gx
+        break
+      }
+    }
     const nearH = Math.abs(ny - 50) <= SNAP
-    if (nearV) nx = 50 // snap to horizontal centre
-    if (nearH) ny = 50 // snap to vertical centre
-    setGuide({ v: nearV, h: nearH })
+    if (nearH) ny = 50
+    setGuide({ x: snapX, h: nearH })
     update(d.id, { xPct: nx, yPct: ny })
   }
   const onPointerUp = (e: React.PointerEvent) => {
     dragRef.current = null
-    setGuide({ v: false, h: false })
+    setGuide({ x: null, h: false })
     ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
   }
 
@@ -5462,17 +5710,17 @@ function SpreadTextLayer({
         zIndex: 6,
       }}
     >
-      {/* Photoshop-style centre guides — appear while dragging near centre */}
-      {guide.v && (
+      {/* Bright snap line — appears while dragging onto a page/spread centre */}
+      {guide.x != null && (
         <div
           style={{
             position: 'absolute',
-            left: '50%',
+            left: `${guide.x}%`,
             top: 0,
             bottom: 0,
             width: 0,
-            borderLeft: `1px dashed ${GOLD}`,
-            transform: 'translateX(-0.5px)',
+            borderLeft: `1.5px solid ${GOLD}`,
+            transform: 'translateX(-0.75px)',
             pointerEvents: 'none',
             zIndex: 8,
           }}
@@ -5486,8 +5734,8 @@ function SpreadTextLayer({
             left: 0,
             right: 0,
             height: 0,
-            borderTop: `1px dashed ${GOLD}`,
-            transform: 'translateY(-0.5px)',
+            borderTop: `1.5px solid ${GOLD}`,
+            transform: 'translateY(-0.75px)',
             pointerEvents: 'none',
             zIndex: 8,
           }}
@@ -5730,6 +5978,8 @@ function SpreadView({
   placementArmed,
   texts,
   onTextsChange,
+  savedColors,
+  onSaveColor,
 }: {
   spread: Spread
   index: number
@@ -5764,6 +6014,8 @@ function SpreadView({
   placementArmed: boolean
   texts: SpreadText[]
   onTextsChange: (next: SpreadText[]) => void
+  savedColors: string[]
+  onSaveColor: (hex: string) => void
 }) {
   // Layout-picker family tab. Hook MUST be before any early return
   // (rules of hooks). Defaults to the family of the current template.
@@ -5975,6 +6227,8 @@ function SpreadView({
         <SpreadBgControl
           bg={bg}
           onChange={onBgChange}
+          savedColors={savedColors}
+          onSaveColor={onSaveColor}
           spreadPhotos={spread.photoIds
             .filter((id): id is string => Boolean(id))
             .map((id) => photoListForBg.find((p) => p.id === id))
@@ -6210,6 +6464,42 @@ function SpreadView({
             }}
           />
         )}
+        {/* Always-on alignment reference guides (editor only — never
+            printed). Vertical lines at each PAGE centre (25% / 75%) and
+            the SPREAD centre (50%); horizontal at the middle. */}
+        <div
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}
+        >
+          {[25, 50, 75].map((x) => (
+            <div
+              key={x}
+              style={{
+                position: 'absolute',
+                left: `${x}%`,
+                top: 0,
+                bottom: 0,
+                width: 0,
+                borderLeft:
+                  x === 50
+                    ? '1px dashed rgba(184,150,90,0.30)'
+                    : '1px dashed rgba(184,150,90,0.16)',
+                transform: 'translateX(-0.5px)',
+              }}
+            />
+          ))}
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: 0,
+              right: 0,
+              height: 0,
+              borderTop: '1px dashed rgba(184,150,90,0.16)',
+              transform: 'translateY(-0.5px)',
+            }}
+          />
+        </div>
         <SpreadTextLayer texts={texts} onChange={onTextsChange} />
       </div>
 
