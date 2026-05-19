@@ -136,6 +136,25 @@ export interface SpreadBgInput {
 
 const BG_PHOTO_MAX_ZOOM = 2
 
+export interface SpreadTextInput {
+  id: string
+  text: string
+  xPct: number
+  yPct: number
+  widthPct: number
+  sizePct: number
+  color: string
+  align: 'left' | 'center' | 'right'
+  font: 'display' | 'serif' | 'sans'
+  weight: 400 | 700
+}
+
+const TEXT_FONT_CANVAS: Record<SpreadTextInput['font'], string> = {
+  display: 'Georgia, "Times New Roman", serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  sans: 'system-ui, -apple-system, sans-serif',
+}
+
 export interface RenderSpreadInput {
   spread: SpreadLike
   template: LayoutTemplate
@@ -150,6 +169,8 @@ export interface RenderSpreadInput {
   /** Per-spread background — paper (default) / colour / blurred photo.
    *  Must match the editor exactly so proof = print (clause 2.3). */
   bg?: SpreadBgInput
+  /** Free text blocks — drawn last, on top, matching the editor. */
+  texts?: SpreadTextInput[]
 }
 
 const DEFAULT_ADJUST: PhotoAdjust = {
@@ -197,6 +218,7 @@ export async function renderSpreadComposite({
   spreadAspectRatio,
   showGutter,
   bg,
+  texts,
 }: RenderSpreadInput): Promise<Blob> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('Canvas unavailable on server')
@@ -410,6 +432,58 @@ export async function renderSpreadComposite({
     ctx.lineTo(W / 2, H)
     ctx.stroke()
     ctx.restore()
+  }
+
+  // ── Free text blocks (drawn last, on top) ──
+  // Sizing/positioning mirrors the editor exactly (sizePct% of H,
+  // xPct/yPct % of the spread) so proof === print.
+  if (texts && texts.length) {
+    for (const t of texts) {
+      if (!t.text) continue
+      const fontPx = Math.max(6, (t.sizePct / 100) * H)
+      const boxW = (t.widthPct / 100) * W
+      const cx = (t.xPct / 100) * W
+      const cy = (t.yPct / 100) * H
+      ctx.save()
+      ctx.font = `${t.weight} ${fontPx}px ${TEXT_FONT_CANVAS[t.font]}`
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = t.align
+      // Word-wrap within boxW, honouring explicit newlines.
+      const lines: string[] = []
+      for (const para of t.text.split('\n')) {
+        const words = para.split(/\s+/)
+        let line = ''
+        for (const w of words) {
+          const test = line ? line + ' ' + w : w
+          if (ctx.measureText(test).width > boxW && line) {
+            lines.push(line)
+            line = w
+          } else {
+            line = test
+          }
+        }
+        lines.push(line)
+      }
+      const lh = fontPx * 1.15
+      let y = cy - ((lines.length - 1) * lh) / 2
+      const x =
+        t.align === 'left'
+          ? cx - boxW / 2
+          : t.align === 'right'
+          ? cx + boxW / 2
+          : cx
+      if (t.color.toLowerCase() === '#ffffff') {
+        ctx.shadowColor = 'rgba(0,0,0,0.45)'
+        ctx.shadowBlur = fontPx * 0.12
+        ctx.shadowOffsetY = fontPx * 0.04
+      }
+      ctx.fillStyle = t.color
+      for (const ln of lines) {
+        ctx.fillText(ln, x, y)
+        y += lh
+      }
+      ctx.restore()
+    }
   }
 
   return new Promise<Blob>((resolve, reject) => {

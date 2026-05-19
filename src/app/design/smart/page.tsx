@@ -294,6 +294,58 @@ type SpreadBg = {
   panY?: number
 }
 
+/** A free-positioned text block on a spread (titles, names, dates,
+ *  quotes). Coords are % of the spread box so they scale identically in
+ *  the editor, the proof preview and the print composite. */
+type SpreadText = {
+  id: string
+  text: string
+  /** centre X / Y as % of the spread (clamped to a safe print margin) */
+  xPct: number
+  yPct: number
+  /** text-box width as % of spread width */
+  widthPct: number
+  /** font size as % of spread HEIGHT (resolution-independent) */
+  sizePct: number
+  color: string
+  align: 'left' | 'center' | 'right'
+  font: 'display' | 'serif' | 'sans'
+  weight: 400 | 700
+}
+// CSS font stacks (editor / proof). Canvas can't use CSS vars so it has
+// its own concrete stack — kept visually equivalent.
+const TEXT_FONT_CSS: Record<SpreadText['font'], string> = {
+  display: 'var(--font-display), Georgia, serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  sans: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+}
+const TEXT_FONT_CANVAS: Record<SpreadText['font'], string> = {
+  display: 'Georgia, "Times New Roman", serif',
+  serif: 'Georgia, "Times New Roman", serif',
+  sans: 'system-ui, -apple-system, sans-serif',
+}
+const TEXT_COLOR_PRESETS = ['#ffffff', '#0e0c09', '#b8965a', '#7a1f1f', '#3a3a3a']
+// Keep text inside the trim-safe area so nothing prints off the edge.
+const TEXT_SAFE_MIN = 6
+const TEXT_SAFE_MAX = 94
+function makeSpreadText(partial?: Partial<SpreadText>): SpreadText {
+  return {
+    id: `txt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    text: 'Your text',
+    xPct: 50,
+    yPct: 50,
+    widthPct: 70,
+    sizePct: 6,
+    color: '#ffffff',
+    align: 'center',
+    font: 'display',
+    weight: 700,
+    ...partial,
+  }
+}
+
+const EMPTY_TEXTS: SpreadText[] = []
+
 const DEFAULT_SPREAD_BG: SpreadBg = { mode: 'paper' }
 // Softer default blur for photo backgrounds — the old 18px was a heavy
 // frosted-glass look; ~9px keeps the subject readable as a tasteful
@@ -780,6 +832,7 @@ function SmartDesignerInner() {
   // Per-spread backgrounds (paper/color/photo). Keyed by spread id.
   // Separate from the op system, persisted like `adjusts`.
   const [spreadBgs, setSpreadBgs] = useState<Record<string, SpreadBg>>({})
+  const [spreadTexts, setSpreadTexts] = useState<Record<string, SpreadText[]>>({})
   const [layoutMenuId, setLayoutMenuId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [orderId] = useState(() => `FF-${Math.floor(100000 + Math.random() * 900000)}`)
@@ -825,6 +878,7 @@ function SmartDesignerInner() {
             spreads: Spread[]
             adjusts: Record<string, PhotoAdjust>
             spreadBgs: Record<string, SpreadBg>
+            spreadTexts: Record<string, SpreadText[]>
             unusedPhotoIds: string[]
             customEventNames: Record<string, string>
           }>
@@ -847,6 +901,7 @@ function SmartDesignerInner() {
           if (Array.isArray(s.spreads)) setSpreads(s.spreads)
           if (s.adjusts && typeof s.adjusts === 'object') setAdjusts(s.adjusts)
           if (s.spreadBgs && typeof s.spreadBgs === 'object') setSpreadBgs(s.spreadBgs)
+          if (s.spreadTexts && typeof s.spreadTexts === 'object') setSpreadTexts(s.spreadTexts)
           if (Array.isArray(s.unusedPhotoIds)) setUnusedPhotoIds(s.unusedPhotoIds)
           if (s.customEventNames && typeof s.customEventNames === 'object') {
             setCustomEventNames(s.customEventNames)
@@ -936,6 +991,7 @@ function SmartDesignerInner() {
         spreads,
         adjusts,
         spreadBgs,
+        spreadTexts,
         unusedPhotoIds,
         customEventNames,
       }
@@ -944,7 +1000,7 @@ function SmartDesignerInner() {
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, unusedPhotoIds, customEventNames])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -1688,6 +1744,7 @@ function SmartDesignerInner() {
         spreadAspectRatio: ALBUM_SPECS[size].spreadAspectRatio,
         showGutter: type === 'standard',
         spreadBgs,
+        spreadTexts,
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
@@ -3431,6 +3488,10 @@ function SmartDesignerInner() {
                 onBgChange={(next) =>
                   setSpreadBgs((prev) => ({ ...prev, [s.id]: next }))
                 }
+                texts={spreadTexts[s.id] ?? EMPTY_TEXTS}
+                onTextsChange={(next) =>
+                  setSpreadTexts((prev) => ({ ...prev, [s.id]: next }))
+                }
                 photoListForBg={photos}
                 onPhotoClick={(idx) => {
                   // Tap-to-place: a picked-up unused photo drops into the
@@ -4459,6 +4520,44 @@ function SmartDesignerInner() {
                       }}
                     />
                   )}
+                  {/* Text blocks — read-only proof render */}
+                  {(spreadTexts[s.id] ?? EMPTY_TEXTS).length > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        containerType: 'size',
+                        pointerEvents: 'none',
+                      }}
+                    >
+                      {(spreadTexts[s.id] ?? EMPTY_TEXTS).map((t) => (
+                        <div
+                          key={t.id}
+                          style={{
+                            position: 'absolute',
+                            left: `${t.xPct}%`,
+                            top: `${t.yPct}%`,
+                            width: `${t.widthPct}%`,
+                            transform: 'translate(-50%, -50%)',
+                            textAlign: t.align,
+                            color: t.color,
+                            fontFamily: TEXT_FONT_CSS[t.font],
+                            fontWeight: t.weight,
+                            fontSize: `${t.sizePct}cqh`,
+                            lineHeight: 1.15,
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            textShadow:
+                              t.color.toLowerCase() === '#ffffff'
+                                ? '0 1px 4px rgba(0,0,0,0.45)'
+                                : 'none',
+                          }}
+                        >
+                          {t.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )
@@ -5236,6 +5335,286 @@ function SpreadBgControl({
 type SlotDragHandlers = ReturnType<typeof useSlotDrag>['slotHandlers']
 type SpreadDropHandlers = ReturnType<typeof useSlotDrag>['spreadDropHandlers']
 
+/**
+ * SpreadTextLayer — free-positioned text blocks over a spread. Fills the
+ * spread box (position:absolute inset:0). Font size is in container-query
+ * height units (cqh) so 1 unit == 1% of the spread height — identical to
+ * how the print composite sizes it (sizePct% of H) → proof = print.
+ */
+function SpreadTextLayer({
+  texts,
+  onChange,
+}: {
+  texts: SpreadText[]
+  onChange: (next: SpreadText[]) => void
+}) {
+  const layerRef = useRef<HTMLDivElement>(null)
+  const [selId, setSelId] = useState<string | null>(null)
+  const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(null)
+
+  const update = (id: string, patch: Partial<SpreadText>) =>
+    onChange(texts.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+  const clamp = (v: number) => Math.min(TEXT_SAFE_MAX, Math.max(TEXT_SAFE_MIN, v))
+
+  const onPointerDownText = (e: React.PointerEvent, t: SpreadText) => {
+    e.stopPropagation()
+    setSelId(t.id)
+    const rect = layerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    dragRef.current = {
+      id: t.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      ox: t.xPct,
+      oy: t.yPct,
+    }
+    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current
+    const rect = layerRef.current?.getBoundingClientRect()
+    if (!d || !rect) return
+    const dx = ((e.clientX - d.startX) / rect.width) * 100
+    const dy = ((e.clientY - d.startY) / rect.height) * 100
+    update(d.id, { xPct: clamp(d.ox + dx), yPct: clamp(d.oy + dy) })
+  }
+  const onPointerUp = (e: React.PointerEvent) => {
+    dragRef.current = null
+    ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
+  }
+
+  const add = (preset: 'text' | 'title') =>
+    onChange([
+      ...texts,
+      preset === 'title'
+        ? makeSpreadText({ text: 'Title', sizePct: 11, widthPct: 84, weight: 700 })
+        : makeSpreadText(),
+    ])
+
+  const sel = texts.find((t) => t.id === selId) || null
+  const pill: React.CSSProperties = {
+    background: 'rgba(14,12,9,0.85)',
+    color: GOLD,
+    border: `0.5px solid ${GOLD}`,
+    borderRadius: 30,
+    padding: '4px 12px',
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    cursor: 'pointer',
+    pointerEvents: 'auto',
+    fontFamily: 'var(--font-body)',
+  }
+
+  return (
+    <div
+      ref={layerRef}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        // cqh = 1% of this layer's height → matches composite sizing.
+        containerType: 'size',
+        pointerEvents: 'none',
+        zIndex: 6,
+      }}
+    >
+      {texts.map((t) => {
+        const selected = t.id === selId
+        return (
+          <div
+            key={t.id}
+            onPointerDown={(e) => onPointerDownText(e, t)}
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelId(t.id)
+            }}
+            style={{
+              position: 'absolute',
+              left: `${t.xPct}%`,
+              top: `${t.yPct}%`,
+              width: `${t.widthPct}%`,
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'auto',
+              cursor: 'move',
+              textAlign: t.align,
+              outline: selected ? `1px dashed ${GOLD}` : 'none',
+              outlineOffset: 4,
+            }}
+          >
+            {selected ? (
+              <textarea
+                value={t.text}
+                autoFocus
+                onChange={(e) => update(t.id, { text: e.target.value })}
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{
+                  width: '100%',
+                  background: 'rgba(0,0,0,0.15)',
+                  border: 'none',
+                  resize: 'none',
+                  outline: 'none',
+                  textAlign: t.align,
+                  color: t.color,
+                  fontFamily: TEXT_FONT_CSS[t.font],
+                  fontWeight: t.weight,
+                  fontSize: `${t.sizePct}cqh`,
+                  lineHeight: 1.15,
+                  overflow: 'hidden',
+                  height: `${Math.max(1, t.text.split('\n').length) * t.sizePct * 1.2}cqh`,
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  color: t.color,
+                  fontFamily: TEXT_FONT_CSS[t.font],
+                  fontWeight: t.weight,
+                  fontSize: `${t.sizePct}cqh`,
+                  lineHeight: 1.15,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  textShadow:
+                    t.color.toLowerCase() === '#ffffff'
+                      ? '0 1px 4px rgba(0,0,0,0.45)'
+                      : 'none',
+                }}
+              >
+                {t.text || ' '}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Add buttons — bottom centre */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          bottom: 8,
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: 6,
+          pointerEvents: 'none',
+        }}
+      >
+        <button type="button" style={pill} onClick={() => add('text')}>
+          ＋ Text
+        </button>
+        <button type="button" style={pill} onClick={() => add('title')}>
+          ＋ Title
+        </button>
+      </div>
+
+      {/* Style toolbar — shown when a text is selected */}
+      {sel && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            left: 8,
+            top: 8,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 6,
+            padding: 8,
+            background: 'rgba(14,12,9,0.92)',
+            border: `0.5px solid ${GOLD}`,
+            borderRadius: 8,
+            pointerEvents: 'auto',
+            maxWidth: '92%',
+            zIndex: 7,
+          }}
+        >
+          <select
+            value={sel.font}
+            onChange={(e) => update(sel.id, { font: e.target.value as SpreadText['font'] })}
+            style={{ fontSize: 11, padding: '2px 4px' }}
+          >
+            <option value="display">Display</option>
+            <option value="serif">Serif</option>
+            <option value="sans">Sans</option>
+          </select>
+          <input
+            type="range"
+            min={2}
+            max={20}
+            step={0.5}
+            value={sel.sizePct}
+            onChange={(e) => update(sel.id, { sizePct: Number(e.target.value) })}
+            title="Size"
+            style={{ width: 80, accentColor: GOLD }}
+          />
+          {(['left', 'center', 'right'] as const).map((a) => (
+            <button
+              key={a}
+              type="button"
+              onClick={() => update(sel.id, { align: a })}
+              style={{
+                ...pill,
+                padding: '2px 8px',
+                background: sel.align === a ? GOLD : 'transparent',
+                color: sel.align === a ? '#0e0c09' : GOLD,
+              }}
+            >
+              {a === 'left' ? '⬅' : a === 'center' ? '⬌' : '➡'}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => update(sel.id, { weight: sel.weight === 700 ? 400 : 700 })}
+            style={{
+              ...pill,
+              padding: '2px 8px',
+              fontWeight: sel.weight === 700 ? 700 : 400,
+            }}
+          >
+            B
+          </button>
+          {TEXT_COLOR_PRESETS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={`Colour ${c}`}
+              onClick={() => update(sel.id, { color: c })}
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: c,
+                border:
+                  sel.color === c ? `2px solid ${GOLD}` : '1px solid rgba(255,255,255,0.3)',
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+              }}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              onChange(texts.filter((x) => x.id !== sel.id))
+              setSelId(null)
+            }}
+            style={{ ...pill, color: '#ff8a8a', borderColor: '#ff8a8a', padding: '2px 8px' }}
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelId(null)}
+            style={{ ...pill, padding: '2px 8px' }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SpreadView({
   spread,
   index,
@@ -5265,6 +5644,8 @@ function SpreadView({
   onAdjustChange,
   onPickTemplate,
   placementArmed,
+  texts,
+  onTextsChange,
 }: {
   spread: Spread
   index: number
@@ -5297,6 +5678,8 @@ function SpreadView({
    *  tapping an empty slot PLACES the picked photo instead of opening
    *  the upload/pick picker. */
   placementArmed: boolean
+  texts: SpreadText[]
+  onTextsChange: (next: SpreadText[]) => void
 }) {
   // Layout-picker family tab. Hook MUST be before any early return
   // (rules of hooks). Defaults to the family of the current template.
@@ -5743,6 +6126,7 @@ function SpreadView({
             }}
           />
         )}
+        <SpreadTextLayer texts={texts} onChange={onTextsChange} />
       </div>
 
       {/* Photo edit toolbar (full set, mirrors manual builder) */}

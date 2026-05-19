@@ -222,6 +222,23 @@ export interface SubmissionInput {
       panY?: number
     }
   >
+  /** Per-spread free text blocks keyed by spread id. Baked into the
+   *  composite so the printed album matches the approved proof. */
+  spreadTexts?: Record<
+    string,
+    Array<{
+      id: string
+      text: string
+      xPct: number
+      yPct: number
+      widthPct: number
+      sizePct: number
+      color: string
+      align: 'left' | 'center' | 'right'
+      font: 'display' | 'serif' | 'sans'
+      weight: 400 | 700
+    }>
+  >
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -248,6 +265,7 @@ export async function prepareSubmission({
   spreadAspectRatio,
   showGutter,
   spreadBgs,
+  spreadTexts,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
@@ -338,6 +356,7 @@ export async function prepareSubmission({
           spreadAspectRatio,
           showGutter: !!showGutter,
           bg: spreadBgs?.[s.id],
+          texts: spreadTexts?.[s.id],
         })
         const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
         composites.push({ spreadId: s.id, key: up.key, url: up.url })
