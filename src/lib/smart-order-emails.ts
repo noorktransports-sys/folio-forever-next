@@ -84,6 +84,18 @@ export interface SmartOrderEmailData {
     pageCount: number;
     totalPrice: number;
   };
+  cover?: {
+    type: 'leather' | 'acrylic' | 'photo';
+    leatherColor: string;
+    photoSrc: string | null;
+    backPhotoSrc: string | null;
+    primaryText: string;
+    subtitleText: string;
+    fontId: string;
+    foilColor: string;
+    customTextHex: string;
+    priceAdd: number;
+  } | null;
   photos: SmartPhotoUpload[];
   spreads: SmartSpreadSnapshot[];
   spreadComposites?: SpreadCompositeUpload[];
@@ -108,6 +120,55 @@ export function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** Cover spec block for the order emails (owner + customer). */
+export function coverSummaryHtml(
+  cover: SmartOrderEmailData['cover'],
+): string {
+  if (!cover) return '';
+  const typeLabel =
+    cover.type === 'leather'
+      ? 'Leather (foil stamped)'
+      : cover.type === 'acrylic'
+      ? 'Acrylic (photo behind glass)'
+      : 'Photo cover (front & back)';
+  const price =
+    cover.priceAdd > 0 ? ` (+$${cover.priceAdd})` : ' (included)';
+  const rows: string[] = [
+    `<tr><td style="padding-right:12px;color:#6b5e4e;">Style</td><td>${escapeHtml(typeLabel)}${price}</td></tr>`,
+  ];
+  if (cover.type === 'leather' || cover.type === 'acrylic') {
+    rows.push(
+      `<tr><td style="padding-right:12px;color:#6b5e4e;">${cover.type === 'leather' ? 'Leather' : 'Binding'} colour</td><td>${escapeHtml(cover.leatherColor)}</td></tr>`,
+      `<tr><td style="padding-right:12px;color:#6b5e4e;">Foil</td><td>${escapeHtml(cover.foilColor)}</td></tr>`,
+    );
+  }
+  if (cover.type === 'acrylic' || cover.type === 'photo') {
+    rows.push(
+      `<tr><td style="padding-right:12px;color:#6b5e4e;">Front photo</td><td>${
+        cover.photoSrc
+          ? `<a href="${escapeHtml(cover.photoSrc)}">view</a>`
+          : '—'
+      }</td></tr>`,
+    );
+  }
+  if (cover.type === 'photo') {
+    rows.push(
+      `<tr><td style="padding-right:12px;color:#6b5e4e;">Back photo</td><td>${
+        cover.backPhotoSrc
+          ? `<a href="${escapeHtml(cover.backPhotoSrc)}">view</a>`
+          : 'same as front'
+      }</td></tr>`,
+    );
+  }
+  rows.push(
+    `<tr><td style="padding-right:12px;color:#6b5e4e;">Cover text</td><td>${escapeHtml(cover.primaryText || '—')}${cover.subtitleText ? ' · ' + escapeHtml(cover.subtitleText) : ''}</td></tr>`,
+    `<tr><td style="padding-right:12px;color:#6b5e4e;">Font</td><td>${escapeHtml(cover.fontId)}</td></tr>`,
+  );
+  return `
+    <h3 style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:400;color:#2a2218;margin:14px 0 6px;">Cover</h3>
+    <table style="font-size:13px;line-height:1.7;">${rows.join('')}</table>`;
 }
 
 export function abs(siteUrl: string, path: string): string {
@@ -160,6 +221,7 @@ export function ownerPendingPaymentEmailHtml(
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Spreads · photos</td><td>${a.pageCount} · ${totalPhotos}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Polish hand-off</td><td>${data.polishHandoff ? 'Yes (+$99)' : 'No'}</td></tr>
     </table>
+    ${coverSummaryHtml(data.cover)}
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 14px 0 6px;">Legal audit</h3>
     <table style="font-size: 12px; line-height: 1.7; background: #faf6ed; border: 1px solid #b8965a; padding: 8px 12px; width: 100%;">
@@ -253,6 +315,7 @@ export function ownerPaidEmailHtml(
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Polish hand-off</td><td>${data.polishHandoff ? 'Yes (+$99)' : 'No'}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;"><strong>Total paid</strong></td><td><strong>$${a.totalPrice}</strong></td></tr>
     </table>
+    ${coverSummaryHtml(data.cover)}
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 18px 0 6px;">Ship to</h3>
     <div style="font-size: 13px; line-height: 1.7; color: #2a2218;">

@@ -146,6 +146,25 @@ interface SubmitPayload {
    *  time so the emails can SHOW the album layout, not just list photos. */
   spreadComposites?: SpreadCompositeUpload[];
   customEventNames?: Record<string, string>;
+  /** Album cover (leather / acrylic / photo). Required from the client. */
+  cover?: {
+    type: 'leather' | 'acrylic' | 'photo';
+    leatherColor: string;
+    photoSrc: string | null;
+    backPhotoSrc: string | null;
+    photoScale: number;
+    photoX: number;
+    photoY: number;
+    primaryText: string;
+    subtitleText: string;
+    fontId: string;
+    fontSize: number;
+    foilColor: string;
+    customTextHex: string;
+    position: string;
+    /** Cover add-on price ($0 photo / $25 leather / $39 acrylic). */
+    priceAdd: number;
+  } | null;
   /** Polish-it upsell — $99 if true */
   polishHandoff?: boolean;
   /** Phase 1 — proof approval (clause 2.3). Required. */
@@ -242,6 +261,7 @@ export async function POST(request: Request) {
       customer: payload.customer,
       shipping: payload.shipping,
       album: payload.album,
+      cover: payload.cover ?? null,
       polishHandoff: payload.polishHandoff ?? false,
       photos: payload.photos,
       spreads: payload.spreads,
@@ -334,6 +354,7 @@ export async function POST(request: Request) {
       customer: payload.customer,
       shipping: payload.shipping,
       album: payload.album,
+      cover: payload.cover ?? null,
       photos: payload.photos,
       spreads: payload.spreads,
       spreadComposites: payload.spreadComposites,

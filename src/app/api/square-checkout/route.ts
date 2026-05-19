@@ -57,6 +57,10 @@ interface StoredOrder {
     totalPrice: number;
   };
   polishHandoff?: boolean;
+  cover?: {
+    type: 'leather' | 'acrylic' | 'photo';
+    priceAdd: number;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -100,9 +104,15 @@ export async function POST(request: Request) {
   // equivalent to handing the customer their receipt URL.
   const successUrl = `${siteUrl}/design/smart/success?token=${encodeURIComponent(order.token)}&order=${encodeURIComponent(order.orderId)}`;
 
-  // album.totalPrice INCLUDES polish hand-off. Split for line items.
+  // album.totalPrice INCLUDES polish hand-off + cover add-on. Split
+  // them out so the customer sees itemised line items at checkout.
   const polishHandoff = !!order.polishHandoff;
-  const baseDollars = order.album.totalPrice - (polishHandoff ? 99 : 0);
+  const coverAdd =
+    order.cover && Number.isFinite(order.cover.priceAdd)
+      ? Math.max(0, Math.round(order.cover.priceAdd))
+      : 0;
+  const baseDollars =
+    order.album.totalPrice - (polishHandoff ? 99 : 0) - coverAdd;
   if (baseDollars <= 0 || !Number.isFinite(baseDollars)) {
     return err(500, 'Invalid album price');
   }
@@ -117,6 +127,20 @@ export async function POST(request: Request) {
       note: order.albumName,
     },
   ];
+  if (coverAdd > 0 && order.cover) {
+    const cl =
+      order.cover.type === 'leather'
+        ? 'Leather cover — premium hide + foil stamp'
+        : order.cover.type === 'acrylic'
+        ? 'Acrylic cover — photo behind clear acrylic'
+        : 'Photo cover';
+    lineItems.push({
+      name: cl,
+      quantity: 1,
+      basePriceAmountCents: coverAdd * 100,
+      note: 'Album cover upgrade',
+    });
+  }
   if (polishHandoff) {
     lineItems.push({
       name: 'Polish hand-off — design team finishing',

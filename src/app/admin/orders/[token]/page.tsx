@@ -103,7 +103,18 @@ interface SavedDesign {
   size?: string;
   totalSpreads?: number;
   uploadedPhotos?: Record<string, string>;
-  cover?: { primaryText?: string; subtitleText?: string } | null;
+  cover?: {
+    primaryText?: string;
+    subtitleText?: string;
+    type?: 'leather' | 'acrylic' | 'photo';
+    leatherColor?: string;
+    foilColor?: string;
+    fontId?: string;
+    customTextHex?: string;
+    photoSrc?: string | null;
+    backPhotoSrc?: string | null;
+    priceAdd?: number;
+  } | null;
 
   // Smart shape
   albumName?: string;
@@ -267,6 +278,56 @@ export default async function OrderDetail({
             <div className="admin-meta-label">Cover</div>
             <div className="admin-meta-value">{cover.primaryText || '(no title)'}</div>
             <div className="admin-meta-value muted">{cover.subtitleText || ''}</div>
+          </div>
+        )}
+
+        {isSmart && design.cover && (
+          <div className="admin-meta-block">
+            <div className="admin-meta-label">Cover</div>
+            <div className="admin-meta-value">
+              {cover.type === 'leather'
+                ? 'Leather'
+                : cover.type === 'acrylic'
+                ? 'Acrylic'
+                : 'Photo cover'}
+              {typeof cover.priceAdd === 'number'
+                ? cover.priceAdd > 0
+                  ? ` · +$${cover.priceAdd}`
+                  : ' · included'
+                : ''}
+            </div>
+            <div className="admin-meta-value">
+              {cover.primaryText || '(no title)'}
+              {cover.subtitleText ? ` · ${cover.subtitleText}` : ''}
+            </div>
+            <div className="admin-meta-value muted">
+              {(cover.type === 'leather' || cover.type === 'acrylic') &&
+                `${cover.leatherColor ?? '—'} / foil ${cover.foilColor ?? '—'} · `}
+              font {cover.fontId ?? '—'}
+            </div>
+            {(cover.type === 'acrylic' || cover.type === 'photo') && (
+              <div className="admin-meta-value muted">
+                {cover.photoSrc ? (
+                  <a href={cover.photoSrc} target="_blank" rel="noreferrer">
+                    front photo
+                  </a>
+                ) : (
+                  'no front photo'
+                )}
+                {cover.type === 'photo' && (
+                  <>
+                    {' · '}
+                    {cover.backPhotoSrc ? (
+                      <a href={cover.backPhotoSrc} target="_blank" rel="noreferrer">
+                        back photo
+                      </a>
+                    ) : (
+                      'back = front'
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
