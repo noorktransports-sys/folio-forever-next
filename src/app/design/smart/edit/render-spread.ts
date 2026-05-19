@@ -145,7 +145,15 @@ export interface SpreadTextInput {
   sizePct: number
   color: string
   align: 'left' | 'center' | 'right'
-  font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand'
+  font:
+    | 'display'
+    | 'serif'
+    | 'sans'
+    | 'elegant'
+    | 'script'
+    | 'hand'
+    | 'castellar'
+    | 'copperplate'
   weight: 400 | 700
 }
 
@@ -156,6 +164,9 @@ const TEXT_FONT_CANVAS: Record<SpreadTextInput['font'], string> = {
   elegant: '"Playfair Display", Georgia, serif',
   script: '"Great Vibes", cursive',
   hand: '"Dancing Script", cursive',
+  castellar: 'Castellar, "Cinzel", Georgia, serif',
+  copperplate:
+    '"Copperplate Gothic Light", "Copperplate Gothic", Copperplate, "Cinzel", serif',
 }
 
 export interface RenderSpreadInput {

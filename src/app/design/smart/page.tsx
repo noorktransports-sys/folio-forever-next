@@ -309,7 +309,15 @@ type SpreadText = {
   sizePct: number
   color: string
   align: 'left' | 'center' | 'right'
-  font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand'
+  font:
+    | 'display'
+    | 'serif'
+    | 'sans'
+    | 'elegant'
+    | 'script'
+    | 'hand'
+    | 'castellar'
+    | 'copperplate'
   weight: 400 | 700
 }
 // CSS font stacks (editor / proof). Canvas can't use CSS vars so it has
@@ -322,6 +330,11 @@ const TEXT_FONT_CSS: Record<SpreadText['font'], string> = {
   elegant: '"Playfair Display", Georgia, serif',
   script: '"Great Vibes", "Snell Roundhand", cursive',
   hand: '"Dancing Script", "Segoe Script", cursive',
+  // Real licensed font first (if the device has it), else Cinzel — a
+  // free engraved-caps face that's visually very close.
+  castellar: 'Castellar, "Cinzel", Georgia, serif',
+  copperplate:
+    '"Copperplate Gothic Light", "Copperplate Gothic", Copperplate, "Cinzel", serif',
 }
 const TEXT_FONT_CANVAS: Record<SpreadText['font'], string> = {
   display: 'Georgia, "Times New Roman", serif',
@@ -330,6 +343,9 @@ const TEXT_FONT_CANVAS: Record<SpreadText['font'], string> = {
   elegant: '"Playfair Display", Georgia, serif',
   script: '"Great Vibes", cursive',
   hand: '"Dancing Script", cursive',
+  castellar: 'Castellar, "Cinzel", Georgia, serif',
+  copperplate:
+    '"Copperplate Gothic Light", "Copperplate Gothic", Copperplate, "Cinzel", serif',
 }
 const TEXT_FONT_LABEL: Record<SpreadText['font'], string> = {
   display: 'Display',
@@ -338,6 +354,8 @@ const TEXT_FONT_LABEL: Record<SpreadText['font'], string> = {
   elegant: 'Elegant',
   script: 'Script ✒',
   hand: 'Handwriting',
+  castellar: 'Castellar',
+  copperplate: 'Copperplate Gothic',
 }
 /** Inject the Google Fonts stylesheet once (client only). */
 function ensureTextFonts() {
@@ -347,7 +365,7 @@ function ensureTextFonts() {
   l.id = 'ff-text-fonts'
   l.rel = 'stylesheet'
   l.href =
-    'https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@400;700&family=Playfair+Display:wght@400;700&display=swap'
+    'https://fonts.googleapis.com/css2?family=Great+Vibes&family=Dancing+Script:wght@400;700&family=Playfair+Display:wght@400;700&family=Cinzel:wght@400;700&display=swap'
   document.head.appendChild(l)
 }
 const TEXT_COLOR_PRESETS = ['#ffffff', '#0e0c09', '#b8965a', '#7a1f1f', '#3a3a3a']
@@ -5863,7 +5881,16 @@ function SpreadTextLayer({
             }}
           >
             {(
-              ['display', 'elegant', 'serif', 'sans', 'script', 'hand'] as SpreadText['font'][]
+              [
+                'display',
+                'elegant',
+                'castellar',
+                'copperplate',
+                'serif',
+                'sans',
+                'script',
+                'hand',
+              ] as SpreadText['font'][]
             ).map((f) => (
               <option key={f} value={f} style={{ color: '#0e0c09', background: '#fff' }}>
                 {TEXT_FONT_LABEL[f]}
