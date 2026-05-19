@@ -3127,6 +3127,7 @@ function SmartDesignerInner() {
         <SpreadNavRail
           spreads={spreads}
           previewFor={(id) => photos.find((p) => p.id === id)?.preview}
+          aspect={ALBUM_SPECS[size].spreadAspectRatio}
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
@@ -4612,9 +4613,12 @@ function LayoutThumb({
 function SpreadNavRail({
   spreads,
   previewFor,
+  aspect,
 }: {
   spreads: Spread[]
   previewFor: (photoId: string) => string | undefined
+  /** width / height of a spread (e.g. 24/17) so mini slots match shape */
+  aspect: number
 }) {
   if (spreads.length < 2) return null
   return (
@@ -4640,8 +4644,13 @@ function SpreadNavRail({
       }}
     >
       {spreads.map((s, i) => {
-        const firstId = s.photoIds.find((id): id is string => Boolean(id))
-        const prev = firstId ? previewFor(firstId) : undefined
+        const tpl = TEMPLATE_BY_ID.get(s.templateId)
+        // Use the SAME edge-to-edge slot geometry the editor renders, so
+        // the mini card is a true scaled-down copy of the spread. Reads
+        // live `spreads` state → updates the instant the client changes
+        // a layout, swaps a photo, or grows/shrinks the count.
+        const miniSlots = tpl ? renderSlots(tpl) : []
+        const isMat = tpl ? templateFamily(tpl) === 'mat' : false
         return (
           <button
             key={s.id}
@@ -4671,21 +4680,45 @@ function SpreadNavRail({
           >
             <div
               style={{
+                position: 'relative',
                 width: '100%',
-                aspectRatio: '4 / 3',
+                aspectRatio: `${aspect}`,
                 borderRadius: 3,
                 overflow: 'hidden',
-                background: '#1a1410',
+                background: isMat ? '#1f1813' : '#1a1410',
               }}
             >
-              {prev ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={prev}
-                  alt=""
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : null}
+              {miniSlots.map((slot, si) => {
+                const pid = s.photoIds[si]
+                const src = pid ? previewFor(pid) : undefined
+                return (
+                  <div
+                    key={si}
+                    style={{
+                      position: 'absolute',
+                      left: `${slot.x}%`,
+                      top: `${slot.y}%`,
+                      width: `calc(${slot.w}% + 0.5px)`,
+                      height: `calc(${slot.h}% + 0.5px)`,
+                      overflow: 'hidden',
+                      background: '#2a211a',
+                    }}
+                  >
+                    {src ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={src}
+                        alt=""
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
             <span
               style={{
