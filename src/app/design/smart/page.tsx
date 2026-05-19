@@ -471,6 +471,313 @@ function shiftBrightness(hex: string, amt: number): string {
   const t = 1 + amt / 100 // 0..1
   return rgbToHex(r * t, g * t, b * t)
 }
+function rgbToHsv(r: number, g: number, b: number) {
+  r /= 255
+  g /= 255
+  b /= 255
+  const mx = Math.max(r, g, b)
+  const mn = Math.min(r, g, b)
+  const d = mx - mn
+  let h = 0
+  if (d !== 0) {
+    if (mx === r) h = ((g - b) / d) % 6
+    else if (mx === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  return { h, s: mx === 0 ? 0 : d / mx, v: mx }
+}
+function hsvToRgb(h: number, s: number, v: number) {
+  const c = v * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = v - c
+  let r = 0
+  let g = 0
+  let b = 0
+  if (h < 60) [r, g, b] = [c, x, 0]
+  else if (h < 120) [r, g, b] = [x, c, 0]
+  else if (h < 180) [r, g, b] = [0, c, x]
+  else if (h < 240) [r, g, b] = [0, x, c]
+  else if (h < 300) [r, g, b] = [x, 0, c]
+  else [r, g, b] = [c, 0, x]
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255),
+  }
+}
+
+/** Photoshop-style colour picker: saturation/brightness square + hue
+ *  bar + HEX / RGB / HSB fields. `value` is hex, onChange gives hex. */
+function ColorPicker({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (hex: string) => void
+}) {
+  const init = (() => {
+    const { r, g, b } = hexToRgb(value)
+    return rgbToHsv(r, g, b)
+  })()
+  const [h, setH] = useState(init.h)
+  const [s, setS] = useState(init.s)
+  const [v, setV] = useState(init.v)
+  const svRef = useRef<HTMLDivElement>(null)
+  const hueRef = useRef<HTMLDivElement>(null)
+  const lastHex = useRef(value)
+
+  // Re-sync when the colour is changed from OUTSIDE (e.g. eyedropper).
+  useEffect(() => {
+    if (value.toLowerCase() === lastHex.current.toLowerCase()) return
+    const { r, g, b } = hexToRgb(value)
+    const hsv = rgbToHsv(r, g, b)
+    setH(hsv.h)
+    setS(hsv.s)
+    setV(hsv.v)
+    lastHex.current = value
+  }, [value])
+
+  const emit = (nh: number, ns: number, nv: number) => {
+    const { r, g, b } = hsvToRgb(nh, ns, nv)
+    const hex = rgbToHex(r, g, b)
+    lastHex.current = hex
+    onChange(hex)
+  }
+
+  const dragSV = (clientX: number, clientY: number) => {
+    const el = svRef.current
+    if (!el) return
+    const rc = el.getBoundingClientRect()
+    const ns = Math.min(1, Math.max(0, (clientX - rc.left) / rc.width))
+    const nv = 1 - Math.min(1, Math.max(0, (clientY - rc.top) / rc.height))
+    setS(ns)
+    setV(nv)
+    emit(h, ns, nv)
+  }
+  const dragHue = (clientY: number) => {
+    const el = hueRef.current
+    if (!el) return
+    const rc = el.getBoundingClientRect()
+    const nh = Math.min(359.99, Math.max(0, ((clientY - rc.top) / rc.height) * 360))
+    setH(nh)
+    emit(nh, s, v)
+  }
+  const startDrag = (
+    move: (x: number, y: number) => void,
+    e: React.PointerEvent,
+  ) => {
+    move(e.clientX, e.clientY)
+    const mv = (ev: PointerEvent) => move(ev.clientX, ev.clientY)
+    const up = () => {
+      window.removeEventListener('pointermove', mv)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', mv)
+    window.addEventListener('pointerup', up)
+  }
+
+  const { r, g, b } = hsvToRgb(h, s, v)
+  const hex = rgbToHex(r, g, b)
+  const hueHex = (() => {
+    const c = hsvToRgb(h, 1, 1)
+    return rgbToHex(c.r, c.g, c.b)
+  })()
+  const numStyle: React.CSSProperties = {
+    width: 38,
+    fontSize: 11,
+    fontFamily: 'monospace',
+    padding: '3px 4px',
+    color: '#0e0c09',
+    background: '#fff',
+    border: `0.5px solid ${GOLD}`,
+    borderRadius: 3,
+  }
+  const lbl: React.CSSProperties = {
+    fontSize: 9,
+    color: 'var(--muted2)',
+    width: 12,
+  }
+
+  return (
+    <div style={{ userSelect: 'none' }}>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {/* Saturation / Brightness square */}
+        <div
+          ref={svRef}
+          onPointerDown={(e) => startDrag(dragSV, e)}
+          style={{
+            position: 'relative',
+            width: 168,
+            height: 132,
+            borderRadius: 4,
+            cursor: 'crosshair',
+            background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueHex})`,
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              left: `${s * 100}%`,
+              top: `${(1 - v) * 100}%`,
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              border: '2px solid #fff',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.5)',
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+        {/* Hue bar */}
+        <div
+          ref={hueRef}
+          onPointerDown={(e) => startDrag(dragHue, e)}
+          style={{
+            position: 'relative',
+            width: 16,
+            height: 132,
+            borderRadius: 4,
+            cursor: 'ns-resize',
+            background:
+              'linear-gradient(to bottom,#f00 0%,#ff0 17%,#0f0 33%,#0ff 50%,#00f 67%,#f0f 83%,#f00 100%)',
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: `${(h / 360) * 100}%`,
+              left: -2,
+              right: -2,
+              height: 4,
+              border: '1px solid #fff',
+              borderRadius: 2,
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.5)',
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* HEX + RGB + HSB fields */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 4,
+            background: hex,
+            border: '1px solid rgba(255,255,255,0.4)',
+          }}
+        />
+        <input
+          type="text"
+          value={hex.toUpperCase()}
+          onChange={(e) => {
+            const val = e.target.value.trim()
+            if (/^#?[0-9a-f]{6}$/i.test(val)) {
+              const hx = val.startsWith('#') ? val : `#${val}`
+              const rgb = hexToRgb(hx)
+              const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b)
+              setH(hsv.h)
+              setS(hsv.s)
+              setV(hsv.v)
+              lastHex.current = hx
+              onChange(hx)
+            }
+          }}
+          style={{ ...numStyle, width: 84 }}
+        />
+        <button
+          type="button"
+          onClick={() => emit(h, s, Math.max(0, v - 0.07))}
+          style={{
+            ...numStyle,
+            width: 'auto',
+            cursor: 'pointer',
+            color: GOLD,
+            background: 'transparent',
+          }}
+        >
+          − Dark
+        </button>
+        <button
+          type="button"
+          onClick={() => emit(h, s, Math.min(1, v + 0.07))}
+          style={{
+            ...numStyle,
+            width: 'auto',
+            cursor: 'pointer',
+            color: GOLD,
+            background: 'transparent',
+          }}
+        >
+          + Light
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {(
+            [
+              ['R', r, (n: number) => {
+                const hsv = rgbToHsv(clamp255(n), g, b)
+                setH(hsv.h); setS(hsv.s); setV(hsv.v); emit(hsv.h, hsv.s, hsv.v)
+              }],
+              ['G', g, (n: number) => {
+                const hsv = rgbToHsv(r, clamp255(n), b)
+                setH(hsv.h); setS(hsv.s); setV(hsv.v); emit(hsv.h, hsv.s, hsv.v)
+              }],
+              ['B', b, (n: number) => {
+                const hsv = rgbToHsv(r, g, clamp255(n))
+                setH(hsv.h); setS(hsv.s); setV(hsv.v); emit(hsv.h, hsv.s, hsv.v)
+              }],
+            ] as [string, number, (n: number) => void][]
+          ).map(([k, val, on]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={lbl}>{k}</span>
+              <input
+                type="number"
+                min={0}
+                max={255}
+                value={val}
+                onChange={(e) => on(Number(e.target.value))}
+                style={numStyle}
+              />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {(
+            [
+              ['H', Math.round(h), (n: number) => { setH(n); emit(n, s, v) }, 360],
+              ['S', Math.round(s * 100), (n: number) => { const ns = n / 100; setS(ns); emit(h, ns, v) }, 100],
+              ['B', Math.round(v * 100), (n: number) => { const nv = n / 100; setV(nv); emit(h, s, nv) }, 100],
+            ] as [string, number, (n: number) => void, number][]
+          ).map(([k, val, on, mx]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={lbl}>{k}</span>
+              <input
+                type="number"
+                min={0}
+                max={mx}
+                value={val}
+                onChange={(e) => on(Number(e.target.value))}
+                style={numStyle}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Eyedropper cursor (gold pen/dropper SVG as a data-URI cursor).
 const DROPPER_CURSOR =
   "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='%23b8965a' stroke-width='2'><path d='M18 4l6 6-9 9-6 1 1-6z'/><path d='M3 25l6-6' stroke-linecap='round'/></g></svg>\") 2 26, crosshair"
@@ -5532,7 +5839,9 @@ function SpreadBgControl({
             border: `0.5px solid ${GOLD}`,
             borderRadius: 8,
             padding: 12,
-            width: 230,
+            width: 300,
+            maxHeight: '80vh',
+            overflowY: 'auto',
             boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
           }}
         >
@@ -5700,103 +6009,18 @@ function SpreadBgControl({
             ))}
           </div>
 
-          {/* Fine-tune the colour (RGB + darker/lighter) */}
-          {bg.mode === 'color' &&
-            (() => {
-              const cur = bgFillColor(bg)
-              const { r, g, b } = hexToRgb(cur)
-              const setRGB = (nr: number, ng: number, nb: number) =>
-                onChange({ mode: 'color', color: rgbToHex(nr, ng, nb) })
-              const rows: {
-                label: string
-                val: number
-                tint: string
-                on: (v: number) => void
-              }[] = [
-                { label: 'R', val: r, tint: '#e06666', on: (v) => setRGB(v, g, b) },
-                { label: 'G', val: g, tint: '#7bbf6a', on: (v) => setRGB(r, v, b) },
-                { label: 'B', val: b, tint: '#6a9be0', on: (v) => setRGB(r, g, v) },
-              ]
-              return (
-                <div style={{ margin: '0 0 12px' }}>
-                  <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 6px' }}>
-                    Fine-tune colour
-                  </p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <input
-                      type="color"
-                      value={cur}
-                      onChange={(e) => onChange({ mode: 'color', color: e.target.value })}
-                      title="Full colour picker"
-                      style={{ width: 34, height: 34, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
-                    />
-                    <input
-                      type="text"
-                      value={cur.toUpperCase()}
-                      onChange={(e) => {
-                        const v = e.target.value.trim()
-                        if (/^#?[0-9a-f]{6}$/i.test(v))
-                          onChange({ mode: 'color', color: v.startsWith('#') ? v : `#${v}` })
-                      }}
-                      style={{
-                        width: 84,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        padding: '5px 6px',
-                        color: '#0e0c09',
-                        background: '#fff',
-                        border: `0.5px solid ${GOLD}`,
-                        borderRadius: 4,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      title="Darker"
-                      onClick={() => onChange({ mode: 'color', color: shiftBrightness(cur, -8) })}
-                      style={{ ...pillSm, marginLeft: 'auto' }}
-                    >
-                      − Dark
-                    </button>
-                    <button
-                      type="button"
-                      title="Lighter"
-                      onClick={() => onChange({ mode: 'color', color: shiftBrightness(cur, 8) })}
-                      style={pillSm}
-                    >
-                      + Light
-                    </button>
-                  </div>
-                  {rows.map((rw) => (
-                    <div
-                      key={rw.label}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
-                    >
-                      <span style={{ width: 12, fontSize: 10, color: rw.tint }}>
-                        {rw.label}
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={255}
-                        value={rw.val}
-                        onChange={(e) => rw.on(Number(e.target.value))}
-                        style={{ flex: 1, accentColor: rw.tint }}
-                      />
-                      <span
-                        style={{
-                          width: 26,
-                          fontSize: 10,
-                          color: 'var(--muted2)',
-                          textAlign: 'right',
-                        }}
-                      >
-                        {rw.val}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
+          {/* Full colour picker (Photoshop-style) */}
+          {bg.mode === 'color' && (
+            <div style={{ margin: '2px 0 12px' }}>
+              <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 8px' }}>
+                Fine-tune colour
+              </p>
+              <ColorPicker
+                value={bgFillColor(bg)}
+                onChange={(hex) => onChange({ mode: 'color', color: hex })}
+              />
+            </div>
+          )}
 
           {/* Photo background */}
           <p style={{ fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', margin: '0 0 6px' }}>
