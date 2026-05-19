@@ -97,6 +97,11 @@ const GOLD = '#b8965a'
 const HERO_MIN_PX = 3000
 const PHOTO_CAP = 100
 const HERO_CAP = 8
+// Auto-hero: when the client tags nothing, the engine promotes the best
+// shots to "hero" itself. Roughly one hero per N usable photos, never
+// fewer than this many per album (if enough sharp photos exist).
+const HERO_AUTO_EVERY = 4
+const HERO_AUTO_MIN = 2
 const FAV_CAP = 30
 
 // ============== TYPES ==============
@@ -1467,6 +1472,63 @@ function pickTemplate(
   return near[((variety % near.length) + near.length) % near.length].t
 }
 
+// ============== AUTO-HERO SELECTION ==============
+// The client should NOT have to tag hero photos. Code picks the most
+// "frame-worthy" shots automatically: sharp enough to print full-page,
+// good resolution, and a clean (non-extreme) aspect ratio.
+
+/** Higher = better hero candidate. Returns -1 if the photo can't be a
+ *  hero at all (too small to print sharp full-page). */
+function scorePhotoForHero(p: Photo): number {
+  if (p.blurry) return -1
+  if (p.width < HERO_MIN_PX || p.height < HERO_MIN_PX) return -1
+
+  // Resolution: more pixels = sharper big print. Capped so a single
+  // giant file doesn't dominate everything.
+  const mp = Math.min(40, (p.width * p.height) / 1_000_000)
+  let score = mp
+
+  // Aspect: a hero takes a full page. Strong portraits and clean
+  // landscapes look great big; extreme panoramas/slivers look awkward
+  // as a single hero page.
+  const ar = p.width / p.height
+  if (ar >= 0.6 && ar <= 1.7) score += 6 // pleasing range
+  else if (ar < 0.4 || ar > 2.6) score -= 8 // extreme → poor hero
+
+  // The client explicitly liked it.
+  if (p.tagged === 'favorite') score += 10
+  if (p.tagged === 'hero') score += 1000 // manual heroes always win
+  return score
+}
+
+/**
+ * Pick which photo ids should be heroes. Honours any the client manually
+ * tagged, then auto-promotes the best remaining shots until the album has
+ * a healthy hero cadence (≈ one per HERO_AUTO_EVERY photos, at least
+ * HERO_AUTO_MIN, never more than HERO_CAP).
+ */
+function autoSelectHeroIds(useable: Photo[]): Set<string> {
+  const tagged = useable.filter((p) => p.tagged === 'hero')
+  const heroIds = new Set<string>(tagged.map((p) => p.id))
+
+  const target = Math.min(
+    HERO_CAP,
+    Math.max(HERO_AUTO_MIN, Math.round(useable.length / HERO_AUTO_EVERY)),
+  )
+  if (heroIds.size >= target) return heroIds
+
+  const eligible = useable
+    .filter((p) => !heroIds.has(p.id) && scorePhotoForHero(p) >= 0)
+    .map((p) => ({ p, s: scorePhotoForHero(p) }))
+    .sort((a, b) => b.s - a.s)
+
+  for (const { p } of eligible) {
+    if (heroIds.size >= target) break
+    heroIds.add(p.id)
+  }
+  return heroIds
+}
+
 // ============== LAYOUT ENGINE ==============
 // Pacing rule: every 3rd spread is a hero spread (positions 2, 5, 8, ...
 // 0-indexed within an event). Non-hero spreads default to PAIR (2 photos).
@@ -1482,6 +1544,12 @@ function generateLayout(
 ): Spread[] {
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
+
+  // Auto-pick hero photos so the client never has to tag them. Includes
+  // any they DID tag, plus the best remaining shots up to a healthy
+  // cadence. The whole album shares one set so heroes land on the
+  // genuinely strongest images regardless of event.
+  const heroIds = autoSelectHeroIds(useable)
 
   // The layout family is decided PER SPREAD using the running spread
   // ordinal `idx` (see familyForSpread) so the mix rhythm works even when
@@ -1535,11 +1603,23 @@ function generateLayout(
 
   const spreads: Spread[] = []
   let idx = 0
+  // Guarantee at least one DUAL-HERO spread per album (two big heroes side
+  // by side on the same spread) when the album has ≥2 heroes total.
+  let doubleHeroPlaced = false
+  const totalHeroes = useable.filter((p) => heroIds.has(p.id)).length
 
   for (const { eid, bucket, spreads: spreadBudget } of rawBudgets) {
-    const heroes = bucket.photos.filter((p) => p.tagged === 'hero')
-    const favorites = bucket.photos.filter((p) => p.tagged === 'favorite')
-    const others = bucket.photos.filter((p) => p.tagged === 'none')
+    // Heroes = anything in the auto-selected hero set (manual + auto).
+    // Best heroes first so the most striking shots get featured.
+    const heroes = bucket.photos
+      .filter((p) => heroIds.has(p.id))
+      .sort((a, b) => scorePhotoForHero(b) - scorePhotoForHero(a))
+    const favorites = bucket.photos.filter(
+      (p) => p.tagged === 'favorite' && !heroIds.has(p.id),
+    )
+    const others = bucket.photos.filter(
+      (p) => p.tagged === 'none' && !heroIds.has(p.id),
+    )
     const totalEventPhotos = bucket.photos.length
 
     // ---- PASS 1: PLAN ----
@@ -1634,6 +1714,28 @@ function generateLayout(
 
     for (let i = 0; i < spreadBudget; i++) {
       if (isHeroSpot[i]) {
+        // DUAL-HERO: once per album, give two of the best heroes their own
+        // shared spread (two big photos, no fillers) for maximum impact.
+        if (!doubleHeroPlaced && totalHeroes >= 2 && heroes.length >= 2) {
+          const h1 = heroes.shift()!
+          const h2 = heroes.shift()!
+          const duo = [h1, h2]
+          const dualTpl =
+            pickTemplate(type, 2, false, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx) ??
+            pickTemplate(type, 2, true, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx)
+          if (dualTpl) {
+            eventSpreads.push({
+              id: `s-${idx++}`,
+              templateId: dualTpl.id,
+              photoIds: duo.map((p) => p.id),
+              eventId: eid,
+            })
+            doubleHeroPlaced = true
+            continue
+          }
+          // Couldn't find a 2-slot template — put them back, fall through.
+          heroes.unshift(h1, h2)
+        }
         const hero = heroes.shift()
         if (!hero) {
           // Shouldn't happen — but if it does, fall back to a pair
