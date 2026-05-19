@@ -6491,42 +6491,24 @@ function SpreadView({
             }}
           />
         )}
-        {/* Always-on alignment reference guides (editor only — never
-            printed). Vertical lines at each PAGE centre (25% / 75%) and
-            the SPREAD centre (50%); horizontal at the middle. */}
+        {/* Always-on guide: ONLY the spread centre line (editor only,
+            never printed). The page-centre (25% / 75%) + horizontal
+            guides are transient — they appear while dragging text and
+            disappear when you let go (rendered inside SpreadTextLayer). */}
         <div
           aria-hidden
-          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5 }}
-        >
-          {[25, 50, 75].map((x) => (
-            <div
-              key={x}
-              style={{
-                position: 'absolute',
-                left: `${x}%`,
-                top: 0,
-                bottom: 0,
-                width: 0,
-                borderLeft:
-                  x === 50
-                    ? '1px dashed rgba(184,150,90,0.30)'
-                    : '1px dashed rgba(184,150,90,0.16)',
-                transform: 'translateX(-0.5px)',
-              }}
-            />
-          ))}
-          <div
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: 0,
-              right: 0,
-              height: 0,
-              borderTop: '1px dashed rgba(184,150,90,0.16)',
-              transform: 'translateY(-0.5px)',
-            }}
-          />
-        </div>
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 0,
+            borderLeft: '1px dashed rgba(184,150,90,0.28)',
+            transform: 'translateX(-0.5px)',
+            pointerEvents: 'none',
+            zIndex: 5,
+          }}
+        />
         <SpreadTextLayer texts={texts} onChange={onTextsChange} />
       </div>
 
