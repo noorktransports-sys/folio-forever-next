@@ -2185,6 +2185,24 @@ function SmartDesignerInner() {
         showGutter: type === 'standard',
         spreadBgs,
         spreadTexts,
+        cover: coverState
+          ? {
+              type: coverState.type,
+              leatherColor: coverState.leatherColor,
+              foilColor: coverState.foilColor,
+              customTextHex: coverState.customTextHex,
+              fontId: coverState.fontId,
+              fontSize: coverState.fontSize,
+              primaryText: coverState.primaryText,
+              subtitleText: coverState.subtitleText,
+              position: coverState.position,
+              photoSrc: coverState.photoSrc,
+              backPhotoSrc: coverState.backPhotoSrc,
+              photoScale: coverState.photoScale,
+              photoX: coverState.photoX,
+              photoY: coverState.photoY,
+            }
+          : null,
         onProgress: (done, total, label) =>
           setSubmitting({ stage: 'uploading', done, total, label }),
       })
@@ -2224,6 +2242,8 @@ function SmartDesignerInner() {
             photoSrc: resolveCover(coverState.photoSrc),
             backPhotoSrc: resolveCover(coverState.backPhotoSrc),
             priceAdd: coverPrice,
+            renderedFrontUrl: result.coverFrontUrl,
+            renderedBackUrl: result.coverBackUrl,
           }
         : null
 
@@ -4780,6 +4800,46 @@ function SmartDesignerInner() {
           </strong>
           <div style={{ marginTop: 8 }}>{CLAUSE_PROOF_APPROVAL}</div>
         </div>
+
+        {/* Cover summary — the client confirms the cover as part of the
+            proof. They designed it live one step earlier. */}
+        {coverState && (
+          <div
+            style={{
+              ...css.card,
+              marginBottom: 24,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 16,
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ flex: '1 1 200px' }}>
+              <p style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', margin: '0 0 6px' }}>
+                Your cover
+              </p>
+              <p style={{ fontSize: 14, color: 'var(--cream)', margin: '0 0 4px' }}>
+                {coverState.type === 'leather'
+                  ? 'Leather'
+                  : coverState.type === 'acrylic'
+                  ? 'Acrylic'
+                  : 'Photo cover'}
+                {coverPrice > 0 ? ` · +$${coverPrice}` : ' · included'}
+              </p>
+              <p style={{ fontSize: 12, color: 'var(--muted2)', margin: 0 }}>
+                {coverState.primaryText || '(no title)'}
+                {coverState.subtitleText ? ` · ${coverState.subtitleText}` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              style={{ ...css.btnGhost }}
+              onClick={() => setStep('cover')}
+            >
+              ← Edit cover
+            </button>
+          </div>
+        )}
 
         {/* Reviewed counter + mark-all helper */}
         <div

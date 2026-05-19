@@ -95,6 +95,8 @@ export interface SmartOrderEmailData {
     foilColor: string;
     customTextHex: string;
     priceAdd: number;
+    renderedFrontUrl?: string | null;
+    renderedBackUrl?: string | null;
   } | null;
   photos: SmartPhotoUpload[];
   spreads: SmartSpreadSnapshot[];
@@ -166,9 +168,17 @@ export function coverSummaryHtml(
     `<tr><td style="padding-right:12px;color:#6b5e4e;">Cover text</td><td>${escapeHtml(cover.primaryText || '—')}${cover.subtitleText ? ' · ' + escapeHtml(cover.subtitleText) : ''}</td></tr>`,
     `<tr><td style="padding-right:12px;color:#6b5e4e;">Font</td><td>${escapeHtml(cover.fontId)}</td></tr>`,
   );
+  const imgs = [cover.renderedFrontUrl, cover.renderedBackUrl]
+    .filter((u): u is string => !!u)
+    .map(
+      (u) =>
+        `<a href="${escapeHtml(u)}"><img src="${escapeHtml(u)}" alt="cover" style="height:220px;border:1px solid #d8cdb8;border-radius:4px;margin:8px 8px 0 0;" /></a>`,
+    )
+    .join('');
   return `
     <h3 style="font-family:'Cormorant Garamond',Georgia,serif;font-weight:400;color:#2a2218;margin:14px 0 6px;">Cover</h3>
-    <table style="font-size:13px;line-height:1.7;">${rows.join('')}</table>`;
+    <table style="font-size:13px;line-height:1.7;">${rows.join('')}</table>
+    ${imgs ? `<div style="margin-top:6px;">${imgs}</div>` : ''}`;
 }
 
 export function abs(siteUrl: string, path: string): string {

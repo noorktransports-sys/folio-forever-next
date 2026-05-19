@@ -14,6 +14,7 @@
 
 import { loadAlbumBlobs } from './photo-blob-store'
 import { renderSpreadComposite } from './render-spread'
+import { renderCoverComposite } from './render-cover'
 
 /* ─── Image processing ──────────────────────────────────────────────── */
 
@@ -247,6 +248,24 @@ export interface SubmissionInput {
       weight: 400 | 700
     }>
   >
+  /** Cover spec — rendered to a flat JPEG (front, + back for photo
+   *  covers) so the proof + emails SHOW the cover. */
+  cover?: {
+    type: 'leather' | 'acrylic' | 'photo'
+    leatherColor: string
+    foilColor: string
+    customTextHex: string
+    fontId: string
+    fontSize: number
+    primaryText: string
+    subtitleText: string
+    position: string
+    photoSrc: string | null
+    backPhotoSrc: string | null
+    photoScale: number
+    photoX: number
+    photoY: number
+  } | null
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -274,10 +293,13 @@ export async function prepareSubmission({
   showGutter,
   spreadBgs,
   spreadTexts,
+  cover,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
   spreadComposites: SpreadCompositeResult[]
+  coverFrontUrl: string | null
+  coverBackUrl: string | null
 }> {
   // Hydrate uploaded photo blobs from IDB so we can read the originals.
   // Sample photos won't be in IDB — we fetch their HTTPS URL instead.
@@ -377,5 +399,78 @@ export async function prepareSubmission({
     }
   }
 
-  return { photos: photoResults, spreadComposites: composites }
+  // ─── Cover composite (front, + back for photo covers) ──────────────
+  let coverFrontUrl: string | null = null
+  let coverBackUrl: string | null = null
+  if (cover) {
+    onProgress?.(total, total, 'Rendering cover')
+    // If the cover photo is a SPREAD photo (local blob preview), swap it
+    // for the uploaded original so the canvas can fetch it (CORS-safe).
+    const prevToOrig = new Map<string, string>()
+    for (const p of photos) {
+      const up = photoResults.find((r) => r.photoId === p.id)
+      if (up) prevToOrig.set(p.preview, up.originalUrl)
+    }
+    const rsv = (s: string | null) => (s ? prevToOrig.get(s) ?? s : null)
+    cover = {
+      ...cover,
+      photoSrc: rsv(cover.photoSrc),
+      backPhotoSrc: rsv(cover.backPhotoSrc),
+    }
+    try {
+      const frontBlob = await renderCoverComposite({
+        type: cover.type,
+        side: 'front',
+        leatherColor: cover.leatherColor,
+        foilColor: cover.foilColor,
+        customTextHex: cover.customTextHex,
+        fontId: cover.fontId,
+        fontSize: cover.fontSize,
+        primaryText: cover.primaryText,
+        subtitleText: cover.subtitleText,
+        position: cover.position,
+        photoSrc: cover.photoSrc,
+        backPhotoSrc: cover.backPhotoSrc,
+        photoScale: cover.photoScale,
+        photoX: cover.photoX,
+        photoY: cover.photoY,
+      })
+      const up = await uploadToR2(frontBlob, designId, 'cover-front.jpg')
+      coverFrontUrl = up.url
+    } catch (err) {
+      console.warn('[submit-helpers] cover front render failed', err)
+    }
+    if (cover.type === 'photo') {
+      try {
+        const backBlob = await renderCoverComposite({
+          type: cover.type,
+          side: 'back',
+          leatherColor: cover.leatherColor,
+          foilColor: cover.foilColor,
+          customTextHex: cover.customTextHex,
+          fontId: cover.fontId,
+          fontSize: cover.fontSize,
+          primaryText: cover.primaryText,
+          subtitleText: cover.subtitleText,
+          position: cover.position,
+          photoSrc: cover.photoSrc,
+          backPhotoSrc: cover.backPhotoSrc,
+          photoScale: cover.photoScale,
+          photoX: cover.photoX,
+          photoY: cover.photoY,
+        })
+        const up = await uploadToR2(backBlob, designId, 'cover-back.jpg')
+        coverBackUrl = up.url
+      } catch (err) {
+        console.warn('[submit-helpers] cover back render failed', err)
+      }
+    }
+  }
+
+  return {
+    photos: photoResults,
+    spreadComposites: composites,
+    coverFrontUrl,
+    coverBackUrl,
+  }
 }

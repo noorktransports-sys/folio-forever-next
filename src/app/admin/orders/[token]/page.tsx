@@ -114,6 +114,8 @@ interface SavedDesign {
     photoSrc?: string | null;
     backPhotoSrc?: string | null;
     priceAdd?: number;
+    renderedFrontUrl?: string | null;
+    renderedBackUrl?: string | null;
   } | null;
 
   // Smart shape
@@ -326,6 +328,26 @@ export default async function OrderDetail({
                     )}
                   </>
                 )}
+              </div>
+            )}
+            {(cover.renderedFrontUrl || cover.renderedBackUrl) && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                {[cover.renderedFrontUrl, cover.renderedBackUrl]
+                  .filter((u): u is string => !!u)
+                  .map((u) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <a key={u} href={u} target="_blank" rel="noreferrer">
+                      <img
+                        src={u}
+                        alt="cover"
+                        style={{
+                          height: 140,
+                          border: '1px solid #d8cdb8',
+                          borderRadius: 4,
+                        }}
+                      />
+                    </a>
+                  ))}
               </div>
             )}
           </div>

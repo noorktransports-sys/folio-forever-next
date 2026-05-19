@@ -164,6 +164,9 @@ interface SubmitPayload {
     position: string;
     /** Cover add-on price ($0 photo / $25 leather / $39 acrylic). */
     priceAdd: number;
+    /** Flat rendered cover JPEG(s) on R2 for proof / production. */
+    renderedFrontUrl?: string | null;
+    renderedBackUrl?: string | null;
   } | null;
   /** Polish-it upsell — $99 if true */
   polishHandoff?: boolean;
