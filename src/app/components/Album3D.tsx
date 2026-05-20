@@ -892,20 +892,16 @@ export default function Album3D({
       r.acrylicStrip = strip;
 
       const sheenW = BOOK_W - stripW;
-      const sheenGeom = new THREE.PlaneGeometry(sheenW, BOOK_H);
-      // Acrylic sheen — was metalness:0.6 + opacity:0.10 which, with no
-      // env-map on this scene, made the metallic component reflect the
-      // default "black void" right back at the camera. Net effect: a
-      // ~60%-dark wash over the photo (the symptom in the bug report:
-      // "you don't see the photo, just a faint silhouette").
-      //
-      // Switch to MeshBasicMaterial: pure additive-style overlay with no
-      // PBR shading. Low opacity + AdditiveBlending gives the glassy
-      // highlight without darkening anything underneath.
+      // Owner spec: the acrylic gloss was washing photos out. Shrink the
+      // highlight to a thin top band and drop opacity to ~4%, so the
+      // photo prints/previews with its true colour and the "glass" cue
+      // is just a faint top edge instead of a face-wide wash.
+      const sheenH = BOOK_H * 0.22;
+      const sheenGeom = new THREE.PlaneGeometry(sheenW, sheenH);
       const sheenMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.04,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -913,7 +909,7 @@ export default function Album3D({
       const sheen = new THREE.Mesh(sheenGeom, sheenMat);
       sheen.position.set(
         stripW / 2,
-        0,
+        BOOK_H / 2 - sheenH / 2 - BOOK_H * 0.04,
         PAGE_D / 2 + COVER_T + COVER_T * 0.5,
       );
       r.book.add(sheen);

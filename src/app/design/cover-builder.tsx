@@ -822,7 +822,59 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             Live preview · {state.type === 'leather' && 'Leather + foil stamp'}
             {state.type === 'acrylic' && 'Clear acrylic with photo inside'}
             {state.type === 'photo' && 'Full-bleed photo with 3D tactile finish'}
+            {state.type === 'photo' && ' · drag the album to see the back'}
           </p>
+
+          {/* Photo-cover back preview — flat thumbnail so the client can
+              see the back without having to rotate the 3D album. */}
+          {state.type === 'photo' && (state.backPhotoSrc || state.photoSrc) && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                marginTop: 14,
+                padding: '10px 12px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '0.5px solid rgba(184,150,90,0.25)',
+                borderRadius: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                  color: '#b8965a',
+                }}
+              >
+                Back cover
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={state.backPhotoSrc || state.photoSrc || ''}
+                alt="Back cover"
+                style={{
+                  width: 92,
+                  height: 116,
+                  objectFit: 'cover',
+                  borderRadius: 4,
+                  border: '1px solid rgba(184,150,90,0.3)',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'rgba(245,235,215,0.7)',
+                  lineHeight: 1.5,
+                }}
+              >
+                {state.backPhotoSrc
+                  ? 'Prints on the back of your album.'
+                  : 'Same as front (pick a different photo below to change).'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* === STALE BLOCK BELOW — kept temporarily so any references
