@@ -5164,11 +5164,36 @@ function SmartDesignerInner() {
                     : coverState.type === 'acrylic'
                     ? 'Acrylic'
                     : 'Photo cover'}
-                  {coverPrice > 0 ? ` · +$${coverPrice}` : ' · included'}
                 </p>
-                <p style={{ fontSize: 12, color: 'var(--muted2)', margin: 0 }}>
+                <p style={{ fontSize: 12, color: 'var(--muted2)', margin: '0 0 8px' }}>
                   {coverState.primaryText || '(no title)'}
                   {coverState.subtitleText ? ` · ${coverState.subtitleText}` : ''}
+                </p>
+                {/* Order grand total — cover add-on already folded in.
+                    Shown here so the client sees the bottom-line before
+                    approving the proof. */}
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--muted2)',
+                    margin: 0,
+                    letterSpacing: 1.2,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Order total{' '}
+                  <span
+                    style={{
+                      color: GOLD,
+                      fontFamily: 'var(--font-display)',
+                      fontSize: 22,
+                      marginLeft: 6,
+                      letterSpacing: 0,
+                      textTransform: 'none',
+                    }}
+                  >
+                    ${orderTotal}
+                  </span>
                 </p>
               </div>
               <button

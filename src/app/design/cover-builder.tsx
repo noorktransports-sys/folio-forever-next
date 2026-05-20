@@ -755,10 +755,27 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                         gap: 8,
                       }}
                     >
-                      <span>
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                         {t === 'leather' && 'Leather'}
                         {t === 'acrylic' && 'Acrylic'}
                         {t === 'photo' && 'Photo Cover'}
+                        {t === 'acrylic' && (
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 9,
+                              letterSpacing: 1.4,
+                              textTransform: 'uppercase',
+                              padding: '2px 8px',
+                              borderRadius: 30,
+                              background: 'var(--gold)',
+                              color: '#0e0c09',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Recommended
+                          </span>
+                        )}
                       </span>
                       <span
                         style={{
