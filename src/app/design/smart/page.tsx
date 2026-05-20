@@ -4273,6 +4273,12 @@ function SmartDesignerInner() {
           spreads={spreads}
           previewFor={(id) => photos.find((p) => p.id === id)?.preview}
           aspect={ALBUM_SPECS[size].spreadAspectRatio}
+          onDragStart={onSpreadDragStart}
+          onDragOver={onSpreadDragOver}
+          onDrop={onSpreadDrop}
+          onDragEnd={onSpreadDragEnd}
+          draggingIdx={draggingSpreadIdx}
+          dropTargetIdx={dropTargetIdx}
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
@@ -5967,11 +5973,24 @@ function SpreadNavRail({
   spreads,
   previewFor,
   aspect,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  draggingIdx,
+  dropTargetIdx,
 }: {
   spreads: Spread[]
   previewFor: (photoId: string) => string | undefined
   /** width / height of a spread (e.g. 24/17) so mini slots match shape */
   aspect: number
+  /** Reorder handlers — same ones the big spread cards already use. */
+  onDragStart: (idx: number) => (e: React.DragEvent) => void
+  onDragOver: (idx: number) => (e: React.DragEvent) => void
+  onDrop: (idx: number) => (e: React.DragEvent) => void
+  onDragEnd: () => void
+  draggingIdx: number | null
+  dropTargetIdx: number | null
 }) {
   if (spreads.length < 2) return null
   return (
@@ -6008,7 +6027,12 @@ function SpreadNavRail({
           <button
             key={s.id}
             type="button"
-            title={`Jump to spread ${i + 1}`}
+            title={`Jump to spread ${i + 1} · drag to reorder`}
+            draggable
+            onDragStart={onDragStart(i)}
+            onDragOver={onDragOver(i)}
+            onDrop={onDrop(i)}
+            onDragEnd={onDragEnd}
             onClick={() => {
               document
                 .getElementById(`ff-spread-${s.id}`)
@@ -6021,15 +6045,24 @@ function SpreadNavRail({
               gap: 3,
               padding: 4,
               background: 'transparent',
-              border: '0.5px solid rgba(184,150,90,0.25)',
+              border:
+                dropTargetIdx === i && draggingIdx !== i
+                  ? `1.5px solid ${GOLD}`
+                  : '0.5px solid rgba(184,150,90,0.25)',
               borderRadius: 6,
-              cursor: 'pointer',
+              cursor: draggingIdx === i ? 'grabbing' : 'grab',
               flexShrink: 0,
+              opacity: draggingIdx === i ? 0.4 : 1,
+              transition: 'opacity 0.12s, border-color 0.12s',
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = GOLD)}
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.borderColor = 'rgba(184,150,90,0.25)')
-            }
+            onMouseEnter={(e) => {
+              if (dropTargetIdx === i && draggingIdx !== i) return
+              e.currentTarget.style.borderColor = GOLD
+            }}
+            onMouseLeave={(e) => {
+              if (dropTargetIdx === i && draggingIdx !== i) return
+              e.currentTarget.style.borderColor = 'rgba(184,150,90,0.25)'
+            }}
           >
             <div
               style={{
