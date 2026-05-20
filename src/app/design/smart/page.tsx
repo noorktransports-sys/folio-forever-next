@@ -30,6 +30,7 @@ import {
   clusterByTimeGaps,
   type EventId as GroupEventId,
 } from '@/lib/smart-group'
+import { detectFaces, computeFacePan, type FaceBox } from '@/lib/face-detect'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
 
@@ -216,6 +217,10 @@ type Photo = {
   /** Largest digit run in the original filename — used as a fallback
    *  ordering signal when EXIF is missing. */
   seqNum?: number
+  /** Face bounding boxes (normalised 0..1) from native FaceDetector.
+   *  Used to auto-pan the photo inside its slot so faces aren't cropped
+   *  off. Browsers without FaceDetector simply have no faces here. */
+  faces?: FaceBox[]
 }
 
 type Step =
@@ -1578,6 +1583,7 @@ function SmartDesignerInner() {
 
     setUploadProgress(0)
     const newPhotos: Photo[] = []
+    const faceJobs: { id: string; file: Blob }[] = []
     for (let i = 0; i < toProcess.length; i++) {
       const file = toProcess[i]
       const dim = await getImageDimensions(file)
@@ -1597,12 +1603,14 @@ function SmartDesignerInner() {
         capturedAt,
         seqNum,
       })
+      faceJobs.push({ id: photoId, file })
       // Persist the blob to IndexedDB so it survives a refresh.
       // Fire-and-forget; failure is handled inside saveBlob.
       if (albumId) saveBlob(albumId, photoId, file)
       setUploadProgress((i + 1) / toProcess.length)
     }
     setPhotos([...photos, ...newPhotos])
+    kickoffFaceDetect(faceJobs)
     setTimeout(() => setUploadProgress(0), 600)
   }
 
@@ -1642,6 +1650,7 @@ function SmartDesignerInner() {
     setUploadProgress(0)
     const newPhotos: Photo[] = []
     const folderHits = new Set<GroupEventId>()
+    const faceJobs: { id: string; file: Blob }[] = []
     for (let i = 0; i < toProcess.length; i++) {
       const file = toProcess[i]
       const dim = await getImageDimensions(file)
@@ -1664,6 +1673,7 @@ function SmartDesignerInner() {
         capturedAt,
         seqNum,
       })
+      faceJobs.push({ id: photoId, file })
       if (albumId) saveBlob(albumId, photoId, file)
       setUploadProgress((i + 1) / toProcess.length)
     }
@@ -1681,8 +1691,23 @@ function SmartDesignerInner() {
       }
     }
     setPhotos([...photos, ...newPhotos])
+    kickoffFaceDetect(faceJobs)
     setTimeout(() => setUploadProgress(0), 600)
     e.target.value = ''
+  }
+
+  /** Fire-and-forget face detection. Updates each photo's `faces` as
+   *  the detector resolves; the layout engine reads those at generate
+   *  time and auto-pans crops so faces aren't cut off. */
+  const kickoffFaceDetect = (items: { id: string; file: Blob }[]) => {
+    for (const { id, file } of items) {
+      detectFaces(file).then((faces) => {
+        if (!faces.length) return
+        setPhotos((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, faces } : p)),
+        )
+      })
+    }
   }
 
   /** Smart re-group all current photos by EXIF time gaps. Manual escape
@@ -1735,6 +1760,7 @@ function SmartDesignerInner() {
     }
     setUploadProgress(0.0001)
     const newPhotos: Photo[] = []
+    const faceJobs: { id: string; file: Blob }[] = []
     for (let i = 0; i < toProcess.length; i++) {
       const { blob, name } = toProcess[i]
       const file =
@@ -1763,10 +1789,14 @@ function SmartDesignerInner() {
         capturedAt,
         seqNum,
       })
+      faceJobs.push({ id: photoId, file })
       if (albumId) saveBlob(albumId, photoId, file)
       setUploadProgress((i + 1) / toProcess.length)
     }
-    if (newPhotos.length) setPhotos([...photos, ...newPhotos])
+    if (newPhotos.length) {
+      setPhotos([...photos, ...newPhotos])
+      kickoffFaceDetect(faceJobs)
+    }
     setTimeout(() => setUploadProgress(0), 600)
   }
 
@@ -1924,8 +1954,38 @@ function SmartDesignerInner() {
         }
       }
       setSpreadBgs(bgs)
+
+      // Face-aware initial crops — for every slot whose photo has
+      // detected faces, pre-set panX/panY so the face centroid lands
+      // inside the visible crop. Photos without faces (or browsers
+      // with no FaceDetector) keep the default 50/50 centre crop.
+      const photoById = new Map(photos.map((p) => [p.id, p]))
+      const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
+      const adj: Record<string, PhotoAdjust> = {}
+      for (const s of newSpreads) {
+        const tpl = TEMPLATE_BY_ID.get(s.templateId)
+        if (!tpl) continue
+        const slots = renderSlots(tpl)
+        for (let i = 0; i < slots.length; i++) {
+          const pid = s.photoIds[i]
+          if (!pid) continue
+          const p = photoById.get(pid)
+          if (!p || !p.faces || p.faces.length === 0) continue
+          const slotAspect = (slots[i].w * aspect) / slots[i].h
+          const { panX, panY } = computeFacePan(
+            p.faces,
+            p.width,
+            p.height,
+            slotAspect,
+          )
+          if (panX !== 50 || panY !== 50) {
+            adj[adjustKey(s.id, i)] = { ...DEFAULT_ADJUST, panX, panY }
+          }
+        }
+      }
+      setAdjusts(adj)
     },
-    [photos],
+    [photos, size],
   )
 
   // The smart engine runs on the SERVER (/api/smart-layout) so the
