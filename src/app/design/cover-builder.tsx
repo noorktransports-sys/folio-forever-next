@@ -730,25 +730,57 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           <section className="cover-section">
             <h3 className="cover-section-title">Cover Type</h3>
             <div className="cover-type-grid">
-              {(['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={'cover-type-btn' + (state.type === t ? ' active' : '')}
-                  onClick={() => update('type', t)}
-                >
-                  <span className="cover-type-name">
-                    {t === 'leather' && 'Leather'}
-                    {t === 'acrylic' && 'Acrylic'}
-                    {t === 'photo' && 'Photo Cover'}
-                  </span>
-                  <span className="cover-type-desc">
-                    {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
-                    {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
-                    {t === 'photo' && 'Your photo · 3D tactile printing'}
-                  </span>
-                </button>
-              ))}
+              {(() => {
+                // Owner spec — photo included, leather +$25, acrylic +$39.
+                const PRICE: Record<CoverType, number> = {
+                  photo: 0,
+                  leather: 25,
+                  acrylic: 39,
+                };
+                return (['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={
+                      'cover-type-btn' + (state.type === t ? ' active' : '')
+                    }
+                    onClick={() => update('type', t)}
+                  >
+                    <span
+                      className="cover-type-name"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <span>
+                        {t === 'leather' && 'Leather'}
+                        {t === 'acrylic' && 'Acrylic'}
+                        {t === 'photo' && 'Photo Cover'}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 11,
+                          letterSpacing: 1.2,
+                          textTransform: 'uppercase',
+                          color: 'var(--gold)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {PRICE[t] === 0 ? 'Included' : `+ $${PRICE[t]}`}
+                      </span>
+                    </span>
+                    <span className="cover-type-desc">
+                      {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
+                      {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
+                      {t === 'photo' && 'Your photo · 3D tactile printing'}
+                    </span>
+                  </button>
+                ));
+              })()}
             </div>
           </section>
           <section className="cover-section">
