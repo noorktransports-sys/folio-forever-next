@@ -24,6 +24,12 @@ import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 import { renderCoverComposite } from './edit/render-cover'
+
+// Lazy: pulls the two composite renderers + render math only when the
+// client actually opens the album preview modal.
+const AlbumPreviewModal = dynamic(() => import('./edit/AlbumPreviewModal'), {
+  ssr: false,
+})
 import { readJpegCaptureTime, extractFilenameSeq } from '@/lib/exif'
 import {
   pathToEvent,
@@ -1215,6 +1221,8 @@ function SmartDesignerInner() {
     front: string | null
     back: string | null
   }>({ front: null, back: null })
+  // Full-screen flipbook preview ("open your album"). Opens lazily.
+  const [showAlbumPreview, setShowAlbumPreview] = useState(false)
 
   // Render the flat cover preview(s) for the proof step. Front always
   // (every type), back as well for photo covers — the owner asked for
@@ -5202,13 +5210,26 @@ function SmartDesignerInner() {
                   </span>
                 </p>
               </div>
-              <button
-                type="button"
-                style={{ ...css.btnGhost }}
-                onClick={() => setStep('cover')}
-              >
-                ← Edit cover
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button
+                  type="button"
+                  style={{
+                    ...css.btnPrimary,
+                    padding: '10px 16px',
+                    fontSize: 11,
+                  }}
+                  onClick={() => setShowAlbumPreview(true)}
+                >
+                  📖 Open your album
+                </button>
+                <button
+                  type="button"
+                  style={{ ...css.btnGhost, padding: '8px 16px', fontSize: 10 }}
+                  onClick={() => setStep('cover')}
+                >
+                  ← Edit cover
+                </button>
+              </div>
             </div>
             {(proofCoverImgs.front || proofCoverImgs.back) && (
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -5695,6 +5716,39 @@ function SmartDesignerInner() {
       {step === 'cover' && renderCover()}
       {step === 'proof' && renderProof()}
       {step === 'submit' && renderSubmit()}
+
+      {showAlbumPreview && size && type && coverState && (
+        <AlbumPreviewModal
+          spreads={spreads}
+          photoMap={new Map(photos.map((p) => [p.id, p]))}
+          adjusts={adjusts}
+          spreadBgs={spreadBgs}
+          spreadTexts={spreadTexts}
+          cover={{
+            type: coverState.type,
+            leatherColor: coverState.leatherColor,
+            foilColor: coverState.foilColor,
+            customTextHex: coverState.customTextHex,
+            fontId: coverState.fontId,
+            fontSize: coverState.fontSize,
+            primaryText: coverState.primaryText,
+            subtitleText: coverState.subtitleText,
+            position: coverState.position,
+            photoSrc: coverState.photoSrc,
+            backPhotoSrc: coverState.backPhotoSrc,
+            photoScale: coverState.photoScale,
+            photoX: coverState.photoX,
+            photoY: coverState.photoY,
+            titleX: coverState.titleX,
+            titleY: coverState.titleY,
+          }}
+          spreadAspect={ALBUM_SPECS[size].spreadAspectRatio}
+          isStandard={type === 'standard'}
+          coverAspect={0.8}
+          sizeLabel={ALBUM_SPECS[size].label}
+          onClose={() => setShowAlbumPreview(false)}
+        />
+      )}
 
       {/* Phase 2 — Content rights modal (clauses 2.2 + 2.4).
           Shown the first time photos enter the album, gated above any
