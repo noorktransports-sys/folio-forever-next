@@ -89,13 +89,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  /* The right controls panel is 380px wide, which pushes everything in
-   * the preview panel ~190px left of the viewport's true horizontal
-   * center. Adding matching left padding rebalances it: the cover now
-   * sits at the visual center of the full viewport, not just the
-   * center of the preview area. The original 32px symmetric padding
-   * is preserved as the breathing-room baseline. */
-  padding: 24px 32px 24px calc(380px + 32px);
+  /* Two-column controls (320px + 320px) flank the preview, so the
+   * preview's column is already centred in the viewport. Use plain
+   * symmetric padding — the old asymmetric left padding was leftover
+   * from the single-right-controls layout and was pushing the cover
+   * (and the back-cover thumbnail bar) into the right controls panel,
+   * which silently swallowed clicks on the back-cover picker. */
+  padding: 24px 32px;
   background: linear-gradient(180deg, var(--dark) 0%, var(--dark2) 100%);
   /* hidden (not auto): the preview is a 3D scene, never wants its own
    * scrollbar. The canvas inside scales via width:100% to stay within
