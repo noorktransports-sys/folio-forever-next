@@ -720,6 +720,184 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             color/photo update reactively. Niceties left out for now:
             "Open the Album" reveal animation, drag-to-position title,
             photo crop mode. To rebuild in v2 if needed. */}
+        {/* LEFT CONTROLS — style (type, colours, foil, font) */}
+        <div className="cover-controls-panel-left">
+          <section className="cover-section">
+            <h3 className="cover-section-title">Cover Type</h3>
+            <div className="cover-type-grid">
+              {(['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={'cover-type-btn' + (state.type === t ? ' active' : '')}
+                  onClick={() => update('type', t)}
+                >
+                  <span className="cover-type-name">
+                    {t === 'leather' && 'Leather'}
+                    {t === 'acrylic' && 'Acrylic'}
+                    {t === 'photo' && 'Photo Cover'}
+                  </span>
+                  <span className="cover-type-desc">
+                    {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
+                    {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
+                    {t === 'photo' && 'Your photo · 3D tactile printing'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="cover-section">
+            <h3 className="cover-section-title">
+              {state.type === 'leather' ? 'Leather Color' : 'Binding Color'}
+            </h3>
+            <div className="cover-swatch-row">
+              {LEATHER_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
+                  style={{ background: c.hex }}
+                  title={c.label}
+                  onClick={() => update('leatherColor', c.id)}
+                >
+                  <span className="cover-swatch-label">{c.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+          {/* Foil (leather) or text color (photo) */}
+          {(state.type === 'leather' || state.type === 'acrylic') && (
+            <section className="cover-section">
+              <h3 className="cover-section-title">
+                {state.type === 'leather' ? 'Foil Color' : 'Back Stamp Foil'}
+              </h3>
+              <div className="cover-swatch-row">
+                {FOIL_COLORS.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={'cover-swatch' + (state.foilColor === c.id ? ' active' : '')}
+                    style={{ background: c.hex }}
+                    title={c.label}
+                    onClick={() => update('foilColor', c.id)}
+                  >
+                    <span className="cover-swatch-label">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {(state.type === 'photo' || state.type === 'acrylic') && (
+            <section className="cover-section">
+              <h3 className="cover-section-title">Text Color</h3>
+              {/* Quick-pick shortcuts above the RGB picker — saves the
+                  common cases (white / black / gold) from a trip through
+                  the color wheel. Clicking a shortcut just sets
+                  customTextHex; the RGB picker stays in sync. */}
+              <div className="cover-swatch-row" style={{ marginBottom: 10 }}>
+                {PHOTO_TEXT_COLORS.map((c) => {
+                  const isActive =
+                    state.customTextHex.toLowerCase() === c.hex.toLowerCase();
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={'cover-swatch' + (isActive ? ' active' : '')}
+                      style={{ background: c.hex }}
+                      title={c.label}
+                      onClick={() => update('customTextHex', c.hex)}
+                    >
+                      <span className="cover-swatch-label">{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Full RGB picker — the printer takes any color. We store
+                  customTextHex as #rrggbb and feed it into textHex which
+                  paints the title canvas. */}
+              <label
+                className="cover-rgb-row"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 0',
+                }}
+              >
+                <input
+                  type="color"
+                  value={state.customTextHex}
+                  onChange={(e) => update('customTextHex', e.target.value)}
+                  className="cover-rgb-input"
+                  aria-label="Cover text color"
+                />
+                <input
+                  type="text"
+                  value={state.customTextHex}
+                  onChange={(e) => {
+                    // Accept either '#rgb' or '#rrggbb' shorthand; normalize
+                    // before saving so textHex's regex test passes.
+                    const v = e.target.value.trim();
+                    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+                      const r = v[1], g = v[2], b = v[3];
+                      update('customTextHex', `#${r}${r}${g}${g}${b}${b}`.toLowerCase());
+                    } else if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                      update('customTextHex', v.toLowerCase());
+                    } else {
+                      // typing-in-progress — store raw, regex will reject
+                      // until valid so textHex falls back gracefully.
+                      update('customTextHex', v);
+                    }
+                  }}
+                  className="cover-rgb-text"
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    background: 'var(--dark3)',
+                    border: '0.5px solid rgba(184, 150, 90, 0.2)',
+                    borderRadius: 4,
+                    color: 'var(--cream)',
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    padding: '6px 10px',
+                    outline: 'none',
+                  }}
+                />
+              </label>
+              <p
+                className="cover-hint"
+                style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5 }}
+              >
+                Any RGB color works — text is printed in ink. Bright reds,
+                oranges, and neon greens may print slightly muted (RGB →
+                CMYK conversion).
+              </p>
+            </section>
+          )}
+          <section className="cover-section">
+            <h3 className="cover-section-title">Font</h3>
+            <div className="cover-font-grid">
+              {FONTS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={'cover-font-btn' + (state.fontId === f.id ? ' active' : '')}
+                  onClick={() => update('fontId', f.id)}
+                  style={{
+                    fontFamily: f.family,
+                    fontStyle: f.style ?? 'normal',
+                  }}
+                >
+                  <span className="cover-font-sample">
+                    {state.primaryText || 'Sarah & James'}
+                  </span>
+                  <span className="cover-font-name">{f.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+
         <div className="cover-preview-panel">
           <div className="cover-three-mount">
             <Album3D
@@ -1195,30 +1373,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
         {/* CONTROLS (RIGHT) */}
         <div className="cover-controls-panel">
           {/* Cover type */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">Cover Type</h3>
-            <div className="cover-type-grid">
-              {(['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={'cover-type-btn' + (state.type === t ? ' active' : '')}
-                  onClick={() => update('type', t)}
-                >
-                  <span className="cover-type-name">
-                    {t === 'leather' && 'Leather'}
-                    {t === 'acrylic' && 'Acrylic'}
-                    {t === 'photo' && 'Photo Cover'}
-                  </span>
-                  <span className="cover-type-desc">
-                    {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
-                    {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
-                    {t === 'photo' && 'Your photo · 3D tactile printing'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {/* Leather / binding color picker.
               For 'leather' covers this is the leather body itself. For
@@ -1228,25 +1382,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               the same `leatherColor` field for both so we don't duplicate
               state, and so a customer who switches cover type doesn't
               lose their color choice. */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">
-              {state.type === 'leather' ? 'Leather Color' : 'Binding Color'}
-            </h3>
-            <div className="cover-swatch-row">
-              {LEATHER_COLORS.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
-                  style={{ background: c.hex }}
-                  title={c.label}
-                  onClick={() => update('leatherColor', c.id)}
-                >
-                  <span className="cover-swatch-label">{c.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {(state.type === 'acrylic' || state.type === 'photo') && (
             <section className="cover-section">
@@ -1476,28 +1611,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           </section>
 
           {/* Font picker */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">Font</h3>
-            <div className="cover-font-grid">
-              {FONTS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  className={'cover-font-btn' + (state.fontId === f.id ? ' active' : '')}
-                  onClick={() => update('fontId', f.id)}
-                  style={{
-                    fontFamily: f.family,
-                    fontStyle: f.style ?? 'normal',
-                  }}
-                >
-                  <span className="cover-font-sample">
-                    {state.primaryText || 'Sarah & James'}
-                  </span>
-                  <span className="cover-font-name">{f.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {/* Font size slider */}
           <section className="cover-section">
@@ -1516,116 +1629,7 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             </div>
           </section>
 
-          {/* Foil (leather) or text color (photo) */}
-          {(state.type === 'leather' || state.type === 'acrylic') && (
-            <section className="cover-section">
-              <h3 className="cover-section-title">
-                {state.type === 'leather' ? 'Foil Color' : 'Back Stamp Foil'}
-              </h3>
-              <div className="cover-swatch-row">
-                {FOIL_COLORS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={'cover-swatch' + (state.foilColor === c.id ? ' active' : '')}
-                    style={{ background: c.hex }}
-                    title={c.label}
-                    onClick={() => update('foilColor', c.id)}
-                  >
-                    <span className="cover-swatch-label">{c.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
 
-          {(state.type === 'photo' || state.type === 'acrylic') && (
-            <section className="cover-section">
-              <h3 className="cover-section-title">Text Color</h3>
-              {/* Quick-pick shortcuts above the RGB picker — saves the
-                  common cases (white / black / gold) from a trip through
-                  the color wheel. Clicking a shortcut just sets
-                  customTextHex; the RGB picker stays in sync. */}
-              <div className="cover-swatch-row" style={{ marginBottom: 10 }}>
-                {PHOTO_TEXT_COLORS.map((c) => {
-                  const isActive =
-                    state.customTextHex.toLowerCase() === c.hex.toLowerCase();
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={'cover-swatch' + (isActive ? ' active' : '')}
-                      style={{ background: c.hex }}
-                      title={c.label}
-                      onClick={() => update('customTextHex', c.hex)}
-                    >
-                      <span className="cover-swatch-label">{c.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {/* Full RGB picker — the printer takes any color. We store
-                  customTextHex as #rrggbb and feed it into textHex which
-                  paints the title canvas. */}
-              <label
-                className="cover-rgb-row"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 0',
-                }}
-              >
-                <input
-                  type="color"
-                  value={state.customTextHex}
-                  onChange={(e) => update('customTextHex', e.target.value)}
-                  className="cover-rgb-input"
-                  aria-label="Cover text color"
-                />
-                <input
-                  type="text"
-                  value={state.customTextHex}
-                  onChange={(e) => {
-                    // Accept either '#rgb' or '#rrggbb' shorthand; normalize
-                    // before saving so textHex's regex test passes.
-                    const v = e.target.value.trim();
-                    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
-                      const r = v[1], g = v[2], b = v[3];
-                      update('customTextHex', `#${r}${r}${g}${g}${b}${b}`.toLowerCase());
-                    } else if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-                      update('customTextHex', v.toLowerCase());
-                    } else {
-                      // typing-in-progress — store raw, regex will reject
-                      // until valid so textHex falls back gracefully.
-                      update('customTextHex', v);
-                    }
-                  }}
-                  className="cover-rgb-text"
-                  spellCheck={false}
-                  style={{
-                    flex: 1,
-                    background: 'var(--dark3)',
-                    border: '0.5px solid rgba(184, 150, 90, 0.2)',
-                    borderRadius: 4,
-                    color: 'var(--cream)',
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    padding: '6px 10px',
-                    outline: 'none',
-                  }}
-                />
-              </label>
-              <p
-                className="cover-hint"
-                style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5 }}
-              >
-                Any RGB color works — text is printed in ink. Bright reds,
-                oranges, and neon greens may print slightly muted (RGB →
-                CMYK conversion).
-              </p>
-            </section>
-          )}
 
           {/* Position */}
           <section className="cover-section">

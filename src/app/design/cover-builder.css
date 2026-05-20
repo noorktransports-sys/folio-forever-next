@@ -72,7 +72,9 @@
 /* GRID — preview left, controls right */
 .cover-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  /* Two slim control columns flank the centred preview so neither side
+   * is empty and the user almost never has to scroll. */
+  grid-template-columns: 320px 1fr 320px;
   flex: 1;
   min-height: 0;
 }
@@ -628,8 +630,16 @@
   overflow-y: auto;
   padding: 24px 22px 60px;
 }
-.cover-controls-panel::-webkit-scrollbar { width: 4px; }
-.cover-controls-panel::-webkit-scrollbar-thumb { background: rgba(184, 150, 90, 0.25); border-radius: 2px; }
+.cover-controls-panel-left {
+  background: var(--dark2);
+  border-right: 0.5px solid rgba(184, 150, 90, 0.15);
+  overflow-y: auto;
+  padding: 24px 22px 60px;
+}
+.cover-controls-panel::-webkit-scrollbar,
+.cover-controls-panel-left::-webkit-scrollbar { width: 4px; }
+.cover-controls-panel::-webkit-scrollbar-thumb,
+.cover-controls-panel-left::-webkit-scrollbar-thumb { background: rgba(184, 150, 90, 0.25); border-radius: 2px; }
 
 .cover-section { margin-bottom: 28px; }
 .cover-section-title {
@@ -1142,6 +1152,7 @@
 /* RESPONSIVE */
 @media (max-width: 860px) {
   .cover-grid { grid-template-columns: 1fr; }
+  .cover-controls-panel-left { border-right: none; border-bottom: 0.5px solid rgba(184, 150, 90, 0.15); }
   .cover-controls-panel { border-left: none; border-top: 0.5px solid rgba(184, 150, 90, 0.15); }
   .cover-stage { max-width: 320px; }
   /* On the single-column mobile layout the controls panel stacks below
