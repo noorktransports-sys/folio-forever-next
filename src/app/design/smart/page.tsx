@@ -25,6 +25,11 @@ import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 import { renderCoverComposite } from './edit/render-cover'
 import { readJpegCaptureTime, extractFilenameSeq } from '@/lib/exif'
+import {
+  pathToEvent,
+  clusterByTimeGaps,
+  type EventId as GroupEventId,
+} from '@/lib/smart-group'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
 
@@ -1337,6 +1342,9 @@ function SmartDesignerInner() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [showSourcePicker, setShowSourcePicker] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Folder picker — uses webkitdirectory so we read each file's
+  // relative path and auto-tag photos by their event folder.
+  const folderInputRef = useRef<HTMLInputElement>(null)
 
   // ----- Undo / redo (5-deep, per-album, persisted) -----
   const { show: showToast, Toast } = useToast()
@@ -1596,6 +1604,112 @@ function SmartDesignerInner() {
     }
     setPhotos([...photos, ...newPhotos])
     setTimeout(() => setUploadProgress(0), 600)
+  }
+
+  /**
+   * Folder upload — uses <input type="file" webkitdirectory>. Each
+   * file carries a `webkitRelativePath` like "Mehndi/IMG_001.jpg" which
+   * we mine for ceremony names (Mehndi/Haldi/Nikkah/...) so photos
+   * arrive already grouped — no manual tagging needed for clients who
+   * organise their cards into folders (most photographers do).
+   */
+  const handleFolderSelect = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = e.target.files
+    if (!files) return
+    if (!ensureContentRights()) {
+      e.target.value = ''
+      return
+    }
+    // Filter to images only (folder picker accepts everything).
+    const imgFiles = Array.from(files).filter((f) =>
+      /^image\//i.test(f.type),
+    )
+    const remaining = PHOTO_CAP - photos.length
+    if (remaining <= 0) {
+      alert(`You've reached the ${PHOTO_CAP}-photo limit.`)
+      e.target.value = ''
+      return
+    }
+    const toProcess = imgFiles.slice(0, remaining)
+    if (imgFiles.length > remaining) {
+      alert(
+        `Only ${remaining} more photos can fit (limit ${PHOTO_CAP}). Adding the first ${remaining}.`,
+      )
+    }
+
+    setUploadProgress(0)
+    const newPhotos: Photo[] = []
+    const folderHits = new Set<GroupEventId>()
+    for (let i = 0; i < toProcess.length; i++) {
+      const file = toProcess[i]
+      const dim = await getImageDimensions(file)
+      const capturedAt = (await readJpegCaptureTime(file)) ?? undefined
+      const seqNum = extractFilenameSeq(file.name) ?? undefined
+      // Tag from folder name if we recognise it.
+      const rel = (file as File & { webkitRelativePath?: string })
+        .webkitRelativePath
+      const fromFolder = pathToEvent(rel) ?? undefined
+      if (fromFolder) folderHits.add(fromFolder)
+      const photoId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`
+      newPhotos.push({
+        id: photoId,
+        preview: URL.createObjectURL(file),
+        width: dim.width,
+        height: dim.height,
+        tagged: 'none',
+        eventId: (fromFolder as EventId) ?? 'unassigned',
+        blurry: false,
+        capturedAt,
+        seqNum,
+      })
+      if (albumId) saveBlob(albumId, photoId, file)
+      setUploadProgress((i + 1) / toProcess.length)
+    }
+
+    // For any photos the folder pass DIDN'T tag, try EXIF time-gap
+    // clustering — fills in gaps for clients who half-organised.
+    const stillUntagged = newPhotos.filter((p) => p.eventId === 'unassigned')
+    if (stillUntagged.length > 0) {
+      const clusters = clusterByTimeGaps(stillUntagged, 6, folderHits)
+      for (const p of newPhotos) {
+        if (p.eventId === 'unassigned') {
+          const eid = clusters.get(p.id)
+          if (eid) p.eventId = eid as EventId
+        }
+      }
+    }
+    setPhotos([...photos, ...newPhotos])
+    setTimeout(() => setUploadProgress(0), 600)
+    e.target.value = ''
+  }
+
+  /** Smart re-group all current photos by EXIF time gaps. Manual escape
+   *  hatch on the Group step for clients who didn't upload by folder
+   *  but want auto-tagging. Only touches photos still 'unassigned'. */
+  const runSmartGroup = () => {
+    const used = new Set<GroupEventId>(
+      photos
+        .map((p) => p.eventId as GroupEventId)
+        .filter((e) => e && e !== 'unassigned'),
+    )
+    const targets = photos.filter((p) => p.eventId === 'unassigned')
+    if (targets.length === 0) return
+    const clusters = clusterByTimeGaps(targets, 6, used)
+    if (clusters.size === 0) {
+      alert(
+        'No EXIF dates on those photos, so we can’t auto-group them. Try uploading a folder, or tag them manually.',
+      )
+      return
+    }
+    setPhotos((prev) =>
+      prev.map((p) => {
+        if (p.eventId !== 'unassigned') return p
+        const eid = clusters.get(p.id)
+        return eid ? { ...p, eventId: eid as EventId } : p
+      }),
+    )
   }
 
   /**
@@ -2956,6 +3070,16 @@ function SmartDesignerInner() {
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
+        {/* Folder picker — webkitdirectory exposes webkitRelativePath on
+            each file so we can auto-tag photos by their sub-folder name. */}
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          onChange={handleFolderSelect}
+          style={{ display: 'none' }}
+          {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+        />
 
         {showSourcePicker && (
           <div
@@ -3058,6 +3182,20 @@ function SmartDesignerInner() {
                       }}
                     >
                       <span style={{ fontSize: 18 }}>📱</span> Your device
+                    </button>
+
+                    <button
+                      type="button"
+                      style={row}
+                      onClick={() => {
+                        setShowSourcePicker(false)
+                        if (!ensureContentRights()) return
+                        folderInputRef.current?.click()
+                      }}
+                      title="Pick a folder. Sub-folders named Mehndi / Haldi / Nikkah / Wedding etc. are auto-tagged."
+                    >
+                      <span style={{ fontSize: 18 }}>📁</span> Folder
+                      <span style={tag}>auto-group</span>
                     </button>
 
                     <button
@@ -3221,9 +3359,59 @@ function SmartDesignerInner() {
         <h2 style={{ ...css.title, marginBottom: 8 }}>
           Group by <em style={css.titleEm}>event</em>
         </h2>
-        <p style={{ ...css.subtitle, marginBottom: 18 }}>
+        <p style={{ ...css.subtitle, marginBottom: 10 }}>
           Drag each photo onto its tag. Tagged photos get a label so you can re-assign them anytime.
         </p>
+
+        {/* Smart group — clusters Untagged photos by EXIF time gaps
+            into ceremonies. Shown only when there's something to do. */}
+        {(() => {
+          const untagged = photos.filter((p) => p.eventId === 'unassigned')
+          const eligible = untagged.filter(
+            (p) => typeof p.capturedAt === 'number',
+          )
+          if (eligible.length < 2) return null
+          return (
+            <div
+              style={{
+                marginBottom: 18,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 12px',
+                background: 'rgba(184,150,90,0.08)',
+                border: '0.5px solid rgba(184,150,90,0.35)',
+                borderRadius: 8,
+                fontSize: 12,
+                color: 'var(--cream)',
+              }}
+            >
+              <span>
+                ✨ <strong>{eligible.length}</strong> untagged photos have
+                date info — auto-group them into ceremonies by time?
+              </span>
+              <button
+                type="button"
+                onClick={runSmartGroup}
+                style={{
+                  marginLeft: 'auto',
+                  background: GOLD,
+                  color: '#0e0c09',
+                  border: 'none',
+                  borderRadius: 30,
+                  padding: '5px 12px',
+                  fontSize: 10,
+                  letterSpacing: 1.5,
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                }}
+              >
+                Smart group
+              </button>
+            </div>
+          )
+        })()}
 
         {/* TAG CARDS — small cards with thumbnail strips inside. 5 cols on desktop.
             - Empty card: just header + dashed drop zone
