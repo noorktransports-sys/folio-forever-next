@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { renderSpreadComposite } from './render-spread'
 import { renderCoverComposite } from './render-cover'
 import {
@@ -24,6 +25,25 @@ import {
   type LayoutTemplate,
   type Slot,
 } from '@/lib/smart-layout/templates'
+import { is3DCapable } from '@/lib/device-capable'
+
+// Lazy: Three.js book scene loads only when the 3D view is actually
+// opened (auto on capable devices, manual toggle on cheap ones).
+const AlbumPreview3D = dynamic(() => import('./AlbumPreview3D'), {
+  ssr: false,
+  loading: () => (
+    <div
+      style={{
+        color: '#b8965a',
+        fontSize: 12,
+        letterSpacing: 2,
+        textTransform: 'uppercase',
+      }}
+    >
+      Loading 3D book…
+    </div>
+  ),
+})
 
 // Local mirror of the SpreadText shape (lives in page.tsx); structural
 // typing flows through render-spread without an explicit shared type.
@@ -137,6 +157,11 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
   const [error, setError] = useState<string | null>(null)
   const [idx, setIdx] = useState(0)
   const [flipping, setFlipping] = useState<'next' | 'prev' | null>(null)
+  // Auto-pick 3D on capable devices; cheap-phone clients see the
+  // CSS flipbook by default. Either view can be toggled at any time.
+  const [mode, setMode] = useState<'flat' | '3d'>(() =>
+    is3DCapable() ? '3d' : 'flat',
+  )
   const objectUrls = useRef<string[]>([])
 
   // Build all composites in order, with light-weight progress text.
@@ -354,8 +379,27 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
         >
           Your album · {sizeLabel} · {isStandard ? 'Standard hardcover' : 'Layflat'}
         </span>
-        {/* 3D toggle reintroduced in Phase 2 alongside the Three.js
-            book scene. Phase 1 ships the universal CSS flipbook only. */}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            style={
+              mode === '3d'
+                ? pillStyle
+                : { ...pillStyle, background: '#b8965a', color: '#0e0c09', fontWeight: 700 }
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              setMode((m) => (m === '3d' ? 'flat' : '3d'))
+            }}
+            title={
+              mode === '3d'
+                ? 'Switch to the lightweight flipbook'
+                : 'Open the album in a 3D book scene (capable devices)'
+            }
+          >
+            {mode === '3d' ? 'Switch to simple view' : '✨ Open in 3D book'}
+          </button>
+        </div>
       </div>
 
       {/* Body */}
@@ -385,7 +429,15 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
         {error && (
           <div style={{ color: '#ff8a8a', fontSize: 14 }}>{error}</div>
         )}
-        {pages && (
+        {pages && mode === '3d' && (
+          <AlbumPreview3D
+            pages={pages}
+            spreadAspect={spreadAspect}
+            coverAspect={coverAspect}
+            isStandard={isStandard}
+          />
+        )}
+        {pages && mode === 'flat' && (
           <FlatFlipbook
             pages={pages}
             idx={idx}
@@ -399,7 +451,7 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
       </div>
 
       {/* Footer hint */}
-      {pages && (
+      {pages && mode === 'flat' && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
