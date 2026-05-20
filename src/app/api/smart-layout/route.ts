@@ -76,6 +76,14 @@ export async function POST(request: Request) {
         p.tagged === 'hero' || p.tagged === 'favorite' ? p.tagged : 'none',
       blurry: !!p.blurry,
       eventId: p.eventId,
+      capturedAt:
+        typeof p.capturedAt === 'number' && Number.isFinite(p.capturedAt)
+          ? p.capturedAt
+          : undefined,
+      seqNum:
+        typeof p.seqNum === 'number' && Number.isFinite(p.seqNum)
+          ? p.seqNum
+          : undefined,
     }))
 
   const ordered = body.shuffle

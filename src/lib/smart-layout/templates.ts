@@ -55,6 +55,12 @@ export type LayoutPhoto = {
   tagged: 'hero' | 'favorite' | 'none'
   blurry: boolean
   eventId: EventId
+  /** EXIF DateTimeOriginal (ms since epoch). Engine sorts each event's
+   *  photos by this so the album reads chronologically. */
+  capturedAt?: number
+  /** Largest digit run in the original filename (e.g. IMG_0123.jpg).
+   *  Used as a fallback when EXIF is missing. */
+  seqNum?: number
 }
 
 // The single "mood" the client picks once (right after upload). The engine

@@ -218,10 +218,31 @@ function generateLayout(
     // the EventId isn't in the EVENTS list.
     'unassigned',
   ]
+  // Establish a stable upload index for each photo so we can fall back
+  // to original order when neither EXIF nor filename give us a signal.
+  const uploadIndex = new Map<string, number>()
+  useable.forEach((p, i) => uploadIndex.set(p.id, i))
+  /** Chronological order priority: EXIF DateTimeOriginal → filename
+   *  sequence → upload index. Stable: photos that have neither EXIF
+   *  nor a number stay in upload order. */
+  const chronoKey = (p: LayoutPhoto): [number, number, number] => [
+    typeof p.capturedAt === 'number' ? p.capturedAt : Number.POSITIVE_INFINITY,
+    typeof p.seqNum === 'number' ? p.seqNum : Number.POSITIVE_INFINITY,
+    uploadIndex.get(p.id) ?? 0,
+  ]
+  const byChrono = (a: LayoutPhoto, b: LayoutPhoto) => {
+    const ka = chronoKey(a)
+    const kb = chronoKey(b)
+    return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2]
+  }
+
   const buckets = eventOrder
     .map((eid) => ({
       eid,
-      photos: useable.filter((p) => p.eventId === eid),
+      // Sort each event's photos chronologically so the album reads as
+      // a story (Mehndi morning → evening, Wedding ceremony → dance,
+      // etc.) instead of upload order.
+      photos: useable.filter((p) => p.eventId === eid).slice().sort(byChrono),
     }))
     .filter((b) => b.photos.length > 0)
 

@@ -24,6 +24,7 @@ import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 import { renderCoverComposite } from './edit/render-cover'
+import { readJpegCaptureTime, extractFilenameSeq } from '@/lib/exif'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
 
@@ -203,6 +204,13 @@ type Photo = {
   tagged: 'hero' | 'favorite' | 'none'
   eventId: EventId
   blurry: boolean
+  /** EXIF DateTimeOriginal in ms since epoch (camera local clock).
+   *  Used by the layout engine to put each event's photos in real
+   *  chronological order instead of upload order. */
+  capturedAt?: number
+  /** Largest digit run in the original filename — used as a fallback
+   *  ordering signal when EXIF is missing. */
+  seqNum?: number
 }
 
 type Step =
@@ -1565,6 +1573,10 @@ function SmartDesignerInner() {
     for (let i = 0; i < toProcess.length; i++) {
       const file = toProcess[i]
       const dim = await getImageDimensions(file)
+      // EXIF capture time + filename sequence — the layout engine uses
+      // them to order each event's photos chronologically.
+      const capturedAt = (await readJpegCaptureTime(file)) ?? undefined
+      const seqNum = extractFilenameSeq(file.name) ?? undefined
       const photoId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`
       newPhotos.push({
         id: photoId,
@@ -1574,6 +1586,8 @@ function SmartDesignerInner() {
         tagged: 'none',
         eventId: 'unassigned',
         blurry: false,
+        capturedAt,
+        seqNum,
       })
       // Persist the blob to IndexedDB so it survives a refresh.
       // Fire-and-forget; failure is handled inside saveBlob.
@@ -1621,6 +1635,8 @@ function SmartDesignerInner() {
       } catch {
         continue // skip anything that isn't a decodable image
       }
+      const capturedAt = (await readJpegCaptureTime(file)) ?? undefined
+      const seqNum = extractFilenameSeq(file.name) ?? undefined
       const photoId = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`
       newPhotos.push({
         id: photoId,
@@ -1630,6 +1646,8 @@ function SmartDesignerInner() {
         tagged: 'none',
         eventId: 'unassigned',
         blurry: false,
+        capturedAt,
+        seqNum,
       })
       if (albumId) saveBlob(albumId, photoId, file)
       setUploadProgress((i + 1) / toProcess.length)
@@ -1810,6 +1828,8 @@ function SmartDesignerInner() {
         tagged: p.tagged,
         blurry: p.blurry,
         eventId: p.eventId,
+        capturedAt: p.capturedAt,
+        seqNum: p.seqNum,
       }))
       const res = await fetch('/api/smart-layout', {
         method: 'POST',
