@@ -163,7 +163,11 @@ export async function renderCoverComposite(
     const subPx = Math.max(10, primaryPx * 0.28)
     // Free title position wins on photo / acrylic; leather falls back
     // to the top/center/lower presets (foil press has fixed anchors).
+    // titleX is in VISIBLE-area space (after the acrylic binding strip);
+    // we project onto the whole face here so "centre" on the pad lands
+    // on the visible centre.
     const hasBinding = input.type === 'acrylic'
+    const bindingFrac = hasBinding ? 0.12 : 0
     let cy =
       typeof input.titleY === 'number'
         ? H * Math.min(1, Math.max(0, input.titleY))
@@ -172,12 +176,11 @@ export async function renderCoverComposite(
         : input.position === 'lower'
         ? H * 0.84
         : H * 0.5
-    const cx =
+    const tx =
       typeof input.titleX === 'number'
-        ? W * Math.min(1, Math.max(0, input.titleX))
-        : hasBinding
-        ? W * 0.56
-        : W * 0.5
+        ? Math.min(1, Math.max(0, input.titleX))
+        : 0.5
+    const cx = W * (bindingFrac + tx * (1 - bindingFrac))
 
     if (isPhotoSide) {
       ctx.shadowColor = 'rgba(0,0,0,0.5)'

@@ -1670,6 +1670,7 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
                     ? 0.82
                     : 0.5)
                 }
+                bindingFrac={state.type === 'acrylic' ? 0.12 : 0}
                 onChange={(x, y) =>
                   setState((prev) => ({ ...prev, titleX: x, titleY: y }))
                 }
@@ -1700,30 +1701,46 @@ function CoverTitlePositionPad({
   titleY,
   onChange,
   onReset,
+  bindingFrac = 0,
 }: {
   titleX: number;
   titleY: number;
   onChange: (x: number, y: number) => void;
   onReset: () => void;
+  /** Width fraction occupied by the leather binding strip on the left
+   *  (acrylic only — 0.12). Rendered as a faint strip on the pad and
+   *  the centre-snap target moves accordingly so "centre" lands on the
+   *  centre of the visible photo area, not the whole face. */
+  bindingFrac?: number;
 }) {
   const padRef = useRef<HTMLDivElement | null>(null);
   const [guide, setGuide] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
   const SNAP = 0.03; // fraction of pad
   const MIN = 0.04;
   const MAX = 0.96;
+  // Visible photo area on the pad runs from `bindingFrac` to 1 along X.
+  // Knob X is stored in VISIBLE-area coords (0..1 of that strip).
+  const visStart = bindingFrac;
+  const visW = 1 - bindingFrac;
+  const knobPadX = visStart + titleX * visW; // 0..1 in pad coords
+  const centerPadX = visStart + 0.5 * visW; // visible centre on the pad
 
   function moveTo(clientX: number, clientY: number) {
     const el = padRef.current;
     if (!el) return;
     const rc = el.getBoundingClientRect();
-    let x = Math.min(MAX, Math.max(MIN, (clientX - rc.left) / rc.width));
+    // Mouse position in pad coords (0..1 of the whole pad).
+    let padX = Math.min(MAX, Math.max(MIN, (clientX - rc.left) / rc.width));
     let y = Math.min(MAX, Math.max(MIN, (clientY - rc.top) / rc.height));
-    const nearV = Math.abs(x - 0.5) <= SNAP;
+    const nearV = Math.abs(padX - centerPadX) <= SNAP;
     const nearH = Math.abs(y - 0.5) <= SNAP;
-    if (nearV) x = 0.5;
+    if (nearV) padX = centerPadX;
     if (nearH) y = 0.5;
+    // Convert pad X → visible X for storage. Clamp so the title can't
+    // sit ON the binding strip on acrylic.
+    const xVisible = visW > 0 ? (padX - visStart) / visW : padX;
     setGuide({ v: nearV, h: nearH });
-    onChange(x, y);
+    onChange(Math.min(1, Math.max(0, xVisible)), y);
   }
 
   function onDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -1757,12 +1774,30 @@ function CoverTitlePositionPad({
         }}
         title="Drag to position the title · snaps to centre"
       >
-        {/* Persistent faint centre cross */}
+        {/* Leather binding strip — acrylic only. Cosmetic + tells the
+            user the photo area starts AFTER this strip. */}
+        {bindingFrac > 0 && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${bindingFrac * 100}%`,
+              background:
+                'linear-gradient(90deg,#1a1410 0%,#3a2a1a 60%,#0b0805 100%)',
+              borderRight: '1px solid rgba(0,0,0,0.5)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Persistent faint centre cross — at the VISIBLE centre */}
         <div
           aria-hidden
           style={{
             position: 'absolute',
-            left: '50%',
+            left: `${centerPadX * 100}%`,
             top: 0,
             bottom: 0,
             width: 0,
@@ -1790,7 +1825,7 @@ function CoverTitlePositionPad({
             aria-hidden
             style={{
               position: 'absolute',
-              left: '50%',
+              left: `${centerPadX * 100}%`,
               top: 0,
               bottom: 0,
               width: 0,
@@ -1815,12 +1850,12 @@ function CoverTitlePositionPad({
             }}
           />
         )}
-        {/* Knob */}
+        {/* Knob — positioned in pad coords (visible X mapped to face X) */}
         <div
           aria-hidden
           style={{
             position: 'absolute',
-            left: `${titleX * 100}%`,
+            left: `${knobPadX * 100}%`,
             top: `${titleY * 100}%`,
             transform: 'translate(-50%, -50%)',
             width: 16,
