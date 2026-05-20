@@ -55,6 +55,10 @@ export interface CoverRenderInput {
   photoScale: number
   photoX: number
   photoY: number
+  /** Free title X / Y (0..1 of face). Photo + acrylic covers only;
+   *  undefined falls back to the position enum. */
+  titleX?: number
+  titleY?: number
   /** cover face width / height (portrait). Default 0.8 (4:5-ish). */
   faceAspect?: number
 }
@@ -157,14 +161,23 @@ export async function renderCoverComposite(
     const k = W / COVER_REF_PX
     const primaryPx = Math.max(14, (input.fontSize || 52) * k)
     const subPx = Math.max(10, primaryPx * 0.28)
+    // Free title position wins on photo / acrylic; leather falls back
+    // to the top/center/lower presets (foil press has fixed anchors).
+    const hasBinding = input.type === 'acrylic'
     let cy =
-      input.position === 'top'
+      typeof input.titleY === 'number'
+        ? H * Math.min(1, Math.max(0, input.titleY))
+        : input.position === 'top'
         ? H * 0.16
         : input.position === 'lower'
         ? H * 0.84
         : H * 0.5
-    const hasBinding = input.type === 'acrylic'
-    const cx = hasBinding ? W * 0.56 : W * 0.5
+    const cx =
+      typeof input.titleX === 'number'
+        ? W * Math.min(1, Math.max(0, input.titleX))
+        : hasBinding
+        ? W * 0.56
+        : W * 0.5
 
     if (isPhotoSide) {
       ctx.shadowColor = 'rgba(0,0,0,0.5)'

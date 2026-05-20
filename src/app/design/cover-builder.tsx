@@ -141,6 +141,11 @@ export type CoverState = {
    */
   customTextHex: string;
   position: Position;
+  /** Free X / Y position (0..1) of the title block, ONLY for photo +
+   *  acrylic covers (leather stays on the foil-stamp presets). When
+   *  undefined the `position` enum is used. */
+  titleX?: number;
+  titleY?: number;
 };
 
 /**
@@ -919,6 +924,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               fontStyle={font.style ?? 'normal'}
               fontSizePx={state.fontSize}
               position={state.position}
+              titleX={state.titleX}
+              titleY={state.titleY}
               width={560}
               caption=""
               /* Crop mode — when on, the WebGL canvas treats pointer drag
@@ -1631,23 +1638,229 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
 
 
 
-          {/* Position */}
+          {/* Position — leather keeps the 3 foil-stamp presets (the
+              press anchors the foil at fixed positions). Photo +
+              acrylic get a free drag pad with centre-snap guides. */}
           <section className="cover-section">
             <h3 className="cover-section-title">Text Position</h3>
-            <div className="cover-position-row">
-              {(['top', 'center', 'lower'] as Position[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className={'cover-position-btn' + (state.position === p ? ' active' : '')}
-                  onClick={() => update('position', p)}
-                >
-                  {p[0].toUpperCase() + p.slice(1)}
-                </button>
-              ))}
-            </div>
+            {state.type === 'leather' ? (
+              <div className="cover-position-row">
+                {(['top', 'center', 'lower'] as Position[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className={
+                      'cover-position-btn' +
+                      (state.position === p ? ' active' : '')
+                    }
+                    onClick={() => update('position', p)}
+                  >
+                    {p[0].toUpperCase() + p.slice(1)}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <CoverTitlePositionPad
+                titleX={state.titleX ?? 0.5}
+                titleY={
+                  state.titleY ??
+                  (state.position === 'top'
+                    ? 0.18
+                    : state.position === 'lower'
+                    ? 0.82
+                    : 0.5)
+                }
+                onChange={(x, y) =>
+                  setState((prev) => ({ ...prev, titleX: x, titleY: y }))
+                }
+                onReset={() =>
+                  setState((prev) => ({
+                    ...prev,
+                    titleX: undefined,
+                    titleY: undefined,
+                  }))
+                }
+              />
+            )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CoverTitlePositionPad — small draggable pad for placing the cover
+ * title freely on photo / acrylic covers. Drag the gold knob; centre
+ * lines (h/v) snap when within SNAP of the middle, with bright guide
+ * lines highlighting the snap.
+ */
+function CoverTitlePositionPad({
+  titleX,
+  titleY,
+  onChange,
+  onReset,
+}: {
+  titleX: number;
+  titleY: number;
+  onChange: (x: number, y: number) => void;
+  onReset: () => void;
+}) {
+  const padRef = useRef<HTMLDivElement | null>(null);
+  const [guide, setGuide] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
+  const SNAP = 0.03; // fraction of pad
+  const MIN = 0.04;
+  const MAX = 0.96;
+
+  function moveTo(clientX: number, clientY: number) {
+    const el = padRef.current;
+    if (!el) return;
+    const rc = el.getBoundingClientRect();
+    let x = Math.min(MAX, Math.max(MIN, (clientX - rc.left) / rc.width));
+    let y = Math.min(MAX, Math.max(MIN, (clientY - rc.top) / rc.height));
+    const nearV = Math.abs(x - 0.5) <= SNAP;
+    const nearH = Math.abs(y - 0.5) <= SNAP;
+    if (nearV) x = 0.5;
+    if (nearH) y = 0.5;
+    setGuide({ v: nearV, h: nearH });
+    onChange(x, y);
+  }
+
+  function onDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    moveTo(e.clientX, e.clientY);
+    const mv = (ev: globalThis.PointerEvent) => moveTo(ev.clientX, ev.clientY);
+    const up = () => {
+      setGuide({ v: false, h: false });
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
+  }
+
+  return (
+    <div>
+      <div
+        ref={padRef}
+        onPointerDown={onDown}
+        style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: '4 / 5',
+          background: 'rgba(255,255,255,0.04)',
+          border: '0.5px solid rgba(184,150,90,0.3)',
+          borderRadius: 4,
+          cursor: 'crosshair',
+          userSelect: 'none',
+          touchAction: 'none',
+        }}
+        title="Drag to position the title · snaps to centre"
+      >
+        {/* Persistent faint centre cross */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 0,
+            borderLeft: '1px dashed rgba(184,150,90,0.18)',
+            transform: 'translateX(-0.5px)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: 0,
+            right: 0,
+            height: 0,
+            borderTop: '1px dashed rgba(184,150,90,0.18)',
+            transform: 'translateY(-0.5px)',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* Bright snap guides while dragging onto centre */}
+        {guide.v && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: 0,
+              bottom: 0,
+              width: 0,
+              borderLeft: '1.5px solid #b8965a',
+              transform: 'translateX(-0.75px)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {guide.h && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: 0,
+              right: 0,
+              height: 0,
+              borderTop: '1.5px solid #b8965a',
+              transform: 'translateY(-0.75px)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Knob */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: `${titleX * 100}%`,
+            top: `${titleY * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            background: '#b8965a',
+            border: '2px solid #0e0c09',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.6)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 6,
+          fontSize: 10,
+          color: 'rgba(245,235,215,0.6)',
+        }}
+      >
+        <span>
+          x {Math.round(titleX * 100)}% · y {Math.round(titleY * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={onReset}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#b8965a',
+            fontSize: 10,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+          }}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );

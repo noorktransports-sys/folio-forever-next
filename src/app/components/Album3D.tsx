@@ -55,6 +55,11 @@ export interface Album3DProps {
   fontSizePx?: number;
   /** Vertical anchor for the title block on the cover. */
   position?: 'top' | 'center' | 'lower';
+  /** Free X / Y position (0..1 of the cover face). When defined,
+   *  overrides `position` — used for the draggable title on photo /
+   *  acrylic covers (leather keeps the foil-stamp presets). */
+  titleX?: number;
+  titleY?: number;
   width?: number;
   caption?: string;
   className?: string;
@@ -221,6 +226,10 @@ function paintFoilCanvas(
   fontStyle: 'normal' | 'italic' = 'italic',
   fontSizePx = 52,
   position: 'top' | 'center' | 'lower' = 'center',
+  /** Free position (0..1 of the cover face). When defined, overrides
+   *  the top/center/lower preset — used for photo/acrylic covers. */
+  titleXFrac?: number,
+  titleYFrac?: number,
 ) {
   const w = canvas.width;
   const h = canvas.height;
@@ -245,12 +254,20 @@ function paintFoilCanvas(
   // canvas height — matches the 'top' / 'center' / 'lower' offsets that
   // the cover-builder previously used for its CSS-3D preview.
   let cy: number;
-  switch (position) {
-    case 'top':   cy = h * 0.18; break;
-    case 'lower': cy = h * 0.82; break;
-    case 'center':
-    default:      cy = h * 0.5;
+  if (typeof titleYFrac === 'number') {
+    cy = h * Math.min(1, Math.max(0, titleYFrac));
+  } else {
+    switch (position) {
+      case 'top':   cy = h * 0.18; break;
+      case 'lower': cy = h * 0.82; break;
+      case 'center':
+      default:      cy = h * 0.5;
+    }
   }
+  const cx =
+    typeof titleXFrac === 'number'
+      ? w * Math.min(1, Math.max(0, titleXFrac))
+      : w / 2;
 
   // Earlier versions of this function painted decorative dashes on
   // either side of the title at vertical-center cy. Long names ("Sana
@@ -266,14 +283,14 @@ function paintFoilCanvas(
   // to the next family in the stack — usually fine, and fixed on the
   // next repaint after fonts.ready.
   ctx.font = `${fontStyle} ${titleSize}px ${fontFamily}`;
-  ctx.fillText(title, w / 2, cy);
+  ctx.fillText(title, cx, cy);
 
   if (subtitle) {
     // Subtitle uses Montserrat with letter-spaced caps for the classic
     // wedding-album look, regardless of title font choice.
     ctx.font = `500 ${subSize}px "Montserrat", sans-serif`;
     const tracked = subtitle.toUpperCase().split('').join('  ');
-    ctx.fillText(tracked, w / 2, cy + subGap);
+    ctx.fillText(tracked, cx, cy + subGap);
   }
 }
 
@@ -367,6 +384,8 @@ export default function Album3D({
   fontStyle = 'italic',
   fontSizePx = 52,
   position = 'center',
+  titleX,
+  titleY,
   width = 360,
   caption = 'Drag to rotate · Real 3D leather',
   className = '',
@@ -827,9 +846,11 @@ export default function Album3D({
       fontStyle,
       fontSizePx,
       position,
+      titleX,
+      titleY,
     );
     r.foilFrontTex.needsUpdate = true;
-  }, [title, subtitle, foilHex, fontFamily, fontStyle, fontSizePx, position]);
+  }, [title, subtitle, foilHex, fontFamily, fontStyle, fontSizePx, position, titleX, titleY]);
 
   // ─── REACT TO VARIANT ────────────────────────────────────────
   // Variant effect ONLY swaps which material is bound to the visible

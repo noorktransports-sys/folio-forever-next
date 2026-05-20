@@ -1225,6 +1225,8 @@ function SmartDesignerInner() {
         photoScale: coverState.photoScale,
         photoX: coverState.photoX,
         photoY: coverState.photoY,
+        titleX: coverState.titleX,
+        titleY: coverState.titleY,
       }
       try {
         const fb = await renderCoverComposite({ ...common, side: 'front' })
@@ -2260,6 +2262,8 @@ function SmartDesignerInner() {
               photoScale: coverState.photoScale,
               photoX: coverState.photoX,
               photoY: coverState.photoY,
+              titleX: coverState.titleX,
+              titleY: coverState.titleY,
             }
           : null,
         onProgress: (done, total, label) =>

@@ -265,6 +265,8 @@ export interface SubmissionInput {
     photoScale: number
     photoX: number
     photoY: number
+    titleX?: number
+    titleY?: number
   } | null
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
@@ -434,6 +436,8 @@ export async function prepareSubmission({
         photoScale: cover.photoScale,
         photoX: cover.photoX,
         photoY: cover.photoY,
+        titleX: cover.titleX,
+        titleY: cover.titleY,
       })
       const up = await uploadToR2(frontBlob, designId, 'cover-front.jpg')
       coverFrontUrl = up.url
