@@ -3,20 +3,22 @@
 /**
  * AlbumPreviewModal — full-screen "open the book" preview.
  *
- * Default view is a lightweight CSS flipbook (every device). On
- * capable hardware the client can toggle to a Three.js 3D book; the
- * toggle is silent on low-end devices where we already chose the
- * lighter view. Both views consume the same pre-rendered spread +
- * cover composites, so memory and code stay clean.
+ * A lightweight CSS flipbook that reads as a real bound album:
+ * page-edge stacks on either side for depth, a centre gutter on
+ * every spread (deeper on standard hardcover, softer on layflat),
+ * and a small 3D page-lift tilt on each turn. Renders all composites
+ * once when the modal opens and revokes their object URLs on close.
  *
- * Renders all composites once when the modal opens (revokes their
- * object URLs on close). Order: front cover → spread 1 → … → back
- * cover. Use ←/→ to flip; click the right half to advance, the left
- * half to go back.
+ * Order: front cover → spread 1 → … → back cover. Use ←/→ to flip;
+ * click the right half to advance, the left half to go back.
+ *
+ * Earlier revisions tried a Three.js 3D book scene here. It was
+ * brittle on real hardware (off-centre rendering, ambiguous click
+ * targets) so the flat flipbook is now the only view — it's the
+ * one that survives contact with users.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
 import { renderSpreadComposite } from './render-spread'
 import { renderCoverComposite } from './render-cover'
 import {
@@ -25,25 +27,12 @@ import {
   type LayoutTemplate,
   type Slot,
 } from '@/lib/smart-layout/templates'
-import { is3DCapable } from '@/lib/device-capable'
 
-// Lazy: Three.js book scene loads only when the 3D view is actually
-// opened (auto on capable devices, manual toggle on cheap ones).
-const AlbumPreview3D = dynamic(() => import('./AlbumPreview3D'), {
-  ssr: false,
-  loading: () => (
-    <div
-      style={{
-        color: '#b8965a',
-        fontSize: 12,
-        letterSpacing: 2,
-        textTransform: 'uppercase',
-      }}
-    >
-      Loading 3D book…
-    </div>
-  ),
-})
+// Note: A Three.js 3D preview lived here in an earlier revision but
+// proved fiddly on real hardware. We now ship the lightweight CSS
+// flipbook on every device — it loads fast, never gets stuck, and
+// reads as "this is my album" without users needing to learn how to
+// drag/tilt.
 
 // Local mirror of the SpreadText shape (lives in page.tsx); structural
 // typing flows through render-spread without an explicit shared type.
@@ -59,10 +48,6 @@ interface SpreadText {
   font: 'display' | 'serif' | 'sans' | 'elegant' | 'script' | 'hand' | 'castellar' | 'copperplate'
   weight: 400 | 700
 }
-// is3DCapable + AlbumPreview3D will be re-introduced in Phase 2 to add
-// the Three.js book scene. Phase 1 ships a universal CSS flipbook so
-// every device gets a working preview immediately.
-
 interface Photo {
   id: string
   preview: string
@@ -157,11 +142,6 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
   const [error, setError] = useState<string | null>(null)
   const [idx, setIdx] = useState(0)
   const [flipping, setFlipping] = useState<'next' | 'prev' | null>(null)
-  // Auto-pick 3D on capable devices; cheap-phone clients see the
-  // CSS flipbook by default. Either view can be toggled at any time.
-  const [mode, setMode] = useState<'flat' | '3d'>(() =>
-    is3DCapable() ? '3d' : 'flat',
-  )
   const objectUrls = useRef<string[]>([])
 
   // Build all composites in order, with light-weight progress text.
@@ -379,27 +359,6 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
         >
           Your album · {sizeLabel} · {isStandard ? 'Standard hardcover' : 'Layflat'}
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            style={
-              mode === '3d'
-                ? pillStyle
-                : { ...pillStyle, background: '#b8965a', color: '#0e0c09', fontWeight: 700 }
-            }
-            onClick={(e) => {
-              e.stopPropagation()
-              setMode((m) => (m === '3d' ? 'flat' : '3d'))
-            }}
-            title={
-              mode === '3d'
-                ? 'Switch to the lightweight flipbook'
-                : 'Open the album in a 3D book scene (capable devices)'
-            }
-          >
-            {mode === '3d' ? 'Switch to simple view' : '✨ Open in 3D book'}
-          </button>
-        </div>
       </div>
 
       {/* Body */}
@@ -429,15 +388,7 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
         {error && (
           <div style={{ color: '#ff8a8a', fontSize: 14 }}>{error}</div>
         )}
-        {pages && mode === '3d' && (
-          <AlbumPreview3D
-            pages={pages}
-            spreadAspect={spreadAspect}
-            coverAspect={coverAspect}
-            isStandard={isStandard}
-          />
-        )}
-        {pages && mode === 'flat' && (
+        {pages && (
           <FlatFlipbook
             pages={pages}
             idx={idx}
@@ -451,7 +402,7 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
       </div>
 
       {/* Footer hint */}
-      {pages && mode === 'flat' && (
+      {pages && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
@@ -493,34 +444,61 @@ function FlatFlipbook({
 }) {
   const page = pages[idx]
   if (!page) return null
+
+  // A spread is rendered as an OPEN book (two pages side-by-side with
+  // a centre gutter). A cover page is rendered as a SINGLE closed
+  // page. The book frame around either gives the "this is a book"
+  // visual that was missing before.
+  const isSpread = page.kind === 'spread'
+
+  // Visible page-edge stacks on either side of the current "leaf"
+  // give the book some depth: pages-already-turned on the left,
+  // pages-still-to-come on the right.
+  const turned = idx
+  const remaining = pages.length - idx - 1
+
   return (
     <div
       style={{
         position: 'relative',
-        // Fit within the viewport: cap by height (90vh) and let aspect
+        // Fit within the viewport: cap by height (88vh) and let aspect
         // do the rest. A single cover face is narrower (coverAspect <
         // spreadAspect) so it naturally shows smaller.
-        height: 'min(90vh, calc(95vw / ' + aspect + '))',
+        height: 'min(88vh, calc(92vw / ' + aspect + '))',
         aspectRatio: `${aspect}`,
-        perspective: '1800px',
+        perspective: '2200px',
         userSelect: 'none',
+        // Deep table-shadow under the whole book so it reads as
+        // sitting on a surface.
+        filter: 'drop-shadow(0 40px 50px rgba(0,0,0,0.6))',
       }}
     >
+      {/* Stacked page-edges on the LEFT (already-turned pages) */}
+      {turned > 0 && (
+        <PageEdgeStack side="left" count={Math.min(turned, 18)} />
+      )}
+      {/* Stacked page-edges on the RIGHT (pages still to come) */}
+      {remaining > 0 && (
+        <PageEdgeStack side="right" count={Math.min(remaining, 18)} />
+      )}
+
+      {/* The current visible page (or open spread) — sits ON TOP of
+          the page-edge stacks. A subtle Y-rotate during flip gives a
+          physical "page lifting" cue. */}
       <div
         style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
+          position: 'absolute',
+          inset: 0,
           transformStyle: 'preserve-3d',
-          // The "flip" — rotate around the spine (left edge of the
-          // right half) for forward; around right edge for back.
+          transformOrigin:
+            flipping === 'next' ? 'left center' : flipping === 'prev' ? 'right center' : 'center',
           transform:
             flipping === 'next'
-              ? 'rotateY(-12deg)'
+              ? 'rotateY(-22deg)'
               : flipping === 'prev'
-              ? 'rotateY(12deg)'
+              ? 'rotateY(22deg)'
               : 'rotateY(0)',
-          transition: 'transform 0.4s ease',
+          transition: 'transform 0.42s ease',
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -533,31 +511,69 @@ function FlatFlipbook({
             width: '100%',
             height: '100%',
             objectFit: 'contain',
-            boxShadow:
-              '0 30px 60px rgba(0,0,0,0.65), 0 8px 20px rgba(0,0,0,0.5)',
-            background: '#0e0c09',
+            // A subtle paper-coloured backdrop so any letterboxing
+            // around contain-fit pictures reads as "page", not "void".
+            background: '#15110b',
             borderRadius: 4,
+            boxShadow:
+              '0 22px 38px rgba(0,0,0,0.55), 0 6px 14px rgba(0,0,0,0.4)',
           }}
           draggable={false}
         />
-        {/* Gutter line — only for spreads on a STANDARD album */}
-        {isStandard && page.kind === 'spread' && (
+        {/* Centre gutter — drawn for EVERY spread, not just standard.
+            This is the visual that makes the page read as TWO pages
+            of one open book rather than one merged image. */}
+        {isSpread && (
           <div
             aria-hidden
             style={{
               position: 'absolute',
               left: '50%',
-              top: 0,
-              bottom: 0,
-              width: 1,
-              background:
-                'linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0.12), rgba(0,0,0,0.45))',
-              transform: 'translateX(-0.5px)',
+              top: '2%',
+              bottom: '2%',
+              width: 14,
+              transform: 'translateX(-7px)',
               pointerEvents: 'none',
+              background: isStandard
+                ? // Standard hardcover: deep, hard gutter shadow
+                  'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0) 100%)'
+                : // Layflat: very soft seam (barely visible)
+                  'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0) 100%)',
             }}
           />
         )}
-        {/* Invisible click zones: left half = prev, right half = next */}
+        {/* Inner page-edge highlight on either side: a slim warm
+            stripe that looks like the cut edge of paper catching
+            light. Helps the book feel tangible. */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 2,
+            background: 'linear-gradient(to right, #b9985f, transparent)',
+            opacity: 0.35,
+            pointerEvents: 'none',
+            borderRadius: '4px 0 0 4px',
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 2,
+            background: 'linear-gradient(to left, #b9985f, transparent)',
+            opacity: 0.35,
+            pointerEvents: 'none',
+            borderRadius: '0 4px 4px 0',
+          }}
+        />
+        {/* Click zones: left half = prev, right half = next */}
         <button
           type="button"
           onClick={onPrev}
@@ -590,5 +606,57 @@ function FlatFlipbook({
         />
       </div>
     </div>
+  )
+}
+
+/**
+ * PageEdgeStack — the thin stack of paper sticking out on either
+ * side of the visible page, used as a depth cue so the album reads
+ * as a real bound book rather than a single flat image.
+ */
+function PageEdgeStack({
+  side,
+  count,
+}: {
+  side: 'left' | 'right'
+  count: number
+}) {
+  // Each "page edge" is a 1px hairline. Stack them just outside the
+  // visible page on the side that matches its position in the book.
+  // For a SPREAD (open book) the stack hugs the outer edge of the
+  // appropriate half. For a single page (cover/back) the stack hugs
+  // the outer edge of the whole page.
+  const totalWidth = Math.min(count * 0.6, 14) // px
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        top: '1.5%',
+        bottom: '1.5%',
+        width: totalWidth,
+        // For a spread, the left stack lives at the LEFT edge of the
+        // open book, and the right stack at the RIGHT edge — same as
+        // the single-page case. The visible content always spans the
+        // full frame, so edges sit just outside it.
+        [side]: -totalWidth,
+        background:
+          side === 'left'
+            ? 'linear-gradient(to right, rgba(255,242,217,0.05), rgba(220,200,170,0.4) 60%, rgba(120,100,80,0.6))'
+            : 'linear-gradient(to left, rgba(255,242,217,0.05), rgba(220,200,170,0.4) 60%, rgba(120,100,80,0.6))',
+        boxShadow:
+          side === 'left'
+            ? 'inset -1px 0 0 rgba(0,0,0,0.4)'
+            : 'inset 1px 0 0 rgba(0,0,0,0.4)',
+        borderRadius:
+          side === 'left' ? '2px 0 0 2px' : '0 2px 2px 0',
+        pointerEvents: 'none',
+        // Subtle slant so the edges read as 3D paper, not a flat bar.
+        transformOrigin: side === 'left' ? 'right center' : 'left center',
+        // Faint stripe pattern to suggest individual sheets.
+        backgroundImage:
+          'repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 3px)',
+      }}
+    />
   )
 }
