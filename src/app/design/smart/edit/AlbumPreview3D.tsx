@@ -77,8 +77,18 @@ export default function AlbumPreview3D({
       powerPreference: 'high-performance',
     })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-    renderer.setSize(W0, H0, false)
+    // updateStyle defaults to true here so the <canvas> element's CSS
+    // width/height stay in sync with the drawing buffer. Without that
+    // the canvas falls back to its intrinsic (buffer) size — and at
+    // mount the flex parent's clientWidth/Height can be 0 before
+    // layout settles, leaving the canvas visually 0×0 forever.
+    renderer.setSize(Math.max(W0, 1), Math.max(H0, 1))
     renderer.setClearColor(0x000000, 0)
+    // Also pin the canvas to its container in CSS in case some style
+    // tries to use the buffer size as the intrinsic size.
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
+    renderer.domElement.style.display = 'block'
     mount.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
@@ -220,7 +230,8 @@ export default function AlbumPreview3D({
     const onResize = () => {
       const W = mount.clientWidth
       const H = mount.clientHeight
-      renderer.setSize(W, H, false)
+      if (W < 4 || H < 4) return
+      renderer.setSize(W, H)
       camera.aspect = W / H
       camera.updateProjectionMatrix()
     }
@@ -246,23 +257,25 @@ export default function AlbumPreview3D({
             0.02 * Math.sin(Math.abs(g.rotation.y))
         }
       }
-      // Book-centring: when only the cover is visible (idx===0 or all
-      // pages flipped), the visible content is one PAGE whose centre
-      // is at half-width from the spine — shift the whole book left
-      // by that amount so it sits in the middle of the canvas. When
-      // an opening is visible, the spine itself is centred.
+      // Book-centring. Each leaf is anchored at the spine and extends
+      // one leaf-width to the right; when flipped, it extends the same
+      // width to the LEFT instead. So the visible book at any idx
+      // spans from -(width of the most recently flipped leaf) on the
+      // left to +(width of the topmost un-flipped leaf) on the right.
+      //
+      //   left edge  = idx > 0 ? -leafWidths[idx-1] : 0
+      //   right edge = idx < pages.length ? +leafWidths[idx] : 0
+      //
+      // Since the cover is one PAGE wide and a spread is two PAGES
+      // wide, cover_width ≠ spread_width, so even when the book is
+      // "open" (some leaves flipped, some not) the visible centre is
+      // *not* at the spine. We slide the whole book the other way so
+      // the visible centre lands at x=0 on screen.
       const i = idxRef.current
-      let targetX = 0
-      if (i === 0) {
-        // Cover-front only.
-        targetX = -leafWidths[0] / 2
-      } else if (i >= pages.length) {
-        // Back cover only.
-        targetX = leafWidths[pages.length - 1] / 2
-      } else {
-        // Open spread — spine at x=0 already centres the visible pages.
-        targetX = 0
-      }
+      const leftEdge = i > 0 ? -leafWidths[i - 1] : 0
+      const rightEdge = i < pages.length ? leafWidths[i] : 0
+      const centreX = (leftEdge + rightEdge) / 2
+      const targetX = -centreX
       bookRoot.position.x += (targetX - bookRoot.position.x) * 0.12
 
       renderer.render(scene, camera)
@@ -278,7 +291,7 @@ export default function AlbumPreview3D({
       const W = mount.clientWidth
       const H = mount.clientHeight
       if (W < 4 || H < 4) return
-      renderer.setSize(W, H, false)
+      renderer.setSize(W, H)
       camera.aspect = W / H
       camera.updateProjectionMatrix()
     })
