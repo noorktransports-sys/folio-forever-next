@@ -134,7 +134,11 @@ export default function AlbumPreview3D({
     // thickness when viewed at an angle. Standard hardcover = thicker;
     // layflat = noticeably thinner.
     const baseDepth = LEAF_THICKNESS * pages.length + (isStandard ? 0.06 : 0.03)
-    const baseW = leafW(pages[0]?.kind ?? 'cover-front')
+    // Base matches the COVER face width (one page wide). When the
+    // book is open the active spread covers the base completely; when
+    // closed the cover covers it. We don't want the base to be wider
+    // than the cover or it pokes past the cover's right edge.
+    const baseW = leafW('cover-front')
     const baseGeom = new THREE.BoxGeometry(baseW, BOOK_H, baseDepth)
     const baseMat = new THREE.MeshStandardMaterial({
       color: 0x141008,
@@ -244,11 +248,20 @@ export default function AlbumPreview3D({
     //    AND eases the whole book horizontally so the currently
     //    visible content stays centred on screen). ──
     const animate = () => {
+      const idxNow = idxRef.current
+      // The base sits to the right of the spine (cover_width wide). On
+      // the closed-cover state the cover covers it; on every open
+      // spread the wider spread leaf covers it. But on the back-cover
+      // state (idxNow === pages.length, all leaves flipped left)
+      // there's no leaf to cover it — hide it then so the right side
+      // doesn't show a stray dark rectangle next to the back cover.
+      base.visible = idxNow < pages.length
       for (let i = 0; i < leafGroups.length; i++) {
         const g = leafGroups[i]
         const t = targetRot[i]
         const cur = g.rotation.y
-        if (Math.abs(cur - t) > 0.001) {
+        const isFlipping = Math.abs(cur - t) > 0.001
+        if (isFlipping) {
           g.rotation.y = cur + (t - cur) * 0.16
           // Lift the flipping leaf slightly off the stack so it doesn't
           // z-fight with the base / underlying leaves.
@@ -256,6 +269,15 @@ export default function AlbumPreview3D({
             (pages.length - i) * LEAF_THICKNESS +
             0.02 * Math.sin(Math.abs(g.rotation.y))
         }
+        // Hide leaves that aren't on either top-of-stack and aren't
+        // currently mid-flip. Otherwise wider spreads under a narrower
+        // cover poke past its right edge and look like "phantom" pages
+        // (this is what made the closed-book preview look off-centre —
+        // it was the next spread's right half showing through next to
+        // the cover, not bad centring).
+        const isTopRight = i === idxNow
+        const isTopLeft = i === idxNow - 1
+        g.visible = isTopRight || isTopLeft || isFlipping
       }
       // Book-centring. Each leaf is anchored at the spine and extends
       // one leaf-width to the right; when flipped, it extends the same
