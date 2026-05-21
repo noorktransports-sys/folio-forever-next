@@ -446,217 +446,211 @@ function FlatFlipbook({
   if (!page) return null
 
   // A spread is rendered as an OPEN book (two pages side-by-side with
-  // a centre gutter). A cover page is rendered as a SINGLE closed
-  // page. The book frame around either gives the "this is a book"
-  // visual that was missing before.
+  // a strong centre gutter). Covers are rendered as a SINGLE closed
+  // page — the whole leather frame still wraps it, but no gutter is
+  // drawn. This is what makes the preview unmistakably an album.
   const isSpread = page.kind === 'spread'
 
-  // Visible page-edge stacks on either side of the current "leaf"
-  // give the book some depth: pages-already-turned on the left,
-  // pages-still-to-come on the right.
+  // ── Visual constants for the leather book frame ──
+  // FRAME_PX = leather visible around the open spread (paper edges
+  // poke out of this; the gutter sits flush with it).
+  const FRAME_PX = 22
+  // GUTTER_PX = width of the centre binding shadow on a spread.
+  const GUTTER_PX = 28
+  // The page-edge stacks (paper sheets visible on either side of the
+  // current page) scale with how many turns have / haven't happened.
   const turned = idx
   const remaining = pages.length - idx - 1
+  const leftEdgeWidth = Math.max(0, Math.min(turned * 1.4, 26))
+  const rightEdgeWidth = Math.max(0, Math.min(remaining * 1.4, 26))
 
   return (
     <div
       style={{
         position: 'relative',
-        // Fit within the viewport: cap by height (88vh) and let aspect
-        // do the rest. A single cover face is narrower (coverAspect <
-        // spreadAspect) so it naturally shows smaller.
-        height: 'min(88vh, calc(92vw / ' + aspect + '))',
-        aspectRatio: `${aspect}`,
-        perspective: '2200px',
+        // Outer width is determined by aspect + capped by viewport.
+        // We add FRAME_PX*2 + edge-stack widths to the inner aspect
+        // box so the whole thing (leather + edges + pages) fits.
+        height: 'min(86vh, calc(90vw / ' + aspect + '))',
         userSelect: 'none',
-        // Deep table-shadow under the whole book so it reads as
-        // sitting on a surface.
-        filter: 'drop-shadow(0 40px 50px rgba(0,0,0,0.6))',
+        display: 'flex',
+        alignItems: 'center',
+        // Strong table shadow so the book reads as sitting on a surface.
+        filter: 'drop-shadow(0 38px 50px rgba(0,0,0,0.7))',
+        // A bit of perspective for the page-turn tilt.
+        perspective: '2200px',
       }}
     >
-      {/* Stacked page-edges on the LEFT (already-turned pages) */}
-      {turned > 0 && (
-        <PageEdgeStack side="left" count={Math.min(turned, 18)} />
-      )}
-      {/* Stacked page-edges on the RIGHT (pages still to come) */}
-      {remaining > 0 && (
-        <PageEdgeStack side="right" count={Math.min(remaining, 18)} />
-      )}
+      {/* ── Left paper-edge stack (pages already turned) ── */}
+      <div
+        aria-hidden
+        style={{
+          width: leftEdgeWidth,
+          height: '94%',
+          alignSelf: 'center',
+          background:
+            // Cream paper colour, slightly darker at the spine side,
+            // with a hairline-stripe pattern suggesting sheets.
+            'linear-gradient(to right, #d8c39a 0%, #c9b285 80%, #6f5a3a 100%), repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(60,40,20,0.18) 2px, rgba(60,40,20,0.18) 3px)',
+          backgroundBlendMode: 'multiply',
+          borderRadius: '2px 0 0 2px',
+          boxShadow: 'inset -3px 0 6px rgba(0,0,0,0.5)',
+          pointerEvents: 'none',
+          flexShrink: 0,
+        }}
+      />
 
-      {/* The current visible page (or open spread) — sits ON TOP of
-          the page-edge stacks. A subtle Y-rotate during flip gives a
-          physical "page lifting" cue. */}
+      {/* ── Leather book frame around the open spread ── */}
       <div
         style={{
-          position: 'absolute',
-          inset: 0,
+          // Aspect-driven height; leather frame adds padding on top.
+          flex: '0 1 auto',
+          aspectRatio: `${aspect}`,
+          height: '100%',
+          // The leather itself — deep brown, slight gradient for cover
+          // material feel, rounded outer corners.
+          background:
+            'linear-gradient(135deg, #2a1f12 0%, #1a120a 45%, #0f0a05 100%)',
+          padding: FRAME_PX,
+          borderRadius: 6,
+          boxShadow:
+            'inset 0 0 0 1px rgba(140,110,70,0.25), inset 0 2px 6px rgba(0,0,0,0.6)',
+          position: 'relative',
           transformStyle: 'preserve-3d',
           transformOrigin:
             flipping === 'next' ? 'left center' : flipping === 'prev' ? 'right center' : 'center',
           transform:
             flipping === 'next'
-              ? 'rotateY(-22deg)'
+              ? 'rotateY(-18deg)'
               : flipping === 'prev'
-              ? 'rotateY(22deg)'
+              ? 'rotateY(18deg)'
               : 'rotateY(0)',
           transition: 'transform 0.42s ease',
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={page.url}
-          alt={page.label}
+        {/* Inner cream "paper mat" — gives the open pages a thin
+            cream surround inside the leather. Looks like the paper
+            edge peeking out around the print. */}
+        <div
           style={{
-            position: 'absolute',
-            inset: 0,
+            position: 'relative',
             width: '100%',
             height: '100%',
-            objectFit: 'contain',
-            // A subtle paper-coloured backdrop so any letterboxing
-            // around contain-fit pictures reads as "page", not "void".
-            background: '#15110b',
-            borderRadius: 4,
+            background: '#e9dcc1',
+            borderRadius: 2,
             boxShadow:
-              '0 22px 38px rgba(0,0,0,0.55), 0 6px 14px rgba(0,0,0,0.4)',
+              'inset 0 0 0 1px rgba(0,0,0,0.25), 0 0 20px rgba(0,0,0,0.35)',
+            overflow: 'hidden',
           }}
-          draggable={false}
-        />
-        {/* Centre gutter — drawn for EVERY spread, not just standard.
-            This is the visual that makes the page read as TWO pages
-            of one open book rather than one merged image. */}
-        {isSpread && (
-          <div
-            aria-hidden
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={page.url}
+            alt={page.label}
             style={{
               position: 'absolute',
-              left: '50%',
-              top: '2%',
-              bottom: '2%',
-              width: 14,
-              transform: 'translateX(-7px)',
-              pointerEvents: 'none',
-              background: isStandard
-                ? // Standard hardcover: deep, hard gutter shadow
-                  'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.55) 60%, rgba(0,0,0,0) 100%)'
-                : // Layflat: very soft seam (barely visible)
-                  'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0) 100%)',
+              inset: 4, // 4px paper mat showing through around the image
+              width: 'calc(100% - 8px)',
+              height: 'calc(100% - 8px)',
+              objectFit: 'contain',
+              background: '#15110b',
+              borderRadius: 1,
+            }}
+            draggable={false}
+          />
+          {/* ── Centre gutter — drawn for EVERY spread, hardcover or
+              layflat. The dark wedge in the middle is what makes the
+              spread read as TWO pages on one open book instead of a
+              single merged photo. ── */}
+          {isSpread && (
+            <>
+              {/* Soft wide shadow on either side of the binding so
+                  the paper looks like it curves into the spine. */}
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: 0,
+                  bottom: 0,
+                  width: GUTTER_PX,
+                  transform: `translateX(-${GUTTER_PX / 2}px)`,
+                  pointerEvents: 'none',
+                  background: isStandard
+                    ? 'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 30%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0) 100%)'
+                    : 'linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.35) 35%, rgba(0,0,0,0.55) 50%, rgba(0,0,0,0.35) 65%, rgba(0,0,0,0) 100%)',
+                }}
+              />
+              {/* Hard binding line right down the centre. Always
+                  visible — proves the spread is two pages. */}
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: 0,
+                  bottom: 0,
+                  width: 2,
+                  transform: 'translateX(-1px)',
+                  background: isStandard
+                    ? 'rgba(0,0,0,0.85)'
+                    : 'rgba(0,0,0,0.55)',
+                  pointerEvents: 'none',
+                }}
+              />
+            </>
+          )}
+          {/* Click zones on the visible pages */}
+          <button
+            type="button"
+            onClick={onPrev}
+            aria-label="Previous page"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: '50%',
+              background: 'transparent',
+              border: 'none',
+              cursor: idx > 0 ? 'w-resize' : 'default',
             }}
           />
-        )}
-        {/* Inner page-edge highlight on either side: a slim warm
-            stripe that looks like the cut edge of paper catching
-            light. Helps the book feel tangible. */}
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 2,
-            background: 'linear-gradient(to right, #b9985f, transparent)',
-            opacity: 0.35,
-            pointerEvents: 'none',
-            borderRadius: '4px 0 0 4px',
-          }}
-        />
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: 2,
-            background: 'linear-gradient(to left, #b9985f, transparent)',
-            opacity: 0.35,
-            pointerEvents: 'none',
-            borderRadius: '0 4px 4px 0',
-          }}
-        />
-        {/* Click zones: left half = prev, right half = next */}
-        <button
-          type="button"
-          onClick={onPrev}
-          aria-label="Previous page"
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: '50%',
-            background: 'transparent',
-            border: 'none',
-            cursor: idx > 0 ? 'w-resize' : 'default',
-          }}
-        />
-        <button
-          type="button"
-          onClick={onNext}
-          aria-label="Next page"
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: '50%',
-            background: 'transparent',
-            border: 'none',
-            cursor: idx < pages.length - 1 ? 'e-resize' : 'default',
-          }}
-        />
+          <button
+            type="button"
+            onClick={onNext}
+            aria-label="Next page"
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: '50%',
+              background: 'transparent',
+              border: 'none',
+              cursor: idx < pages.length - 1 ? 'e-resize' : 'default',
+            }}
+          />
+        </div>
       </div>
+
+      {/* ── Right paper-edge stack (pages still to come) ── */}
+      <div
+        aria-hidden
+        style={{
+          width: rightEdgeWidth,
+          height: '94%',
+          alignSelf: 'center',
+          background:
+            'linear-gradient(to left, #d8c39a 0%, #c9b285 80%, #6f5a3a 100%), repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(60,40,20,0.18) 2px, rgba(60,40,20,0.18) 3px)',
+          backgroundBlendMode: 'multiply',
+          borderRadius: '0 2px 2px 0',
+          boxShadow: 'inset 3px 0 6px rgba(0,0,0,0.5)',
+          pointerEvents: 'none',
+          flexShrink: 0,
+        }}
+      />
     </div>
   )
 }
 
-/**
- * PageEdgeStack — the thin stack of paper sticking out on either
- * side of the visible page, used as a depth cue so the album reads
- * as a real bound book rather than a single flat image.
- */
-function PageEdgeStack({
-  side,
-  count,
-}: {
-  side: 'left' | 'right'
-  count: number
-}) {
-  // Each "page edge" is a 1px hairline. Stack them just outside the
-  // visible page on the side that matches its position in the book.
-  // For a SPREAD (open book) the stack hugs the outer edge of the
-  // appropriate half. For a single page (cover/back) the stack hugs
-  // the outer edge of the whole page.
-  const totalWidth = Math.min(count * 0.6, 14) // px
-  return (
-    <div
-      aria-hidden
-      style={{
-        position: 'absolute',
-        top: '1.5%',
-        bottom: '1.5%',
-        width: totalWidth,
-        // For a spread, the left stack lives at the LEFT edge of the
-        // open book, and the right stack at the RIGHT edge — same as
-        // the single-page case. The visible content always spans the
-        // full frame, so edges sit just outside it.
-        [side]: -totalWidth,
-        background:
-          side === 'left'
-            ? 'linear-gradient(to right, rgba(255,242,217,0.05), rgba(220,200,170,0.4) 60%, rgba(120,100,80,0.6))'
-            : 'linear-gradient(to left, rgba(255,242,217,0.05), rgba(220,200,170,0.4) 60%, rgba(120,100,80,0.6))',
-        boxShadow:
-          side === 'left'
-            ? 'inset -1px 0 0 rgba(0,0,0,0.4)'
-            : 'inset 1px 0 0 rgba(0,0,0,0.4)',
-        borderRadius:
-          side === 'left' ? '2px 0 0 2px' : '0 2px 2px 0',
-        pointerEvents: 'none',
-        // Subtle slant so the edges read as 3D paper, not a flat bar.
-        transformOrigin: side === 'left' ? 'right center' : 'left center',
-        // Faint stripe pattern to suggest individual sheets.
-        backgroundImage:
-          'repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 3px)',
-      }}
-    />
-  )
-}
