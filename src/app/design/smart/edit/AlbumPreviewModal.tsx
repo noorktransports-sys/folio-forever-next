@@ -34,6 +34,16 @@ import {
 // reads as "this is my album" without users needing to learn how to
 // drag/tilt.
 
+// Mirrors LEATHER_HEX in render-cover.ts. Used to colour the spine
+// shadow on the cover preview so it matches the leather chosen on
+// leather + acrylic covers.
+const LEATHER_HEX: Record<string, string> = {
+  black: '#1a1816',
+  brown: '#5a3a1a',
+  ivory: '#f0e6d2',
+  burgundy: '#5e1014',
+}
+
 // Local mirror of the SpreadText shape (lives in page.tsx); structural
 // typing flows through render-spread without an explicit shared type.
 interface SpreadText {
@@ -274,11 +284,11 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
       const next = idx + dir
       if (next < 0 || next >= pages.length) return
       setFlipping(dir > 0 ? 'next' : 'prev')
-      // Match the CSS animation duration below.
+      // Match the CSS animation duration below (the 0.6s flip).
       window.setTimeout(() => {
         setIdx(next)
         setFlipping(null)
-      }, 420)
+      }, 600)
     },
     [idx, pages, flipping],
   )
@@ -395,6 +405,8 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
             flipping={flipping}
             aspect={currentAspect}
             isStandard={isStandard}
+            coverType={cover?.type ?? 'photo'}
+            leatherHex={LEATHER_HEX[cover?.leatherColor ?? 'black'] ?? '#1a1816'}
             onPrev={() => go(-1)}
             onNext={() => go(1)}
           />
@@ -431,6 +443,8 @@ function FlatFlipbook({
   flipping,
   aspect,
   isStandard,
+  coverType,
+  leatherHex,
   onPrev,
   onNext,
 }: {
@@ -439,13 +453,23 @@ function FlatFlipbook({
   flipping: 'next' | 'prev' | null
   aspect: number
   isStandard: boolean
+  coverType: 'leather' | 'acrylic' | 'photo'
+  leatherHex: string
   onPrev: () => void
   onNext: () => void
 }) {
   const page = pages[idx]
   if (!page) return null
 
-  const isSpread = page.kind === 'spread'
+  // During a flip, the BACK face shows the page we're flipping to.
+  // We pre-compute it so the CSS card-flip can swap front↔back
+  // smoothly with backface-visibility.
+  const targetIdx =
+    flipping === 'next' ? idx + 1 : flipping === 'prev' ? idx - 1 : null
+  const targetPage =
+    targetIdx != null && targetIdx >= 0 && targetIdx < pages.length
+      ? pages[targetIdx]
+      : null
 
   return (
     <div
@@ -454,100 +478,218 @@ function FlatFlipbook({
         height: 'min(88vh, calc(94vw / ' + aspect + '))',
         aspectRatio: `${aspect}`,
         userSelect: 'none',
-        // Soft drop-shadow under the page — that's it.
         filter: 'drop-shadow(0 24px 36px rgba(0,0,0,0.55))',
-        // Perspective for the page-turn tilt.
-        perspective: '2200px',
+        // Perspective is set on the OUTER wrapper so the 3D flip
+        // reads properly across the whole page.
+        perspective: '2400px',
       }}
     >
+      {/* Flipper: a preserve-3d container that physically rotates
+          180° during a turn. Front face = current page; back face =
+          target page (pre-rotated 180° so it shows correctly at the
+          end of the flip). backface-visibility hides whichever face
+          is pointing away from the camera. */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          transformOrigin:
-            flipping === 'next' ? 'left center' : flipping === 'prev' ? 'right center' : 'center',
+          transformStyle: 'preserve-3d',
           transform:
             flipping === 'next'
-              ? 'rotateY(-14deg)'
+              ? 'rotateY(-180deg)'
               : flipping === 'prev'
-              ? 'rotateY(14deg)'
+              ? 'rotateY(180deg)'
               : 'rotateY(0)',
-          transition: 'transform 0.4s ease',
+          transition: 'transform 0.6s cubic-bezier(0.42, 0, 0.30, 1.0)',
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={page.url}
-          alt={page.label}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            background: '#15110b',
-            borderRadius: 3,
-          }}
-          draggable={false}
+        {/* ── Front face: current page ── */}
+        <PageFace
+          page={page}
+          isStandard={isStandard}
+          coverType={coverType}
+          leatherHex={leatherHex}
         />
-        {/* The ONE thing we draw on top of the page: a clean centre
-            line on spreads so the user sees it's two pages, not a
-            single image. Stronger on standard hardcover, softer on
-            layflat. Nothing else — no leather frame, no paper mat. */}
-        {isSpread && (
+        {/* ── Back face: target page, pre-rotated so it ends face-up
+              when the flipper finishes its ±180° rotation. ── */}
+        {targetPage && (
           <div
-            aria-hidden
             style={{
               position: 'absolute',
-              left: '50%',
-              top: 0,
-              bottom: 0,
-              width: 2,
-              transform: 'translateX(-1px)',
-              pointerEvents: 'none',
-              background: isStandard
-                ? 'rgba(0,0,0,0.6)'
-                : 'rgba(0,0,0,0.35)',
-              // A whisper of soft shadow on either side of the line
-              // so it doesn't look pasted on flat.
-              boxShadow: isStandard
-                ? '0 0 12px 4px rgba(0,0,0,0.25)'
-                : '0 0 8px 3px rgba(0,0,0,0.12)',
+              inset: 0,
+              transform: 'rotateY(180deg)',
+              backfaceVisibility: 'hidden',
             }}
-          />
+          >
+            <PageFace
+              page={targetPage}
+              isStandard={isStandard}
+              coverType={coverType}
+              leatherHex={leatherHex}
+            />
+          </div>
         )}
-        {/* Click zones: left half = prev, right half = next */}
-        <button
-          type="button"
-          onClick={onPrev}
-          aria-label="Previous page"
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: '50%',
-            background: 'transparent',
-            border: 'none',
-            cursor: idx > 0 ? 'w-resize' : 'default',
-          }}
-        />
-        <button
-          type="button"
-          onClick={onNext}
-          aria-label="Next page"
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: '50%',
-            background: 'transparent',
-            border: 'none',
-            cursor: idx < pages.length - 1 ? 'e-resize' : 'default',
-          }}
-        />
       </div>
+
+      {/* Click zones sit ABOVE the flipper. They never rotate so the
+          user can always press the next/prev edges. */}
+      <button
+        type="button"
+        onClick={onPrev}
+        aria-label="Previous page"
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '50%',
+          background: 'transparent',
+          border: 'none',
+          cursor: idx > 0 ? 'w-resize' : 'default',
+          zIndex: 5,
+        }}
+      />
+      <button
+        type="button"
+        onClick={onNext}
+        aria-label="Next page"
+        style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: '50%',
+          background: 'transparent',
+          border: 'none',
+          cursor: idx < pages.length - 1 ? 'e-resize' : 'default',
+          zIndex: 5,
+        }}
+      />
+    </div>
+  )
+}
+
+/**
+ * PageFace — one face of the flipper. Shows the page image + the
+ * appropriate overlays (centre gutter on spreads, spine shadow on
+ * covers). Used twice in FlatFlipbook: once for the front face,
+ * once for the back face during a flip.
+ */
+function PageFace({
+  page,
+  isStandard,
+  coverType,
+  leatherHex,
+}: {
+  page: Page
+  isStandard: boolean
+  coverType: 'leather' | 'acrylic' | 'photo'
+  leatherHex: string
+}) {
+  const isSpread = page.kind === 'spread'
+  const isCoverFront = page.kind === 'cover-front'
+  const isCoverBack = page.kind === 'cover-back'
+
+  // Cover spine colour: leather + acrylic show the chosen leather
+  // colour (same as their physical binding); photo covers show a
+  // soft dark spine cue since the print itself has no binding strip.
+  const spineColor =
+    coverType === 'leather' || coverType === 'acrylic'
+      ? leatherHex
+      : '#0a0806'
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        backfaceVisibility: 'hidden',
+        borderRadius: 3,
+        overflow: 'hidden',
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={page.url}
+        alt={page.label}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          background: '#15110b',
+        }}
+        draggable={false}
+      />
+
+      {/* ── Spread centre gutter ── */}
+      {isSpread && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: 2,
+            transform: 'translateX(-1px)',
+            pointerEvents: 'none',
+            background: isStandard ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.35)',
+            boxShadow: isStandard
+              ? '0 0 12px 4px rgba(0,0,0,0.25)'
+              : '0 0 8px 3px rgba(0,0,0,0.12)',
+          }}
+        />
+      )}
+
+      {/* ── Cover spine shadow ──
+          For the FRONT cover the spine is on the LEFT (the binding
+          side of the book). For the BACK cover the binding sits on
+          the RIGHT. Leather + acrylic use the chosen leather colour
+          (same binding as the physical product); photo covers get a
+          soft dark spine shadow because the print itself wraps the
+          photo and has no binding strip. */}
+      {(isCoverFront || isCoverBack) && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            [isCoverFront ? 'left' : 'right']: 0,
+            width: '7%',
+            pointerEvents: 'none',
+            background: isCoverFront
+              ? `linear-gradient(to right, ${spineColor} 0%, ${spineColor}cc 35%, transparent 100%)`
+              : `linear-gradient(to left, ${spineColor} 0%, ${spineColor}cc 35%, transparent 100%)`,
+            mixBlendMode:
+              coverType === 'photo' ? 'multiply' : 'normal',
+            opacity: coverType === 'photo' ? 0.55 : 0.85,
+          }}
+        />
+      )}
+
+      {/* ── Cover "thickness" cue ──
+          A faint outside-edge shadow on the side opposite the spine
+          suggests the album has depth — i.e., this is a closed book
+          you're looking at, not a flat picture. */}
+      {(isCoverFront || isCoverBack) && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            [isCoverFront ? 'right' : 'left']: 0,
+            width: '3%',
+            pointerEvents: 'none',
+            background: isCoverFront
+              ? 'linear-gradient(to left, rgba(0,0,0,0.45), transparent)'
+              : 'linear-gradient(to right, rgba(0,0,0,0.45), transparent)',
+          }}
+        />
+      )}
     </div>
   )
 }
