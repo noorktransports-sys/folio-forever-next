@@ -53,6 +53,11 @@ export default function AlbumPreview3D({
   const idxRef = useRef(0)
   // Index of the leaf currently mid-flip (so clicks don't double-fire).
   const flippingRef = useRef<number | null>(null)
+  // onZoneClickRef lets the canvas pointer handler (bound once in
+  // the setup effect) call the latest onZoneClick — avoiding stale-
+  // closure trouble where the pointer handler would see only the
+  // first render's onZoneClick.
+  const onZoneClickRef = useRef<(dir: -1 | 1) => void>(() => {})
   // Scene refs — re-bound in the setup effect.
   const refs = useRef<{
     renderer: THREE.WebGLRenderer
@@ -89,6 +94,8 @@ export default function AlbumPreview3D({
     renderer.domElement.style.width = '100%'
     renderer.domElement.style.height = '100%'
     renderer.domElement.style.display = 'block'
+    // Hint that the canvas is interactive (tap to turn, drag to tilt).
+    renderer.domElement.style.cursor = 'grab'
     mount.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
@@ -209,14 +216,26 @@ export default function AlbumPreview3D({
     applyCamera()
 
     const canvasEl = renderer.domElement
+    // Track press info so a short tap (no drag) on the canvas flips
+    // the page — left half = prev, right half = next. A real drag
+    // tilts the camera instead. This is the *only* way clicking on
+    // the cover itself flips the page (the side click-zones miss
+    // anything in the centre of the canvas).
+    let downAt = 0
+    let downXY: { x: number; y: number } | null = null
+    let didDrag = false
     const onDown = (e: PointerEvent) => {
       dragStart = { x: e.clientX, y: e.clientY, rx, ry }
+      downAt = performance.now()
+      downXY = { x: e.clientX, y: e.clientY }
+      didDrag = false
       canvasEl.setPointerCapture?.(e.pointerId)
     }
     const onMove = (e: PointerEvent) => {
       if (!dragStart) return
       const dx = e.clientX - dragStart.x
       const dy = e.clientY - dragStart.y
+      if (!didDrag && Math.abs(dx) + Math.abs(dy) > 6) didDrag = true
       ry = Math.max(-0.45, Math.min(0.45, dragStart.ry + dx * 0.005))
       rx = Math.max(-0.45, Math.min(0.1, dragStart.rx - dy * 0.005))
       applyCamera()
@@ -224,6 +243,17 @@ export default function AlbumPreview3D({
     const onUp = (e: PointerEvent) => {
       dragStart = null
       canvasEl.releasePointerCapture?.(e.pointerId)
+      // Tap detection: quick, no real movement → treat as a page-turn
+      // click. The 280ms ceiling matches the system "click vs drag"
+      // threshold most touch UIs use.
+      const elapsed = performance.now() - downAt
+      if (downXY && !didDrag && elapsed < 280) {
+        const rect = canvasEl.getBoundingClientRect()
+        const xFrac = (e.clientX - rect.left) / rect.width
+        if (xFrac < 0.5) onZoneClickRef.current(-1)
+        else onZoneClickRef.current(1)
+      }
+      downXY = null
     }
     canvasEl.addEventListener('pointerdown', onDown)
     canvasEl.addEventListener('pointermove', onMove)
@@ -384,6 +414,8 @@ export default function AlbumPreview3D({
       return next
     })
   }
+  // Keep the canvas pointer handler's view of onZoneClick fresh.
+  onZoneClickRef.current = onZoneClick
 
   return (
     <div
