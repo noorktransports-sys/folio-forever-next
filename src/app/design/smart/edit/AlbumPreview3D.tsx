@@ -48,6 +48,9 @@ export default function AlbumPreview3D({
 }: AlbumPreview3DProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const [idx, setIdx] = useState(0)
+  // idxRef mirrors `idx` for the animate loop (which runs inside an
+  // effect with stale closure semantics).
+  const idxRef = useRef(0)
   // Index of the leaf currently mid-flip (so clicks don't double-fire).
   const flippingRef = useRef<number | null>(null)
   // Scene refs — re-bound in the setup effect.
@@ -109,6 +112,13 @@ export default function AlbumPreview3D({
     const leafW = (pageKind: Page['kind']) =>
       BOOK_H * (pageKind === 'spread' ? spreadAspect : coverAspect)
 
+    // All book parts go into one root group so we can shift the whole
+    // book horizontally to keep whatever's currently visible — the
+    // cover when closed, the spread when open, the back cover at the
+    // end — centred on screen.
+    const bookRoot = new THREE.Group()
+    scene.add(bookRoot)
+
     // ── Closed-book base ────────────────────────────────────────────
     // A flat-ish box behind the leaves to suggest the album's paper
     // thickness when viewed at an angle. Standard hardcover = thicker;
@@ -121,9 +131,10 @@ export default function AlbumPreview3D({
       roughness: 0.85,
     })
     const base = new THREE.Mesh(baseGeom, baseMat)
-    // Sit so the leaves are at z=0 (top of stack); base extends BACK.
-    base.position.set(0, 0, -baseDepth / 2)
-    scene.add(base)
+    // Position the base so its LEFT edge sits at the spine (x=0) —
+    // same coord system as the leaves below.
+    base.position.set(baseW / 2, 0, -baseDepth / 2)
+    bookRoot.add(base)
 
     // ── Leaves ──────────────────────────────────────────────────────
     // One Group per page. Plane positioned with its LEFT edge at the
@@ -149,7 +160,7 @@ export default function AlbumPreview3D({
       // when the book is closed/tilted. Top leaf at z just above 0.
       g.position.set(0, 0, (pages.length - i) * LEAF_THICKNESS)
       g.rotation.y = 0 // not flipped yet
-      scene.add(g)
+      bookRoot.add(g)
       leafGroups.push(g)
       targetRot.push(0)
 
@@ -215,7 +226,12 @@ export default function AlbumPreview3D({
     }
     window.addEventListener('resize', onResize)
 
-    // ── Animation loop (eases each leaf toward its target rotation) ─
+    // Per-leaf widths for the centring maths below.
+    const leafWidths = pages.map((p) => leafW(p.kind))
+
+    // ── Animation loop (eases each leaf toward its target rotation
+    //    AND eases the whole book horizontally so the currently
+    //    visible content stays centred on screen). ──
     const animate = () => {
       for (let i = 0; i < leafGroups.length; i++) {
         const g = leafGroups[i]
@@ -230,14 +246,48 @@ export default function AlbumPreview3D({
             0.02 * Math.sin(Math.abs(g.rotation.y))
         }
       }
+      // Book-centring: when only the cover is visible (idx===0 or all
+      // pages flipped), the visible content is one PAGE whose centre
+      // is at half-width from the spine — shift the whole book left
+      // by that amount so it sits in the middle of the canvas. When
+      // an opening is visible, the spine itself is centred.
+      const i = idxRef.current
+      let targetX = 0
+      if (i === 0) {
+        // Cover-front only.
+        targetX = -leafWidths[0] / 2
+      } else if (i >= pages.length) {
+        // Back cover only.
+        targetX = leafWidths[pages.length - 1] / 2
+      } else {
+        // Open spread — spine at x=0 already centres the visible pages.
+        targetX = 0
+      }
+      bookRoot.position.x += (targetX - bookRoot.position.x) * 0.12
+
       renderer.render(scene, camera)
       refs.current!.raf = requestAnimationFrame(animate)
     }
     let raf = requestAnimationFrame(animate)
 
+    // ── Resize observer ────────────────────────────────────────────
+    // The initial setSize uses clientWidth/Height at mount, which can
+    // be 0 if the flex parent hasn't laid out yet. Observe size and
+    // re-fit whenever it changes (modal open, viewport rotate, etc.).
+    const ro = new ResizeObserver(() => {
+      const W = mount.clientWidth
+      const H = mount.clientHeight
+      if (W < 4 || H < 4) return
+      renderer.setSize(W, H, false)
+      camera.aspect = W / H
+      camera.updateProjectionMatrix()
+    })
+    ro.observe(mount)
+
     const cleanup = () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', onResize)
+      ro.disconnect()
       canvasEl.removeEventListener('pointerdown', onDown)
       canvasEl.removeEventListener('pointermove', onMove)
       canvasEl.removeEventListener('pointerup', onUp)
@@ -275,7 +325,10 @@ export default function AlbumPreview3D({
 
   // Drive leaf rotations from idx — leaves[0..idx-1] are flipped, the
   // rest are flat. (Animation eases there inside the render loop.)
+  // Also mirror idx into idxRef so the animate loop's book-centring
+  // logic sees the latest value.
   useEffect(() => {
+    idxRef.current = idx
     const r = refs.current
     if (!r) return
     for (let i = 0; i < r.leaves.length; i++) {

@@ -341,7 +341,7 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.92)',
+        background: '#0a0806',
         zIndex: 300,
         display: 'flex',
         flexDirection: 'column',
