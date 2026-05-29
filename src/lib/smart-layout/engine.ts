@@ -24,10 +24,9 @@ import type {
   LayoutFamily,
 } from './templates'
 
+// A photo must be at least this big on each edge to be featured
+// full-page (so a full-bleed single never looks soft).
 const HERO_MIN_PX = 3000
-const HERO_CAP = 8
-const HERO_AUTO_EVERY = 4
-const HERO_AUTO_MIN = 2
 
 /** Which layout family a given spread should use.
  *  @param isHeroSpread  this spread features a hero photo
@@ -147,34 +146,6 @@ function scorePhotoForHero(p: LayoutPhoto): number {
   return score
 }
 
-/**
- * Pick which photo ids should be heroes. Honours any the client manually
- * tagged, then auto-promotes the best remaining shots until the album has
- * a healthy hero cadence (≈ one per HERO_AUTO_EVERY photos, at least
- * HERO_AUTO_MIN, never more than HERO_CAP).
- */
-function autoSelectHeroIds(useable: LayoutPhoto[]): Set<string> {
-  const tagged = useable.filter((p) => p.tagged === 'hero')
-  const heroIds = new Set<string>(tagged.map((p) => p.id))
-
-  const target = Math.min(
-    HERO_CAP,
-    Math.max(HERO_AUTO_MIN, Math.round(useable.length / HERO_AUTO_EVERY)),
-  )
-  if (heroIds.size >= target) return heroIds
-
-  const eligible = useable
-    .filter((p) => !heroIds.has(p.id) && scorePhotoForHero(p) >= 0)
-    .map((p) => ({ p, s: scorePhotoForHero(p) }))
-    .sort((a, b) => b.s - a.s)
-
-  for (const { p } of eligible) {
-    if (heroIds.size >= target) break
-    heroIds.add(p.id)
-  }
-  return heroIds
-}
-
 // ============== LAYOUT ENGINE ==============
 // Pacing rule: every 3rd spread is a hero spread (positions 2, 5, 8, ...
 // 0-indexed within an event). Non-hero spreads default to PAIR (2 photos).
@@ -191,15 +162,13 @@ function generateLayout(
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
 
-  // Auto-pick hero photos so the client never has to tag them. Includes
-  // any they DID tag, plus the best remaining shots up to a healthy
-  // cadence. The whole album shares one set so heroes land on the
-  // genuinely strongest images regardless of event.
-  const heroIds = autoSelectHeroIds(useable)
-
-  // The layout family is decided PER SPREAD using the running spread
-  // ordinal `idx` (see familyForSpread) so the mix rhythm works even when
-  // the client tagged zero hero photos.
+  // Photos are placed in CHRONOLOGICAL order (EXIF capture time →
+  // filename number → upload order). We no longer pull "hero" photos
+  // out of sequence — the album reads as a story, in the order the day
+  // actually happened. A photo that lands on its own spread becomes a
+  // full-page feature naturally; consecutive photos share orientation-
+  // matched multi-photo layouts. The layout family (full-bleed vs
+  // matted) still follows the per-spread mix rhythm in familyForSpread.
 
   const eventOrder: EventId[] = [
     'mehndi',
@@ -270,10 +239,6 @@ function generateLayout(
 
   const spreads: Spread[] = []
   let idx = 0
-  // Guarantee at least one DUAL-HERO spread per album (two big heroes side
-  // by side on the same spread) when the album has ≥2 heroes total.
-  let doubleHeroPlaced = false
-  const totalHeroes = useable.filter((p) => heroIds.has(p.id)).length
   // Remember the last template used for each photo-count so the next
   // same-count spread is forced to a DIFFERENT layout (no repeats).
   const lastTplByCount: Record<number, string> = {}
@@ -283,203 +248,84 @@ function generateLayout(
   }
 
   for (const { eid, bucket, spreads: spreadBudget } of rawBudgets) {
-    // Heroes = anything in the auto-selected hero set (manual + auto).
-    // Best heroes first so the most striking shots get featured.
-    const heroes = bucket.photos
-      .filter((p) => heroIds.has(p.id))
-      .sort((a, b) => scorePhotoForHero(b) - scorePhotoForHero(a))
-    const favorites = bucket.photos.filter(
-      (p) => p.tagged === 'favorite' && !heroIds.has(p.id),
-    )
-    const others = bucket.photos.filter(
-      (p) => p.tagged === 'none' && !heroIds.has(p.id),
-    )
-    const totalEventPhotos = bucket.photos.length
-
-    // ---- PASS 1: PLAN ----
-    // Decide which spread positions are heroes vs non-hero, and the
-    // photo count per spread.
-    const isHeroSpot: boolean[] = new Array(spreadBudget).fill(false)
-    let heroAssigned = 0
-    // First pass: every 3rd position (i % 3 === 2)
-    for (let i = 0; i < spreadBudget; i++) {
-      if (heroAssigned >= heroes.length) break
-      if (i % 3 === 2) {
-        isHeroSpot[i] = true
-        heroAssigned++
-      }
-    }
-    // If extra heroes still remain, append on first available pair slots
-    // from the front (so heroes get featured even if we have many).
-    for (let i = 0; i < spreadBudget && heroAssigned < heroes.length; i++) {
-      if (!isHeroSpot[i]) {
-        isHeroSpot[i] = true
-        heroAssigned++
-      }
-    }
-
-    const heroSpreadCount = isHeroSpot.filter(Boolean).length
-    const pairSpreadCount = spreadBudget - heroSpreadCount
-
-    // LayoutPhoto budget: heroes themselves are placed (heroSpreadCount of them),
-    // plus the non-hero photos to be distributed.
-    const nonHeroPhotos = favorites.length + others.length
-
-    // Per-spread sizes: hero spread defaults to 2 photos (hero+1, matches
-    // pair density). Pair spread defaults to 2.
-    const sizes: number[] = isHeroSpot.map((isH) => (isH ? 2 : 2))
-
-    // Adjust sizes to fit ALL non-hero photos.
-    // Non-hero photos to place = nonHeroPhotos
-    // Slots dedicated to non-hero = (heroSpreadCount * 1 fillers) + (pairSpreadCount * 2)
-    let nonHeroSlotsPlanned = heroSpreadCount * 1 + pairSpreadCount * 2
-
-    if (nonHeroSlotsPlanned > nonHeroPhotos) {
-      // Slots > photos. Reduce some pair spreads from 2 to 1 photo.
-      let surplus = nonHeroSlotsPlanned - nonHeroPhotos
-      for (let i = sizes.length - 1; i >= 0 && surplus > 0; i--) {
-        if (!isHeroSpot[i] && sizes[i] > 1) {
-          sizes[i]--
-          surplus--
-        }
-      }
-      // If still surplus, reduce pair spreads to 0 (shouldn't normally happen)
-      for (let i = sizes.length - 1; i >= 0 && surplus > 0; i--) {
-        if (!isHeroSpot[i] && sizes[i] > 0) {
-          sizes[i]--
-          surplus--
-        }
-      }
-    } else if (nonHeroSlotsPlanned < nonHeroPhotos) {
-      // Need to increase density. Step up hero spreads first (hero+1 → hero+2 → +3 → +4 max),
-      // then pair spreads (2 → 3 → 4 → 5). Hard cap is 5 photos per spread — anything
-      // beyond that becomes unused-pool overflow.
-      let deficit = nonHeroPhotos - nonHeroSlotsPlanned
-      const heroMax = 5 // 1 hero + 4 fillers
-      const pairMax = 5
-      let safety = 1000
-      while (deficit > 0 && safety-- > 0) {
-        let bumped = false
-        // Bump hero spreads first (give heroes more support photos)
-        for (let i = 0; i < sizes.length && deficit > 0; i++) {
-          if (isHeroSpot[i] && sizes[i] < heroMax) {
-            sizes[i]++
-            deficit--
-            bumped = true
-          }
-        }
-        // Then bump pair spreads
-        for (let i = 0; i < sizes.length && deficit > 0; i++) {
-          if (!isHeroSpot[i] && sizes[i] < pairMax) {
-            sizes[i]++
-            deficit--
-            bumped = true
-          }
-        }
-        if (!bumped) break
-      }
-    }
-
-    // ---- PASS 2: ASSIGN ----
-    // Build the actual spreads using the planned sizes + hero positions.
-    const fillerQueue: LayoutPhoto[] = [...favorites, ...others]
-    let alternateLeft = true
+    // Photos for this event, already sorted in chronological order
+    // (EXIF capture time → filename number → upload order).
+    const seq = bucket.photos
     const eventSpreads: Spread[] = []
+    let i = 0
+    let safety = 100000
 
-    for (let i = 0; i < spreadBudget; i++) {
-      if (isHeroSpot[i]) {
-        // DUAL-HERO: once per album, give two of the best heroes their own
-        // shared spread (two big photos, no fillers) for maximum impact.
-        if (!doubleHeroPlaced && totalHeroes >= 2 && heroes.length >= 2) {
-          const h1 = heroes.shift()!
-          const h2 = heroes.shift()!
-          const duo = [h1, h2]
-          const dualTpl =
-            pickTemplate(type, 2, false, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(2)) ??
-            pickTemplate(type, 2, true, undefined, duo, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(2))
-          if (dualTpl) {
-            eventSpreads.push({
-              id: `s-${idx++}`,
-              templateId: dualTpl.id,
-              photoIds: duo.map((p) => p.id),
-              eventId: eid,
-            })
-            remember(dualTpl.id, 2)
-            doubleHeroPlaced = true
-            continue
-          }
-          // Couldn't find a 2-slot template — put them back, fall through.
-          heroes.unshift(h1, h2)
-        }
-        const hero = heroes.shift()
-        if (!hero) {
-          // Shouldn't happen — but if it does, fall back to a pair
-          const take = Math.min(sizes[i], fillerQueue.length)
-          const chunk = fillerQueue.splice(0, take)
-          if (chunk.length === 0) continue
-          const tpl =
-            pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(chunk.length)) ??
-            pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(chunk.length))
-          if (!tpl) continue
-          eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
-          remember(tpl.id, tpl.slots.length)
-          continue
-        }
-        const fillerCount = Math.max(0, sizes[i] - 1)
-        const fillers = fillerQueue.splice(0, fillerCount)
-        const total = 1 + fillers.length
-        // Pick template: hero+N with side alternating
-        const tplId = alternateLeft
-          ? total === 5 ? 'hero-4r' : total === 4 ? 'hero-3r' : total === 3 ? 'hero-2r' : 'hero-1r'
-          : total === 5 ? 'hero-4l' : total === 4 ? 'hero-3l' : total === 3 ? 'hero-2l' : 'hero-1l'
-        const heroPhotos = [hero, ...fillers]
-        const tpl =
-          pickTemplate(type, total, true, tplId, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total)) ??
-          pickTemplate(type, total, true, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total))
-        if (!tpl) {
-          // Fall back: put hero into a 2-photo pair as if it were any photo
-          const fallback = pickTemplate(type, total, false, undefined, heroPhotos, spreadAspectRatio, familyForSpread(style, true, idx), idx, avoidFor(total))
-          if (!fallback) continue
-          eventSpreads.push({
-            id: `s-${idx++}`,
-            templateId: fallback.id,
-            photoIds: [hero, ...fillers].map((p) => p.id),
-            eventId: eid,
-          })
-          remember(fallback.id, fallback.slots.length)
-          continue
-        }
-        const heroSlotIdx = tpl.slots.findIndex((s) => s.isHero)
-        const photoIds: string[] = new Array(tpl.slots.length).fill('')
-        photoIds[heroSlotIdx] = hero.id
-        let fi = 0
-        for (let s = 0; s < tpl.slots.length; s++) {
-          if (s === heroSlotIdx) continue
-          if (fillers[fi]) photoIds[s] = fillers[fi++].id
-        }
-        eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: photoIds.filter(Boolean), eventId: eid })
-        remember(tpl.id, tpl.slots.length)
-        alternateLeft = !alternateLeft
+    // Walk the photos in order, taking consecutive chunks for each
+    // spread. Nothing is reordered — spread 1 holds the earliest
+    // photos, the last spread the latest.
+    while (i < seq.length && eventSpreads.length < spreadBudget && safety-- > 0) {
+      const remainingPhotos = seq.length - i
+      const remainingSpreads = spreadBudget - eventSpreads.length
+
+      // Full-page feature: at a gentle cadence (every 3rd album spread),
+      // give the NEXT photo its own page. Two guards:
+      //   • surplus  — more photos than spreads, so we're not forcing a
+      //     single where every spread already needs to be a single.
+      //   • notDense — the album isn't packed tight (≤3 photos per
+      //     remaining spread on average). In a dense album every spread
+      //     must hold several photos, so we DON'T waste one on a single
+      //     (that would push photos into the unused pool).
+      // The photo keeps its chronological position and must be high-res
+      // enough to print sharp full-page.
+      const atFeatureCadence = idx % 3 === 2
+      const surplus = remainingPhotos > remainingSpreads
+      const notDense = remainingPhotos <= remainingSpreads * 3
+      const featureSingle =
+        atFeatureCadence && surplus && notDense && scorePhotoForHero(seq[i]) >= 0
+
+      let chunk: LayoutPhoto[]
+      if (featureSingle) {
+        chunk = [seq[i]]
       } else {
-        // Pair (or higher density) spread
-        const take = Math.min(sizes[i], fillerQueue.length)
-        if (take === 0) continue
-        const chunk = fillerQueue.splice(0, take)
-        const tpl =
-          pickTemplate(type, chunk.length, false, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx, avoidFor(chunk.length)) ??
-          pickTemplate(type, chunk.length, true, undefined, chunk, spreadAspectRatio, familyForSpread(style, false, idx), idx, avoidFor(chunk.length))
-        if (!tpl) continue
-        eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
-        remember(tpl.id, tpl.slots.length)
+        // Spread the remaining photos as evenly as possible across the
+        // remaining spreads (ceil leans toward placing everything), then
+        // clamp to a sensible 1–5 photos per spread.
+        let size = Math.ceil(remainingPhotos / remainingSpreads)
+        size = Math.max(1, Math.min(5, size))
+        chunk = seq.slice(i, i + size)
       }
+      i += chunk.length
+
+      // A single-photo spread is a full-page feature. For singles we let
+      // ORIENTATION pick the template (a portrait gets a tall full-page,
+      // a landscape gets a wide one) instead of forcing the bleed/mat
+      // rhythm — otherwise a portrait could land in a wide "panorama"
+      // frame. Multi-photo spreads keep the family rhythm and are chosen
+      // by how well the slot shapes match the photos' orientation
+      // (portrait vs landscape) — see scoreTemplateForPhotos.
+      const count = chunk.length
+      const useHero = count === 1
+      const family = useHero ? undefined : familyForSpread(style, false, idx)
+      const tpl =
+        pickTemplate(type, count, useHero, undefined, chunk, spreadAspectRatio, family, idx, avoidFor(count)) ??
+        pickTemplate(type, count, useHero, undefined, chunk, spreadAspectRatio, undefined, idx, avoidFor(count)) ??
+        pickTemplate(type, count, !useHero, undefined, chunk, spreadAspectRatio, undefined, idx, avoidFor(count))
+
+      if (!tpl) {
+        // Defensive: should never happen for counts 1–5. Place the photos
+        // anyway with a count-appropriate fallback so none are lost.
+        const fallbackId =
+          count >= 5 ? 'mat-5-row' : count === 4 ? 'mat-4-grid' : count === 3 ? 'mat-3' : count === 2 ? 'pair' : 'one-full'
+        eventSpreads.push({ id: `s-${idx++}`, templateId: fallbackId, photoIds: chunk.map((p) => p.id), eventId: eid })
+        continue
+      }
+      eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: chunk.map((p) => p.id), eventId: eid })
+      remember(tpl.id, tpl.slots.length)
     }
 
-    // If anything still remains in this event, jam it onto the last spread
-    // by upgrading the template — keeps the all-photos-placed promise.
-    const stillLeft = [...heroes, ...fillerQueue]
-    if (stillLeft.length > 0 && eventSpreads.length > 0) {
+    // If we hit the spread budget but still have photos in this event,
+    // jam the remainder onto the last spread (up to the 5-photo cap) so
+    // every photo is placed. Anything beyond that falls to the unused
+    // pool (the client can drop it onto any spread).
+    if (i < seq.length && eventSpreads.length > 0) {
+      const leftover = seq.slice(i)
       const last = eventSpreads[eventSpreads.length - 1]
-      const tgt = Math.min(5, last.photoIds.length + stillLeft.length)
+      const tgt = Math.min(5, last.photoIds.length + leftover.length)
       const upgrade = pickTemplate(
         type, tgt, false, undefined, undefined, undefined,
         templateFamily({ id: last.templateId }), idx,
@@ -488,7 +334,7 @@ function generateLayout(
         last.templateId = upgrade.id
         last.photoIds = [
           ...last.photoIds,
-          ...stillLeft.slice(0, tgt - last.photoIds.length).map((p) => p.id),
+          ...leftover.slice(0, tgt - last.photoIds.length).map((p) => p.id),
         ]
       }
     }

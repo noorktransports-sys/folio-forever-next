@@ -37,7 +37,7 @@ import {
   clusterByTimeGaps,
   type EventId as GroupEventId,
 } from '@/lib/smart-group'
-import { detectFaces, computeFacePan, type FaceBox } from '@/lib/face-detect'
+import { detectFaces, type FaceBox } from '@/lib/face-detect'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
 
@@ -1964,37 +1964,14 @@ function SmartDesignerInner() {
       }
       setSpreadBgs(bgs)
 
-      // Face-aware initial crops — for every slot whose photo has
-      // detected faces, pre-set panX/panY so the face centroid lands
-      // inside the visible crop. Photos without faces (or browsers
-      // with no FaceDetector) keep the default 50/50 centre crop.
-      const photoById = new Map(photos.map((p) => [p.id, p]))
-      const aspect = size ? ALBUM_SPECS[size].spreadAspectRatio : 24 / 17
-      const adj: Record<string, PhotoAdjust> = {}
-      for (const s of newSpreads) {
-        const tpl = TEMPLATE_BY_ID.get(s.templateId)
-        if (!tpl) continue
-        const slots = renderSlots(tpl)
-        for (let i = 0; i < slots.length; i++) {
-          const pid = s.photoIds[i]
-          if (!pid) continue
-          const p = photoById.get(pid)
-          if (!p || !p.faces || p.faces.length === 0) continue
-          const slotAspect = (slots[i].w * aspect) / slots[i].h
-          const { panX, panY } = computeFacePan(
-            p.faces,
-            p.width,
-            p.height,
-            slotAspect,
-          )
-          if (panX !== 50 || panY !== 50) {
-            adj[adjustKey(s.id, i)] = { ...DEFAULT_ADJUST, panX, panY }
-          }
-        }
-      }
-      setAdjusts(adj)
+      // Crops start at the neutral 50/50 centre for every slot. We used
+      // to auto-pan each photo around detected faces here, but that
+      // moved crops in ways clients found unpredictable (and it fought
+      // their manual zoom/pan edits). Photos now keep a clean centre
+      // crop; the client pans/zooms only where they want to.
+      setAdjusts({})
     },
-    [photos, size],
+    [photos],
   )
 
   // The smart engine runs on the SERVER (/api/smart-layout) so the
