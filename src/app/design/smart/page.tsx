@@ -17,6 +17,7 @@ import {
 import { SlotImage, type SlotAdjust } from './edit/PanSlider'
 import {
   saveBlob,
+  deleteBlob,
   loadAlbumBlobs,
   clearAlbumBlobs,
 } from './edit/photo-blob-store'
@@ -2841,6 +2842,32 @@ function SmartDesignerInner() {
     setAdjusts({})
   }
 
+  /**
+   * Remove a single photo on the upload stage (before grouping /
+   * layout). Frees its object URL, drops it from the IndexedDB blob
+   * cache, and strips it out of any state that referenced it so it
+   * can't resurface later in grouping or the unused pool.
+   */
+  const removePhoto = (photoId: string) => {
+    const target = photos.find((p) => p.id === photoId)
+    if (target?.preview?.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(target.preview)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (albumId) deleteBlob(albumId, photoId)
+    setPhotos((prev) => prev.filter((p) => p.id !== photoId))
+    setUnusedPhotoIds((prev) => prev.filter((id) => id !== photoId))
+    setSelectedPhotoIds((prev) => {
+      if (!prev.has(photoId)) return prev
+      const next = new Set(prev)
+      next.delete(photoId)
+      return next
+    })
+  }
+
   const photoMap = useMemo(() => {
     const m = new Map<string, Photo>()
     photos.forEach((p) => m.set(p.id, p))
@@ -3331,6 +3358,7 @@ function SmartDesignerInner() {
                 return (
                   <div
                     key={p.id}
+                    className="folio-photo-tile"
                     style={{
                       position: 'relative',
                       aspectRatio: '1',
@@ -3364,18 +3392,70 @@ function SmartDesignerInner() {
                         Low res
                       </span>
                     )}
+                    {/* Remove this photo. Visible on hover (desktop) and
+                        always tappable on touch. */}
+                    <button
+                      type="button"
+                      className="folio-photo-remove"
+                      aria-label="Remove this photo"
+                      title="Remove this photo"
+                      onClick={() => removePhoto(p.id)}
+                      style={{
+                        position: 'absolute',
+                        top: 4,
+                        right: 4,
+                        width: 24,
+                        height: 24,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(14,12,9,0.72)',
+                        color: '#fff',
+                        fontSize: 14,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ✕
+                    </button>
                   </div>
                 )
               })}
             </div>
+            {/* Touch devices can't hover, so the remove (✕) button is
+                always visible there; on hover-capable devices it
+                fades in only when you hover the photo so the grid
+                stays clean. */}
+            <style>{`
+              .folio-photo-remove { opacity: 1; transition: opacity 0.15s ease; }
+              @media (hover: hover) {
+                .folio-photo-remove { opacity: 0; }
+                .folio-photo-tile:hover .folio-photo-remove,
+                .folio-photo-remove:focus-visible { opacity: 1; }
+              }
+            `}</style>
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+            <div style={{ display: 'flex', gap: 12, marginTop: 32, alignItems: 'center' }}>
               <button type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
-                Clear
+                Clear all
               </button>
               <button type="button" style={css.btnPrimary} onClick={() => setStep('group')}>
                 Continue →
               </button>
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 11,
+                  letterSpacing: 1,
+                  color: 'var(--muted2)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {photos.length} photo{photos.length === 1 ? '' : 's'} · hover a photo to remove it
+              </span>
             </div>
           </>
         )}
