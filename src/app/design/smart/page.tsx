@@ -12,6 +12,7 @@ import {
   makeRemoveOp,
   makeLayoutVariantOp,
   makeReorderSpreadOp,
+  makeDeleteSpreadOp,
   type Spread as OpSpread,
 } from './edit/operations'
 import { SlotImage, type SlotAdjust } from './edit/PanSlider'
@@ -4361,6 +4362,31 @@ function SmartDesignerInner() {
                 slotDragHandlers={slotDrag.slotHandlers}
                 spreadDropHandlers={slotDrag.spreadDropHandlers}
                 onPhotoCountChange={(n) => handlePhotoCountChange(s.id, n)}
+                onDeleteSpread={() => {
+                  // Confirm before a destructive whole-spread action.
+                  // Photos on the spread return to the unused pool; undo
+                  // restores both the spread and the photos.
+                  const filled = s.photoIds.filter(Boolean).length
+                  const summary =
+                    filled > 0
+                      ? `Delete this spread? Its ${filled} photo${filled === 1 ? '' : 's'} will move to the unused pool.`
+                      : 'Delete this empty spread?'
+                  if (!window.confirm(summary)) return
+                  if (spreads.length <= 1) {
+                    showToast("Can't delete the last spread")
+                    return
+                  }
+                  undoApi.record(
+                    makeDeleteSpreadOp(
+                      { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+                      s.id,
+                    ),
+                  )
+                  // Clear any per-slot UI focused on the deleted spread.
+                  if (editSlot?.spreadId === s.id) setEditSlot(null)
+                  if (swapSlot?.spreadId === s.id) setSwapSlot(null)
+                  if (emptySlotPicker?.spreadId === s.id) setEmptySlotPicker(null)
+                }}
                 onEmptySlotClick={(slotIdx) => setEmptySlotPicker({ spreadId: s.id, slotIdx })}
                 photoMap={photoMap}
                 albumSize={size}
@@ -7373,6 +7399,7 @@ function SpreadView({
   slotDragHandlers,
   spreadDropHandlers,
   onPhotoCountChange,
+  onDeleteSpread,
   onEmptySlotClick,
   photoMap,
   albumSize,
@@ -7406,6 +7433,7 @@ function SpreadView({
   slotDragHandlers: SlotDragHandlers
   spreadDropHandlers: SpreadDropHandlers
   onPhotoCountChange: (n: number) => void
+  onDeleteSpread: () => void
   onEmptySlotClick: (slotIdx: number) => void
   photoMap: Map<string, Photo>
   albumSize: AlbumSize
@@ -7525,6 +7553,34 @@ function SpreadView({
           available={[1, 2, 3, 4, 5, 6, 7, 8, 12, 18]}
           onChange={onPhotoCountChange}
         />
+
+        {/* Delete whole spread. Destructive — the click handler in the
+            parent confirms before recording the op so a stray tap
+            won't drop a spread. Photos on the spread return to the
+            unused pool; the op is on the undo stack so a confirmed
+            delete is still reversible until the user navigates away. */}
+        <button
+          type="button"
+          onClick={onDeleteSpread}
+          aria-label="Delete this spread"
+          title="Delete this spread — its photos return to the unused pool"
+          style={{
+            background: 'transparent',
+            border: '1px solid rgba(220,90,90,0.35)',
+            color: '#e08585',
+            padding: '6px 10px',
+            fontSize: 10,
+            letterSpacing: 1.4,
+            textTransform: 'uppercase',
+            borderRadius: 4,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          ✕ Delete spread
+        </button>
 
         {/* Visual layout picker — Full-bleed vs Background (matted)
             families, best ORIENTATION match first. Hover to enlarge,
