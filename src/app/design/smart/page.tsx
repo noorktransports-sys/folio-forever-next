@@ -281,10 +281,13 @@ You agree not to upload content that is illegal, sexually explicit, hateful, def
 
 You are responsible for the quality of the source files you upload. Low-resolution photos (under 1500 px on the shortest edge) may print soft or pixelated. We will not stop the order for resolution reasons unless you ask us to — but you accept the print result.`
 
-// Threshold for the "low resolution" warning shown at upload + on each
-// photo card. 1500 px on the shortest edge is the floor for an acceptable
-// 17×24 print at ~150 dpi viewing distance.
-const LOW_RES_PX = 1500
+// Threshold for the "low resolution" soft-warning shown at upload +
+// on each photo card. We target 200 DPI for the printed album, so the
+// shortest edge needs ~2400 px to fill a single 12" page or a 17×24
+// matted slot crisply. Below this, the warning fires and the legal
+// "I accept soft print" acknowledgement reuses the same number so the
+// client knows what they're consenting to.
+const LOW_RES_PX = 2400
 
 
 
@@ -2416,6 +2419,17 @@ function SmartDesignerInner() {
           { id: t.id, name: t.name, slots: t.slots },
         ]),
       )
+      // 200 DPI is our final-print target. Spread + cover composites
+      // are rendered to canvases sized so the JPEG hits 200 DPI for the
+      // album's PHYSICAL inches — e.g. a 17×24 album has a 24" wide
+      // spread, so the composite long edge is 24 × 200 = 4800 px. The
+      // closed-book cover is the album's short side (17" for 17×24).
+      const PRINT_DPI = 200
+      const sizeDims = size.split('x').map((n) => Number.parseInt(n, 10))
+      const coverFaceInch = Number.isFinite(sizeDims[0]) ? sizeDims[0] : 17
+      const spreadLongInch = Number.isFinite(sizeDims[1]) ? sizeDims[1] : 24
+      const printSpreadLongEdgePx = spreadLongInch * PRINT_DPI
+      const printCoverLongEdgePx = coverFaceInch * PRINT_DPI
       const result = await prepareSubmission({
         albumId,
         designId,
@@ -2436,6 +2450,8 @@ function SmartDesignerInner() {
         showGutter: type === 'standard',
         spreadBgs,
         spreadTexts,
+        printSpreadLongEdgePx,
+        printCoverLongEdgePx,
         cover: coverState
           ? {
               type: coverState.type,

@@ -16,7 +16,10 @@
 //   • Hero slots get a small gold "HERO" badge in the corner so the
 //     printer / design team can spot which photo was the centrepiece.
 //
-// Output is JPEG at quality 0.85, capped at 2000 px on the long edge.
+// Output is JPEG at quality 0.85. Default long edge is 2000 px (used
+// by on-screen previews like AlbumPreviewModal). Submit-time callers
+// pass a higher `outputLongEdgePx` so the print files actually hit
+// 200 DPI for the album's physical size (24" → 4800 px, 30" → 6000 px).
 
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
@@ -185,6 +188,10 @@ export interface RenderSpreadInput {
   bg?: SpreadBgInput
   /** Free text blocks — drawn last, on top, matching the editor. */
   texts?: SpreadTextInput[]
+  /** Long-edge target in pixels. Defaults to the small preview value
+   *  (2000); submit-time callers should pass the print-quality value
+   *  (album_long_edge_inches × 200 DPI). */
+  outputLongEdgePx?: number
 }
 
 const DEFAULT_ADJUST: PhotoAdjust = {
@@ -233,12 +240,15 @@ export async function renderSpreadComposite({
   showGutter,
   bg,
   texts,
+  outputLongEdgePx,
 }: RenderSpreadInput): Promise<Blob> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     throw new Error('Canvas unavailable on server')
   }
-  // Canvas size: long edge at COMPOSITE_LONG_EDGE, preserves aspect.
-  const W = COMPOSITE_LONG_EDGE
+  // Canvas size: long edge at outputLongEdgePx if provided (submit-time
+  // print resolution), otherwise the default preview size. H preserves
+  // the spread aspect.
+  const W = Math.max(64, Math.round(outputLongEdgePx ?? COMPOSITE_LONG_EDGE))
   const H = Math.round(W / spreadAspectRatio)
   const canvas = document.createElement('canvas')
   canvas.width = W

@@ -6,6 +6,9 @@
 // (object-fit cover + translate/scale crop around COVER_REF) so the
 // proof matches the printed cover.
 
+// Default long edge for on-screen previews. Submit-time callers
+// pass a higher `outputLongEdgePx` so the print files hit 200 DPI
+// for the cover's physical height (17" → 3400 px, 20" → 4000 px).
 const LONG_EDGE = 1600
 const JPEG_QUALITY = 0.86
 // Must match cover-builder.tsx COVER_REF_PX — the crop reference width
@@ -61,6 +64,10 @@ export interface CoverRenderInput {
   titleY?: number
   /** cover face width / height (portrait). Default 0.8 (4:5-ish). */
   faceAspect?: number
+  /** Long-edge (height) target in pixels. Defaults to the preview
+   *  size (1600). Submit-time callers pass the print-quality value
+   *  (cover_face_height_inches × 200 DPI). */
+  outputLongEdgePx?: number
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -78,8 +85,9 @@ export async function renderCoverComposite(
 ): Promise<Blob> {
   if (typeof document === 'undefined') throw new Error('Canvas unavailable')
   const aspect = input.faceAspect && input.faceAspect > 0 ? input.faceAspect : 0.8
-  // Portrait: height is the long edge.
-  const H = LONG_EDGE
+  // Portrait: height is the long edge. Use the print-resolution target
+  // when the submit pipeline passes one; default to the preview size.
+  const H = Math.max(64, Math.round(input.outputLongEdgePx ?? LONG_EDGE))
   const W = Math.round(H * aspect)
   const canvas = document.createElement('canvas')
   canvas.width = W

@@ -14,9 +14,10 @@
  *
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
- *   - Max 40 MB per photo. Client compresses most uploads to ~5 MB
- *     before sending; the ceiling exists for full-bleed 20×30
- *     spreads where the photographer opts out of optimization.
+ *   - Max 35 MB per photo. Covers full-resolution 20×30 full-bleed
+ *     exports (typically 20–32 MB) with a tight margin. Anything
+ *     bigger is almost always an unoptimized RAW export that won't
+ *     gain print quality over a high-quality 25 MB JPEG.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
  *
@@ -34,12 +35,12 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-// 40 MB hard cap. Most uploads are pre-compressed to ~5 MB by the
-// client; the ceiling exists for the rare full-resolution upload (a
-// 20×30 full-bleed where the photographer opts out of optimization).
-// 30 MB used to be the cap but real albums hit it; 40 MB gives a
-// little headroom without inviting multi-hundred-MB RAW exports.
-const MAX_BYTES = 40 * 1024 * 1024;
+// 35 MB hard per-photo cap. Covers full-resolution 20×30 full-bleed
+// JPEG exports (typically 20–32 MB) with a tight margin. Anything
+// above 35 MB is almost always an unoptimized RAW export — those
+// don't gain print quality over a high-quality 25 MB JPEG and
+// would balloon R2 storage costs for no end-user benefit.
+const MAX_BYTES = 35 * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     const mb = (file.size / 1024 / 1024).toFixed(1)
     return err(
       413,
-      `${safe} is ${mb} MB; the per-photo limit is 40 MB. Please export at a lower resolution or higher JPEG compression.`,
+      `${safe} is ${mb} MB; the per-photo limit is 35 MB. Please export at a lower resolution or higher JPEG compression (sRGB JPEG quality 90 from a 6000 px long-edge source is the sweet spot).`,
     );
   }
   const ext = ALLOWED_TYPES[file.type];

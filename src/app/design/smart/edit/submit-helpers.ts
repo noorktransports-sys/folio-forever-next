@@ -268,6 +268,13 @@ export interface SubmissionInput {
     titleX?: number
     titleY?: number
   } | null
+  /** Print-quality target for spread composites — long edge in pixels.
+   *  Caller passes album_long_inch × 200 (DPI). Falls back to the
+   *  renderer's default preview size when omitted. */
+  printSpreadLongEdgePx?: number
+  /** Print-quality target for cover composite — height in pixels.
+   *  Caller passes cover_face_height_inch × 200 (DPI). */
+  printCoverLongEdgePx?: number
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -296,6 +303,8 @@ export async function prepareSubmission({
   spreadBgs,
   spreadTexts,
   cover,
+  printSpreadLongEdgePx,
+  printCoverLongEdgePx,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
@@ -389,6 +398,7 @@ export async function prepareSubmission({
           showGutter: !!showGutter,
           bg: spreadBgs?.[s.id],
           texts: spreadTexts?.[s.id],
+          outputLongEdgePx: printSpreadLongEdgePx,
         })
         const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
         composites.push({ spreadId: s.id, key: up.key, url: up.url })
@@ -438,6 +448,7 @@ export async function prepareSubmission({
         photoY: cover.photoY,
         titleX: cover.titleX,
         titleY: cover.titleY,
+        outputLongEdgePx: printCoverLongEdgePx,
       })
       const up = await uploadToR2(frontBlob, designId, 'cover-front.jpg')
       coverFrontUrl = up.url
@@ -462,6 +473,7 @@ export async function prepareSubmission({
           photoScale: cover.photoScale,
           photoX: cover.photoX,
           photoY: cover.photoY,
+          outputLongEdgePx: printCoverLongEdgePx,
         })
         const up = await uploadToR2(backBlob, designId, 'cover-back.jpg')
         coverBackUrl = up.url
