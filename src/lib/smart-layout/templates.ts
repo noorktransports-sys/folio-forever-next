@@ -448,6 +448,58 @@ const TEMPLATES: LayoutTemplate[] = [
     ],
   },
 
+  // --- 12 PHOTOS · full bleed (so FULL BLEED toggle has a target) ---
+  // Edge-to-edge 4×3 grid. The 0.5% gaps are closed by bleedFillSlots
+  // at render time so the printed page has zero white seams.
+  {
+    id: 'b12-grid',
+    name: '12 · 4×3 bleed grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 24.25, h: 32.5 },
+      { x: 25.25, y: 0.5, w: 24.25, h: 32.5 },
+      { x: 50.5, y: 0.5, w: 24.25, h: 32.5 },
+      { x: 75.25, y: 0.5, w: 24.25, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 24.25, h: 32.5 },
+      { x: 25.25, y: 33.5, w: 24.25, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 24.25, h: 32.5 },
+      { x: 75.25, y: 33.5, w: 24.25, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 24.25, h: 33 },
+      { x: 25.25, y: 66.5, w: 24.25, h: 33 },
+      { x: 50.5, y: 66.5, w: 24.25, h: 33 },
+      { x: 75.25, y: 66.5, w: 24.25, h: 33 },
+    ],
+  },
+
+  // --- 18 PHOTOS · full bleed ---
+  // Edge-to-edge 6×3 contact-sheet variant. Gaps closed by
+  // bleedFillSlots.
+  {
+    id: 'b18-grid',
+    name: '18 · 6×3 bleed grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 0.5, y: 0.5, w: 16, h: 32.5 },
+      { x: 17, y: 0.5, w: 16, h: 32.5 },
+      { x: 33.5, y: 0.5, w: 16, h: 32.5 },
+      { x: 50.5, y: 0.5, w: 16, h: 32.5 },
+      { x: 67, y: 0.5, w: 16, h: 32.5 },
+      { x: 83.5, y: 0.5, w: 16, h: 32.5 },
+      { x: 0.5, y: 33.5, w: 16, h: 32.5 },
+      { x: 17, y: 33.5, w: 16, h: 32.5 },
+      { x: 33.5, y: 33.5, w: 16, h: 32.5 },
+      { x: 50.5, y: 33.5, w: 16, h: 32.5 },
+      { x: 67, y: 33.5, w: 16, h: 32.5 },
+      { x: 83.5, y: 33.5, w: 16, h: 32.5 },
+      { x: 0.5, y: 66.5, w: 16, h: 33 },
+      { x: 17, y: 66.5, w: 16, h: 33 },
+      { x: 33.5, y: 66.5, w: 16, h: 33 },
+      { x: 50.5, y: 66.5, w: 16, h: 33 },
+      { x: 67, y: 66.5, w: 16, h: 33 },
+      { x: 83.5, y: 66.5, w: 16, h: 33 },
+    ],
+  },
+
   // ─── EXTRA-DENSE MATTED GRIDS ──────────────────────────────────────
   // The bleed templates above pack 6/7/8 photos edge-to-edge. These
   // matted variants give the same photo counts breathing room (gaps +
