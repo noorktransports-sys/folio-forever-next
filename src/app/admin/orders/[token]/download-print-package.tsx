@@ -1,31 +1,28 @@
 'use client';
 
 /**
- * DownloadPrintPackage — one-click ZIP of EVERYTHING the print lab
- * needs to actually print the album.
+ * DownloadPrintPackage — one-click ZIP of every file the print lab
+ * needs to print the album:
  *
- * Includes:
  *   • cover-front.jpg  (print-quality, 200 DPI for the album face)
  *   • cover-back.jpg   (photo covers only)
  *   • spread-NN.jpg    (one per spread, print-quality)
  *   • MANIFEST.txt     (order id, customer, shipping, album spec,
- *                       cover spec, totals, audit dates — everything
- *                       the lab + your records need without opening
- *                       the dashboard)
+ *                       cover spec, totals, dates — everything the
+ *                       lab needs without opening the dashboard)
  *
- * Same pattern as DownloadAll (client-side JSZip via cdnjs) so a
- * 200 MB print package never hits the edge worker's CPU / memory caps.
+ * Bundling runs client-side (JSZip via cdnjs) so a 200 MB package
+ * never hits the edge worker's CPU / memory caps. The browser has
+ * gigs of RAM and an unlimited stream.
  *
- * The "all originals" DownloadAll button is kept separate — the lab
- * usually only needs this print-package ZIP, the originals are for
- * archive / future re-prints / fixes.
+ * This is the ONLY bulk download on the admin order page. Originals
+ * are still individually downloadable from the photo grid below
+ * (click → right-click → Save image as) for the rare case where a
+ * specific original is needed.
  */
 
 import { useState } from 'react';
 
-// JSZip runtime types — the global Window.JSZip is declared in the
-// sibling download-all.tsx; redeclaring it here causes a TS2717
-// duplicate-property error. We reuse it via `window.JSZip` directly.
 interface JSZipFile {
   file(name: string, data: ArrayBuffer | string): void;
   generateAsync(options: { type: string }): Promise<Blob>;
@@ -34,10 +31,15 @@ interface JSZipCtor {
   new (): JSZipFile;
 }
 
+declare global {
+  interface Window {
+    JSZip?: JSZipCtor;
+  }
+}
+
 async function loadJSZip(): Promise<JSZipCtor> {
   if (typeof window === 'undefined') throw new Error('not in browser');
-  const existing = (window as unknown as { JSZip?: JSZipCtor }).JSZip;
-  if (existing) return existing;
+  if (window.JSZip) return window.JSZip;
   await new Promise<void>((res, rej) => {
     const s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
@@ -45,9 +47,8 @@ async function loadJSZip(): Promise<JSZipCtor> {
     s.onerror = () => rej(new Error('Could not load JSZip'));
     document.head.appendChild(s);
   });
-  const loaded = (window as unknown as { JSZip?: JSZipCtor }).JSZip;
-  if (!loaded) throw new Error('JSZip did not register on window');
-  return loaded;
+  if (!window.JSZip) throw new Error('JSZip did not register on window');
+  return window.JSZip;
 }
 
 export interface PrintFile {
@@ -131,7 +132,7 @@ export default function DownloadPrintPackage({
       >
         {busy
           ? `Bundling ${progress} / ${files.length}…`
-          : `📦 Download print package (.zip)`}
+          : `📦 Download layouts for print (.zip)`}
       </button>
       {errors.length > 0 ? (
         <div className="admin-download-errors">

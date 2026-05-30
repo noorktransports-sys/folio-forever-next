@@ -27,7 +27,6 @@ import Link from 'next/link';
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthedFromCookieHeader } from '@/lib/admin-auth';
 import StatusControl from './status-control';
-import DownloadAll from './download-all';
 import DownloadPrintPackage, { type PrintFile } from './download-print-package';
 import AdminNotes from './admin-notes';
 import OrderActions from './OrderActions';
@@ -551,7 +550,6 @@ export default async function OrderDetail({
 
       {/* ── Actions ── */}
       <section className="admin-order-actions">
-        <DownloadAll orderId={design.orderId || token} photos={photos.map((p) => ({ id: p.id, url: p.url }))} />
         <Link href={`/album/${token}`} target="_blank" rel="noopener" className="admin-action-secondary">
           Open customer preview ↗
         </Link>
