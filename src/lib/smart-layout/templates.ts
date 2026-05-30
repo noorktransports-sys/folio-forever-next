@@ -956,6 +956,20 @@ const TEMPLATES: LayoutTemplate[] = [
       { x: 56, y: 52, w: 38, h: 40 },
     ],
   },
+  // Mirror of mat-3-Lbig-Rstack: a stacked pair tucked into the LEFT
+  // page with the hero anchoring the RIGHT. Tall whitespace around the
+  // small stack feels editorial; the hero gets room to breathe on its
+  // own page.
+  {
+    id: 'mat-3-Lstack-Rbig',
+    name: 'Mat · 2 + feature',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 12, y: 8, w: 20, h: 38 },
+      { x: 12, y: 54, w: 20, h: 38 },
+      { x: 58, y: 6, w: 34, h: 88, isHero: true },
+    ],
+  },
   {
     id: 'mat-3-big-row',
     name: 'Mat · big trio',
@@ -998,6 +1012,34 @@ const TEMPLATES: LayoutTemplate[] = [
       { x: 56, y: 8, w: 38, h: 25 },
       { x: 56, y: 37, w: 38, h: 25 },
       { x: 56, y: 67, w: 38, h: 25 },
+    ],
+  },
+  // Two stacked thumbnails + a tall column on the LEFT page, big hero
+  // on the RIGHT. Reads as "supporting trio → showpiece" — three
+  // smaller shots set up the big moment.
+  {
+    id: 'mat-4-Lstack-tall-Rbig',
+    name: 'Mat · stack + tall + feature',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 7, y: 10, w: 20, h: 36 },
+      { x: 7, y: 54, w: 20, h: 36 },
+      { x: 30, y: 10, w: 18, h: 80 },
+      { x: 53, y: 5, w: 42, h: 90, isHero: true },
+    ],
+  },
+  // Mirror — big hero LEFT, supporting trio (tall + stacked pair) on
+  // the RIGHT. Keeps the same composition available facing the other
+  // way so the engine's anti-repeat / variety pass has both options.
+  {
+    id: 'mat-4-Lbig-Rtall-stack',
+    name: 'Mat · feature + tall + stack',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 5, w: 42, h: 90, isHero: true },
+      { x: 52, y: 10, w: 18, h: 80 },
+      { x: 73, y: 10, w: 20, h: 36 },
+      { x: 73, y: 54, w: 20, h: 36 },
     ],
   },
 
