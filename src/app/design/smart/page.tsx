@@ -78,7 +78,6 @@ import {
   templateFamily,
   renderSlots,
   scoreTemplateForPhotos,
-  pickFitTemplate,
 } from '@/lib/smart-layout/templates'
 import type {
   AlbumType,
@@ -4453,22 +4452,26 @@ function SmartDesignerInner() {
                   })
                 }}
                 onRemovePhoto={(idx) => {
-                  // Photo returns to the unused pool. Records a Remove op
-                  // so it goes on the undo stack.
-                  const newIds = [...s.photoIds]
-                  newIds.splice(idx, 1)
-                  if (newIds.length === 0) {
-                    // Don't allow removing the last photo on a spread
+                  // Photo returns to the unused pool, BUT the layout
+                  // keeps its shape — the emptied slot becomes a
+                  // "+ Add photo" placeholder instead of the template
+                  // shrinking to a smaller layout. Lets clients swap
+                  // one photo for another without losing their spread.
+                  const filledOthers = s.photoIds.filter(
+                    (id, k) => k !== idx && !!id,
+                  ).length
+                  if (filledOthers === 0) {
                     showToast('Spread must have at least 1 photo')
                     return
                   }
-                  const newTplId = pickFitTemplate(s.templateId, newIds.length, type)
+                  const newIds: (string | null)[] = [...s.photoIds]
+                  newIds[idx] = null
                   undoApi.record(
                     makeRemoveOp(
                       { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
                       s.id,
                       idx,
-                      newTplId,
+                      s.templateId, // unchanged — keep the same layout
                       newIds,
                     ),
                   )
