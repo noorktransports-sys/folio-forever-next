@@ -448,6 +448,123 @@ const TEMPLATES: LayoutTemplate[] = [
     ],
   },
 
+  // ─── EXTRA-DENSE MATTED GRIDS ──────────────────────────────────────
+  // The bleed templates above pack 6/7/8 photos edge-to-edge. These
+  // matted variants give the same photo counts breathing room (gaps +
+  // outer margin) so a dense spread reads as a deliberate index
+  // sheet, not a wall. Also opens up 12 and 18 — useful when the
+  // client wants ONE big contact-sheet-style spread (e.g. portraits
+  // session, group shots, candids).
+
+  // 6 photos — 3×2 matted grid
+  {
+    id: 'mat-6-grid',
+    name: 'Mat · 3×2 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 4, y: 6, w: 28, h: 42 },   // (0,0)
+      { x: 36, y: 6, w: 28, h: 42 },  // (1,0)
+      { x: 68, y: 6, w: 28, h: 42 },  // (2,0)
+      { x: 4, y: 52, w: 28, h: 42 },  // (0,1)
+      { x: 36, y: 52, w: 28, h: 42 }, // (1,1)
+      { x: 68, y: 52, w: 28, h: 42 }, // (2,1)
+    ],
+  },
+  // 6 photos — hero left + 5 stacked column right
+  {
+    id: 'mat-6-Lbig-R5col',
+    name: 'Mat · feature + column of 5',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 5, w: 42, h: 92, isHero: true },
+      { x: 53, y: 5, w: 42, h: 17 },
+      { x: 53, y: 24, w: 42, h: 17 },
+      { x: 53, y: 43, w: 42, h: 17 },
+      { x: 53, y: 62, w: 42, h: 17 },
+      { x: 53, y: 81, w: 42, h: 17 },
+    ],
+  },
+  // 7 photos — hero left + 2×3 grid right
+  {
+    id: 'mat-7-Lbig-R6grid',
+    name: 'Mat · feature + 6 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 4, y: 5, w: 44, h: 92, isHero: true },
+      { x: 53, y: 5, w: 21, h: 29 },
+      { x: 76, y: 5, w: 21, h: 29 },
+      { x: 53, y: 36, w: 21, h: 29 },
+      { x: 76, y: 36, w: 21, h: 29 },
+      { x: 53, y: 67, w: 21, h: 29 },
+      { x: 76, y: 67, w: 21, h: 29 },
+    ],
+  },
+  // 8 photos — 4×2 matted grid (a cleaner index than quad-quad)
+  {
+    id: 'mat-8-grid',
+    name: 'Mat · 4×2 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 4, y: 5, w: 21, h: 45 },
+      { x: 28, y: 5, w: 21, h: 45 },
+      { x: 52, y: 5, w: 21, h: 45 },
+      { x: 76, y: 5, w: 21, h: 45 },
+      { x: 4, y: 53, w: 21, h: 45 },
+      { x: 28, y: 53, w: 21, h: 45 },
+      { x: 52, y: 53, w: 21, h: 45 },
+      { x: 76, y: 53, w: 21, h: 45 },
+    ],
+  },
+  // 12 photos — 4×3 matted grid. Great as a "highlights index" page
+  // sandwiched between hero spreads.
+  {
+    id: 'mat-12-grid',
+    name: 'Mat · 4×3 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 4, y: 5, w: 21, h: 29 },
+      { x: 28, y: 5, w: 21, h: 29 },
+      { x: 52, y: 5, w: 21, h: 29 },
+      { x: 76, y: 5, w: 21, h: 29 },
+      { x: 4, y: 37, w: 21, h: 29 },
+      { x: 28, y: 37, w: 21, h: 29 },
+      { x: 52, y: 37, w: 21, h: 29 },
+      { x: 76, y: 37, w: 21, h: 29 },
+      { x: 4, y: 69, w: 21, h: 29 },
+      { x: 28, y: 69, w: 21, h: 29 },
+      { x: 52, y: 69, w: 21, h: 29 },
+      { x: 76, y: 69, w: 21, h: 29 },
+    ],
+  },
+  // 18 photos — 6×3 matted grid (the contact-sheet wireframe from
+  // the client's brief). Use sparingly — perfect for ceremony group
+  // shots or a "portrait session" page where every face counts.
+  {
+    id: 'mat-18-grid',
+    name: 'Mat · 6×3 grid',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 3, y: 5, w: 14, h: 29 },
+      { x: 19, y: 5, w: 14, h: 29 },
+      { x: 35, y: 5, w: 14, h: 29 },
+      { x: 51, y: 5, w: 14, h: 29 },
+      { x: 67, y: 5, w: 14, h: 29 },
+      { x: 83, y: 5, w: 14, h: 29 },
+      { x: 3, y: 37, w: 14, h: 29 },
+      { x: 19, y: 37, w: 14, h: 29 },
+      { x: 35, y: 37, w: 14, h: 29 },
+      { x: 51, y: 37, w: 14, h: 29 },
+      { x: 67, y: 37, w: 14, h: 29 },
+      { x: 83, y: 37, w: 14, h: 29 },
+      { x: 3, y: 69, w: 14, h: 29 },
+      { x: 19, y: 69, w: 14, h: 29 },
+      { x: 35, y: 69, w: 14, h: 29 },
+      { x: 51, y: 69, w: 14, h: 29 },
+      { x: 67, y: 69, w: 14, h: 29 },
+      { x: 83, y: 69, w: 14, h: 29 },
+    ],
+  },
+
   // --- PORTRAIT-COLUMN VARIANTS (Part A) ---
   // The original library was almost entirely landscape/grid. These
   // column layouts give the orientation scorer real choices when a

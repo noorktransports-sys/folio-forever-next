@@ -2617,12 +2617,12 @@ function SmartDesignerInner() {
         { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
         spreadId,
         photoId,
-        { albumType: type, isHeroPhoto, templatesForCount: templatesForCountAdapter, maxPhotosPerSpread: 5 },
+        { albumType: type, isHeroPhoto, templatesForCount: templatesForCountAdapter, maxPhotosPerSpread: 18 },
       )
       if ('op' in result) {
         undoApi.record(result.op)
       } else if (result.error === 'at-capacity') {
-        showToast('Spread is at the 5-photo cap')
+        showToast('Spread is at the 18-photo cap')
       } else {
         showToast(`Couldn't add: ${result.error}`)
       }
@@ -7517,7 +7517,12 @@ function SpreadView({
             just because only 2 slots have photos so far. */}
         <PhotoCountDropdown
           current={tpl.slots.length}
-          available={[1, 2, 3, 4, 5]}
+          // 1–8 cover the everyday compositions. 12 and 18 unlock the
+          // big matted grids (contact-sheet pages) — useful for
+          // ceremony group shots, candids, or a portraits-session
+          // page. The smart-layout engine itself still tops out at 5
+          // per auto-spread; bigger counts are for manual control.
+          available={[1, 2, 3, 4, 5, 6, 7, 8, 12, 18]}
           onChange={onPhotoCountChange}
         />
 
