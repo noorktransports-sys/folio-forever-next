@@ -413,8 +413,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       setUploadError('JPG, PNG, or WEBP only');
       return;
     }
-    if (file.size > 100 * 1024 * 1024) {
-      setUploadError('Max 100 MB per photo');
+    if (file.size > 40 * 1024 * 1024) {
+      setUploadError('Max 40 MB per photo');
       return;
     }
     setUploadingCover(true);

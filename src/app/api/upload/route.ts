@@ -14,10 +14,9 @@
  *
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
- *   - Max 100 MB per photo (Cloudflare Pages per-request body cap).
- *     Client compresses most uploads to ~5 MB before sending; the
- *     ceiling exists for full-bleed 20×30 spreads where the
- *     photographer opts out of optimization.
+ *   - Max 40 MB per photo. Client compresses most uploads to ~5 MB
+ *     before sending; the ceiling exists for full-bleed 20×30
+ *     spreads where the photographer opts out of optimization.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
  *
@@ -35,12 +34,12 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-// 100 MB hard cap — matches Cloudflare Pages' per-request body limit.
-// Most uploads are pre-compressed to ~5 MB by the client; the ceiling
-// is for the rare full-resolution upload (a 20×30 full-bleed where
-// the photographer opts out of optimization, or a multi-megapixel
-// pro RAW-export). 30 MB used to be the cap but real albums hit it.
-const MAX_BYTES = 100 * 1024 * 1024;
+// 40 MB hard cap. Most uploads are pre-compressed to ~5 MB by the
+// client; the ceiling exists for the rare full-resolution upload (a
+// 20×30 full-bleed where the photographer opts out of optimization).
+// 30 MB used to be the cap but real albums hit it; 40 MB gives a
+// little headroom without inviting multi-hundred-MB RAW exports.
+const MAX_BYTES = 40 * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -93,7 +92,7 @@ export async function POST(request: Request) {
     const mb = (file.size / 1024 / 1024).toFixed(1)
     return err(
       413,
-      `${safe} is ${mb} MB; the per-photo limit is 100 MB. Please export at a lower resolution or higher JPEG compression.`,
+      `${safe} is ${mb} MB; the per-photo limit is 40 MB. Please export at a lower resolution or higher JPEG compression.`,
     );
   }
   const ext = ALLOWED_TYPES[file.type];
