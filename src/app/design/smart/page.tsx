@@ -4684,6 +4684,12 @@ function SmartDesignerInner() {
           // Cap reflects the ACTUAL spread count so the button re-opens
           // after the client deletes a spread.
           const atMax = billedSpreads >= spec.maxSpreads
+          // ACTUAL delta to add one more — zero when we're still under
+          // the minSpreads "included in base" range, so the label
+          // doesn't lie about a fee that won't be charged.
+          const addDelta =
+            computePrice(size, type, billedSpreads + 1) -
+            computePrice(size, type, billedSpreads)
           return (
             <div
               style={{
@@ -4716,11 +4722,15 @@ function SmartDesignerInner() {
               >
                 {atMax
                   ? `Max spreads reached (${spec.maxSpreads})`
-                  : `+ Add new spread · +$${spec.perExtraSpread}`}
+                  : addDelta > 0
+                  ? `+ Add new spread · +$${addDelta}`
+                  : '+ Add new spread · no extra cost'}
               </button>
               {!atMax && (
                 <span style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1 }}>
                   Currently {billedSpreads} of {spec.maxSpreads} spreads · ${albumPrice} total
+                  {billedSpreads <= spec.minSpreads &&
+                    ` · first ${spec.minSpreads} included in base`}
                 </span>
               )}
             </div>
@@ -4759,24 +4769,47 @@ function SmartDesignerInner() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <button type="button" style={css.btnSecondary} onClick={() => setStep('pages')}>
-            ← Back
-          </button>
-          <button
-            type="button"
-            style={css.btnPrimary}
-            onClick={() => {
-              // Proof review (clause 2.3) is required before submit. Any
-              // edits since last review must be re-acknowledged, so reset
-              // it here. Next stop is the required Cover step → then proof.
-              setReviewedSpreadIds(new Set())
-              setProofApproval(null)
-              setStep('cover')
-            }}
-          >
-            Choose your cover → ${orderTotal}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button type="button" style={css.btnSecondary} onClick={() => setStep('pages')}>
+              ← Back
+            </button>
+            <button
+              type="button"
+              style={css.btnPrimary}
+              onClick={() => {
+                // Proof review (clause 2.3) is required before submit. Any
+                // edits since last review must be re-acknowledged, so reset
+                // it here. Next stop is the required Cover step → then proof.
+                setReviewedSpreadIds(new Set())
+                setProofApproval(null)
+                setStep('cover')
+              }}
+            >
+              Choose your cover → ${orderTotal}
+            </button>
+          </div>
+          {/* Price breakdown — shown whenever the total ≠ albumPrice so
+              the client can see WHERE the extra dollars come from
+              (a previously-picked cover and/or the polish-handoff
+              add-on). Without this they see "$275 album" + "$300
+              total" and can't tell why. */}
+          {orderTotal !== albumPrice && (
+            <span
+              style={{
+                fontSize: 10,
+                color: 'var(--muted2)',
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+              }}
+            >
+              ${albumPrice} album
+              {coverPrice > 0 && coverState
+                ? ` + $${coverPrice} ${coverState.type} cover`
+                : ''}
+              {polishHandoff ? ' + $99 design polish' : ''}
+            </span>
+          )}
         </div>
 
         {/* Customer info + Submit modal */}
