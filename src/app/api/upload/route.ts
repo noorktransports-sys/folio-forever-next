@@ -14,9 +14,10 @@
  *
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
- *   - Max 30 MB per photo. Client compresses most uploads to ~5 MB before
- *     sending; the 30 MB ceiling exists for full-bleed 20×30 spreads where
- *     the photographer opts out of optimization.
+ *   - Max 100 MB per photo (Cloudflare Pages per-request body cap).
+ *     Client compresses most uploads to ~5 MB before sending; the
+ *     ceiling exists for full-bleed 20×30 spreads where the
+ *     photographer opts out of optimization.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
  *
@@ -34,7 +35,12 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-const MAX_BYTES = 30 * 1024 * 1024; // 30 MB hard cap; client compresses most uploads to ~5 MB before sending. The 30 MB ceiling exists for the rare case where a photographer opts out of optimization for a full-bleed 20×30 spread.
+// 100 MB hard cap — matches Cloudflare Pages' per-request body limit.
+// Most uploads are pre-compressed to ~5 MB by the client; the ceiling
+// is for the rare full-resolution upload (a 20×30 full-bleed where
+// the photographer opts out of optimization, or a multi-megapixel
+// pro RAW-export). 30 MB used to be the cap but real albums hit it.
+const MAX_BYTES = 100 * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -82,7 +88,13 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return err(400, 'no file field in request');
   if (file.size === 0) return err(400, 'file is empty');
   if (file.size > MAX_BYTES) {
-    return err(413, `file too large; max ${MAX_BYTES} bytes (30 MB)`);
+    const nameRaw = file.name || 'photo'
+    const safe = nameRaw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80)
+    const mb = (file.size / 1024 / 1024).toFixed(1)
+    return err(
+      413,
+      `${safe} is ${mb} MB; the per-photo limit is 100 MB. Please export at a lower resolution or higher JPEG compression.`,
+    );
   }
   const ext = ALLOWED_TYPES[file.type];
   if (!ext) {

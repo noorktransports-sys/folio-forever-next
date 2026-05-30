@@ -1546,10 +1546,16 @@ function SmartDesignerInner() {
   // Floor of 10, ceiling of 25 to fit album-spec range.
   const recommendedSpreads = Math.max(10, Math.min(25, Math.ceil(usefulPhotoCount / 4)))
 
+  // BILLABLE spread count = the number actually in the album.
+  // Before generation, `spreads` is empty so we charge against the
+  // client's target `pageCount`. Once the spreads exist, we charge
+  // against `spreads.length` so the price reflects edits — including
+  // deleting whole spreads.
+  const billedSpreads = spreads.length > 0 ? spreads.length : pageCount
   const albumPrice = useMemo(() => {
     if (!size || !type) return 0
-    return computePrice(size, type, pageCount)
-  }, [size, type, pageCount])
+    return computePrice(size, type, billedSpreads)
+  }, [size, type, billedSpreads])
 
   // Cover add-on (0 until they've chosen on the Cover step).
   const coverPrice = coverState ? COVER_PRICE[coverState.type] : 0
@@ -2170,7 +2176,11 @@ function SmartDesignerInner() {
   const handleAddSpread = useCallback(() => {
     if (!size || !type) return
     const spec = ALBUM_SPECS[size][type]
-    if (pageCount >= spec.maxSpreads) {
+    // Cap against the ACTUAL spread count, not the original pageCount
+    // target — otherwise after a delete the cap is wrong (room was
+    // freed up but the button stays "max reached").
+    const currentCount = spreads.length || pageCount
+    if (currentCount >= spec.maxSpreads) {
       showToast(`Max ${spec.maxSpreads} spreads for ${ALBUM_SPECS[size].label}`)
       return
     }
@@ -2185,7 +2195,7 @@ function SmartDesignerInner() {
     setSpreads((prev) => [...prev, newSpread])
     setPageCount((prev) => prev + 1)
     showToast(`+1 spread · $${spec.perExtraSpread} added to total`)
-  }, [size, type, pageCount, showToast])
+  }, [size, type, spreads.length, pageCount, showToast])
 
   // ---------- Empty-slot fillers (called from SpreadView's "+ Add" overlay) ----------
   /** Place a specific photo id into an empty slot. Used by both pick-from-unused
@@ -4671,7 +4681,9 @@ function SmartDesignerInner() {
             Live price preview shows the per-spread surcharge. */}
         {size && type && (() => {
           const spec = ALBUM_SPECS[size][type]
-          const atMax = pageCount >= spec.maxSpreads
+          // Cap reflects the ACTUAL spread count so the button re-opens
+          // after the client deletes a spread.
+          const atMax = billedSpreads >= spec.maxSpreads
           return (
             <div
               style={{
@@ -4708,7 +4720,7 @@ function SmartDesignerInner() {
               </button>
               {!atMax && (
                 <span style={{ fontSize: 10, color: 'var(--muted2)', letterSpacing: 1 }}>
-                  Currently {pageCount} of {spec.maxSpreads} spreads · ${albumPrice} total
+                  Currently {billedSpreads} of {spec.maxSpreads} spreads · ${albumPrice} total
                 </span>
               )}
             </div>
