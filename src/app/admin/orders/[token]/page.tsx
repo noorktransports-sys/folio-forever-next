@@ -28,6 +28,7 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthedFromCookieHeader } from '@/lib/admin-auth';
 import StatusControl from './status-control';
 import DownloadAll from './download-all';
+import DownloadPrintPackage, { type PrintFile } from './download-print-package';
 import AdminNotes from './admin-notes';
 import OrderActions from './OrderActions';
 import '../../admin.css';
@@ -452,6 +453,101 @@ export default async function OrderDetail({
           </div>
         </section>
       ) : null}
+
+      {/* ── Print package: bundle every file the lab needs to print
+          this order into one ZIP. Composites + cover + manifest. ── */}
+      {(() => {
+        const printFiles: PrintFile[] = []
+        if (cover.renderedFrontUrl) {
+          printFiles.push({ url: cover.renderedFrontUrl, name: 'cover-front.jpg' })
+        }
+        if (cover.renderedBackUrl) {
+          printFiles.push({ url: cover.renderedBackUrl, name: 'cover-back.jpg' })
+        }
+        const composites = design.spreadComposites ?? []
+        composites.forEach((c, i) => {
+          if (c.url) {
+            const num = String(i + 1).padStart(2, '0')
+            printFiles.push({ url: c.url, name: `spread-${num}.jpg` })
+          }
+        })
+
+        // Plain-text manifest the print lab can read in any editor.
+        const ship = design.shipping || {}
+        const shipLines = [
+          ship.recipientName,
+          ship.phone ? `Phone: ${ship.phone}` : null,
+          ship.line1,
+          ship.line2,
+          [ship.city, ship.region, ship.postalCode].filter(Boolean).join(', '),
+          ship.country,
+        ]
+          .filter(Boolean)
+          .map((l) => '  ' + l)
+          .join('\n')
+        const coverDesc = cover.type
+          ? `${cover.type}${cover.leatherColor ? ` · ${cover.leatherColor} leather` : ''}${cover.foilColor ? ` · ${cover.foilColor} foil` : ''}`
+          : '(none)'
+        const fileList = printFiles.map((f) => '  • ' + f.name).join('\n')
+        const manifestText =
+          [
+            'FOLIO & FOREVER · PRINT PACKAGE',
+            '=================================',
+            '',
+            `Order ID:        ${design.orderId || token}`,
+            `Submitted at:    ${design.submittedAt || '—'}`,
+            `Paid at:         ${design.paidAt || '— (not paid)'}`,
+            `Status:          ${design.status || 'submitted'}`,
+            '',
+            'CUSTOMER',
+            `  Name:          ${customer.name || '—'}`,
+            `  Email:         ${customer.email || '—'}`,
+            '',
+            'SHIP TO',
+            shipLines || '  —',
+            ship.notes ? `\n  Delivery notes: ${ship.notes}` : '',
+            '',
+            'ALBUM',
+            `  Size:          ${albumSize}`,
+            `  Binding:       ${albumBinding === 'standard' ? 'Standard (with gutter)' : albumBinding === 'layflat' ? 'Layflat (flush)' : '—'}`,
+            `  Spreads:       ${spreadCount}`,
+            `  Photos used:   ${photos.length}`,
+            `  Polish handoff: ${design.polishHandoff ? 'Yes (+$99)' : 'No'}`,
+            '',
+            'COVER',
+            `  Type:          ${coverDesc}`,
+            `  Title:         ${cover.primaryText || '(none)'}`,
+            `  Subtitle:      ${cover.subtitleText || '(none)'}`,
+            '',
+            'PAYMENT',
+            `  Total:         $${totalPrice}`,
+            `  Square ID:     ${design.squarePaymentId || '—'}`,
+            `  Receipt:       ${design.squareReceiptUrl || '—'}`,
+            refundedTotalCents > 0 ? `  Refunded:      $${(refundedTotalCents / 100).toFixed(2)}` : '',
+            '',
+            'FILES IN THIS PACKAGE',
+            fileList || '  (none — composites or cover were not rendered at submit time)',
+            '',
+            'Print target: 200 DPI for the album\'s physical inches.',
+            '  Spread long edge = album_long_inch × 200 (24" → 4800 px, 30" → 6000 px)',
+            '  Cover long edge  = album_face_inch × 200 (17" → 3400 px, 20" → 4000 px)',
+            '',
+            `Generated ${new Date().toISOString()} from folioforever.com admin`,
+            '',
+          ]
+            .filter((l) => l !== '')
+            .join('\n')
+
+        return (
+          <section className="admin-order-actions" style={{ marginBottom: 12 }}>
+            <DownloadPrintPackage
+              orderId={design.orderId || token}
+              files={printFiles}
+              manifestText={manifestText}
+            />
+          </section>
+        )
+      })()}
 
       {/* ── Actions ── */}
       <section className="admin-order-actions">
