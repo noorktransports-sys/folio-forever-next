@@ -1042,6 +1042,34 @@ const TEMPLATES: LayoutTemplate[] = [
       { x: 73, y: 54, w: 20, h: 36 },
     ],
   },
+  // Three LANDSCAPE strips stacked on the LEFT page (top / middle /
+  // bottom) reading as a sequence, with a big portrait hero on the
+  // RIGHT. Strong rhythm from the three equal bands; the hero anchors
+  // the page opposite.
+  {
+    id: 'mat-4-Lstrip3-Rbig',
+    name: 'Mat · 3 strips + feature',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 14, y: 8, w: 30, h: 25 },
+      { x: 14, y: 37, w: 30, h: 25 },
+      { x: 14, y: 66, w: 30, h: 25 },
+      { x: 53, y: 4, w: 42, h: 92, isHero: true },
+    ],
+  },
+  // Mirror of the strips layout — hero left, three landscape strips
+  // stacked right.
+  {
+    id: 'mat-4-Lbig-Rstrip3',
+    name: 'Mat · feature + 3 strips',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 4, w: 42, h: 92, isHero: true },
+      { x: 56, y: 8, w: 30, h: 25 },
+      { x: 56, y: 37, w: 30, h: 25 },
+      { x: 56, y: 66, w: 30, h: 25 },
+    ],
+  },
 
   // 5 photos — generous (replaces the tiny-row feel)
   {
@@ -1066,6 +1094,38 @@ const TEMPLATES: LayoutTemplate[] = [
       { x: 7, y: 53, w: 27, h: 38 },
       { x: 37, y: 53, w: 27, h: 38 },
       { x: 67, y: 53, w: 27, h: 38 },
+    ],
+  },
+  // Four supporting photos arranged as an asymmetric 2x2 grid in the
+  // LOWER LEFT (two portraits on top, a small square + a wider
+  // landscape on the bottom), with the big portrait hero anchoring
+  // the RIGHT page. The slot mix (P, P, square, L) explicitly favours
+  // a mixed-orientation supporting group — so it scores well when a
+  // chunk has shots of different shapes.
+  {
+    id: 'mat-5-Lquad-Rbig',
+    name: 'Mat · quad + feature',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 4, y: 28, w: 14, h: 28 },   // top-left   (portrait)
+      { x: 20, y: 28, w: 14, h: 28 },  // top-right  (portrait)
+      { x: 4, y: 58, w: 14, h: 20 },   // bottom-left  (square-ish)
+      { x: 20, y: 58, w: 24, h: 20 },  // bottom-right (landscape, wider)
+      { x: 53, y: 4, w: 42, h: 92, isHero: true },
+    ],
+  },
+  // Mirror — big hero LEFT, the asymmetric quad lives in the lower
+  // right of the RIGHT page.
+  {
+    id: 'mat-5-Lbig-Rquad',
+    name: 'Mat · feature + quad',
+    compat: ['standard', 'layflat'],
+    slots: [
+      { x: 5, y: 4, w: 42, h: 92, isHero: true },
+      { x: 56, y: 28, w: 14, h: 28 },  // top-left of right quad   (portrait)
+      { x: 72, y: 28, w: 14, h: 28 },  // top-right of right quad  (portrait)
+      { x: 56, y: 58, w: 14, h: 20 },  // bottom-left  (square-ish)
+      { x: 72, y: 58, w: 24, h: 20 },  // bottom-right (landscape, wider)
     ],
   },
 
