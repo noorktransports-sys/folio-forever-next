@@ -119,7 +119,13 @@ export interface UploadResult {
   contentType: string
 }
 
-/** POST a blob to the existing /api/upload endpoint. */
+/**
+ * POST a blob to /api/upload. Retries on transient failures (5xx and
+ * network errors) up to 3 times with exponential backoff so a single
+ * R2 hiccup doesn't blow up the whole submit. 4xx (413 too-large,
+ * 415 wrong-type, 400 bad-form) are NOT retried — they're real
+ * client errors and retrying won't help.
+ */
 export async function uploadToR2(
   blob: Blob,
   designId: string,
@@ -128,21 +134,52 @@ export async function uploadToR2(
   const form = new FormData()
   form.append('file', blob, filename)
   form.append('designId', designId)
-  const res = await fetch('/api/upload', {
-    method: 'POST',
-    body: form,
-  })
-  if (!res.ok) {
+
+  const MAX_TRIES = 3
+  let lastErr: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
+    let res: Response
+    try {
+      res = await fetch('/api/upload', { method: 'POST', body: form })
+    } catch (e) {
+      // Network error (offline, DNS, dropped connection) — retry.
+      lastErr = e instanceof Error ? e : new Error('network error')
+      if (attempt < MAX_TRIES) {
+        await new Promise((r) => setTimeout(r, 400 * attempt))
+        continue
+      }
+      throw new Error(`Upload failed (network): ${lastErr.message} — file: ${filename}`)
+    }
+
+    if (res.ok) {
+      return (await res.json()) as UploadResult
+    }
+
+    // Pull the JSON error detail if any. The server now wraps R2 errors
+    // and returns proper JSON, so this should almost always have detail.
     let detail = ''
     try {
       const j = (await res.json()) as { error?: string }
       detail = j.error ?? ''
     } catch {
-      /* ignore */
+      /* server returned non-JSON (bare 5xx from a worker crash) */
     }
-    throw new Error(`Upload failed (${res.status})${detail ? ': ' + detail : ''}`)
+
+    // 4xx = client error, don't retry — re-export the file or fix the
+    // input. 5xx = transient server error, retry with backoff.
+    const isClientError = res.status >= 400 && res.status < 500
+    if (isClientError || attempt === MAX_TRIES) {
+      throw new Error(
+        `Upload failed (${res.status})${detail ? ': ' + detail : ''} — file: ${filename}`,
+      )
+    }
+    // Transient — back off and retry.
+    await new Promise((r) => setTimeout(r, 400 * attempt))
   }
-  return (await res.json()) as UploadResult
+
+  // Unreachable, but TS wants a definite return path.
+  throw lastErr ?? new Error('Upload failed after retries')
 }
 
 /* ─── Orchestrator ──────────────────────────────────────────────────── */

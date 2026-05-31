@@ -105,9 +105,26 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const key = `designs/${designId}/${id}.${ext}`;
 
-  await env.PHOTOS.put(key, await file.arrayBuffer(), {
-    httpMetadata: { contentType: file.type },
-  });
+  // Wrap the arrayBuffer read AND R2 put in try/catch — without this
+  // any failure (transient R2 outage, memory pressure on a huge file,
+  // network timeout to the bucket) bubbles up as an uncaught worker
+  // exception. Cloudflare then returns a bare 5xx with no JSON body,
+  // which the client surfaces as "Upload failed (503)" — no clue
+  // which photo or why. Now we always respond JSON.
+  try {
+    const buf = await file.arrayBuffer();
+    await env.PHOTOS.put(key, buf, {
+      httpMetadata: { contentType: file.type },
+    });
+  } catch (e) {
+    const detail = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
+    const nameRaw = file.name || 'photo';
+    const safe = nameRaw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80);
+    return err(
+      502,
+      `Couldn't save ${safe} to storage: ${detail}. Try again in a moment.`,
+    );
+  }
 
   return new Response(
     JSON.stringify({
