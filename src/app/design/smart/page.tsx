@@ -4357,23 +4357,25 @@ function SmartDesignerInner() {
           </div>
         )}
 
-        {/* Spread navigator — horizontal thumbnail strip. Was a fixed
-            left-edge column that overlapped the header; now sits in
-            the page flow above the spread cards, scrolls horizontally
-            when there are more thumbnails than fit. */}
-        <SpreadNavRail
-          spreads={spreads}
-          previewFor={(id) => photos.find((p) => p.id === id)?.preview}
-          aspect={ALBUM_SPECS[size].spreadAspectRatio}
-          onDragStart={onSpreadDragStart}
-          onDragOver={onSpreadDragOver}
-          onDrop={onSpreadDrop}
-          onDragEnd={onSpreadDragEnd}
-          draggingIdx={draggingSpreadIdx}
-          dropTargetIdx={dropTargetIdx}
-        />
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
+        {/* Three-column adjust layout:
+              [ sticky thumbnail rail | spreads list | unused photos ]
+            The rail sits to the LEFT (not floating, not at top), uses
+            sticky positioning so it scrolls with the user, and each
+            mini-card enlarges 2× on hover so the client can clearly
+            see what they edited without leaving their place. */}
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+          <SpreadNavRail
+            spreads={spreads}
+            previewFor={(id) => photos.find((p) => p.id === id)?.preview}
+            aspect={ALBUM_SPECS[size].spreadAspectRatio}
+            onDragStart={onSpreadDragStart}
+            onDragOver={onSpreadDragOver}
+            onDrop={onSpreadDrop}
+            onDragEnd={onSpreadDragEnd}
+            draggingIdx={draggingSpreadIdx}
+            dropTargetIdx={dropTargetIdx}
+          />
+          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
           <div style={{ display: 'grid', gap: 10 }}>
             {spreads.map((s, i) => (
               <SpreadView
@@ -4692,6 +4694,7 @@ function SmartDesignerInner() {
               )}
             </div>
           </aside>
+          </div>
         </div>
 
         {/* Add spread button — appends a fresh empty spread + bumps pageCount.
@@ -6166,15 +6169,15 @@ function LayoutThumb({
 }
 
 /**
- * SpreadNavRail — horizontal thumbnail strip at the top of the spread
- * list. One mini card per spread (number + tiny preview matching the
- * actual template layout). Click jumps straight to that spread without
- * scrolling. Drag a card to reorder.
+ * SpreadNavRail — sticky LEFT-side thumbnail column. One small card
+ * per spread (number + mini preview matching the live template +
+ * photos). Click jumps to that spread; drag to reorder. On HOVER
+ * each thumbnail enlarges so the client can clearly see the spread
+ * they edited without leaving their place.
  *
- * Previously this was a fixed left-edge column that overlapped the
- * header / logo on the client's display; now it sits IN the page flow
- * just above the spread cards, scrolling horizontally when there are
- * more thumbnails than fit. No more overlap, no more cut-off look.
+ * Sticky (not fixed) so it sits inside the page flow and scrolls
+ * with content past the page header — no overlap with the title or
+ * logo. CSS-only hover enlarge keeps it cheap.
  */
 function SpreadNavRail({
   spreads,
@@ -6199,130 +6202,144 @@ function SpreadNavRail({
 }) {
   if (spreads.length < 2) return null
   return (
-    <nav
-      aria-label="Spread navigator"
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        gap: 8,
-        padding: '10px 12px',
-        marginBottom: 14,
-        background: 'rgba(20,16,12,0.55)',
-        border: '0.5px solid rgba(184,150,90,0.2)',
-        borderRadius: 10,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        // Subtle scrollbar — Firefox / WebKit both honour these vendor
-        // properties when present.
-        scrollbarWidth: 'thin',
-        scrollbarColor: 'rgba(184,150,90,0.3) transparent',
-      }}
-    >
-      {spreads.map((s, i) => {
-        const tpl = TEMPLATE_BY_ID.get(s.templateId)
-        const miniSlots = tpl ? renderSlots(tpl) : []
-        const isMat = tpl ? templateFamily(tpl) === 'mat' : false
-        return (
-          <button
-            key={s.id}
-            type="button"
-            title={`Jump to spread ${i + 1} · drag to reorder`}
-            draggable
-            onDragStart={onDragStart(i)}
-            onDragOver={onDragOver(i)}
-            onDrop={onDrop(i)}
-            onDragEnd={onDragEnd}
-            onClick={() => {
-              document
-                .getElementById(`ff-spread-${s.id}`)
-                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 3,
-              padding: 4,
-              // Each card has a fixed width so the row scrolls
-              // horizontally. 96px keeps the mini-spread legible
-              // (~72px tall at a 24:17 aspect) without crowding.
-              width: 96,
-              flexShrink: 0,
-              background: 'transparent',
-              border:
-                dropTargetIdx === i && draggingIdx !== i
-                  ? `1.5px solid ${GOLD}`
-                  : '0.5px solid rgba(184,150,90,0.25)',
-              borderRadius: 6,
-              cursor: draggingIdx === i ? 'grabbing' : 'grab',
-              opacity: draggingIdx === i ? 0.4 : 1,
-              transition: 'opacity 0.12s, border-color 0.12s',
-            }}
-            onMouseEnter={(e) => {
-              if (dropTargetIdx === i && draggingIdx !== i) return
-              e.currentTarget.style.borderColor = GOLD
-            }}
-            onMouseLeave={(e) => {
-              if (dropTargetIdx === i && draggingIdx !== i) return
-              e.currentTarget.style.borderColor = 'rgba(184,150,90,0.25)'
-            }}
-          >
-            <div
+    <>
+      {/* Hover-enlarge effect for the mini cards. CSS rules use the
+          tile class so it's GPU-accelerated and doesn't need React
+          re-renders. The transform-origin pins the enlargement to the
+          left edge of the card so it grows INTO the spread editor
+          area, never off-screen to the left. */}
+      <style>{`
+        .ff-nav-tile {
+          transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+          transform-origin: left center;
+        }
+        .ff-nav-tile:hover {
+          transform: scale(2.1);
+          z-index: 60;
+          box-shadow: 0 16px 40px rgba(0,0,0,0.7);
+          border-color: ${GOLD} !important;
+        }
+      `}</style>
+      <nav
+        aria-label="Spread navigator"
+        style={{
+          position: 'sticky',
+          // Sits at this offset from the top of the SCROLL container
+          // (the page). Once the user scrolls past the page title the
+          // rail follows them down the viewport.
+          top: 24,
+          alignSelf: 'flex-start',
+          flexShrink: 0,
+          width: 100,
+          maxHeight: 'calc(100vh - 48px)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          padding: '10px 8px',
+          background: 'rgba(20,16,12,0.55)',
+          border: '0.5px solid rgba(184,150,90,0.2)',
+          borderRadius: 10,
+          overflowY: 'auto',
+          overflowX: 'visible',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(184,150,90,0.3) transparent',
+        }}
+      >
+        {spreads.map((s, i) => {
+          const tpl = TEMPLATE_BY_ID.get(s.templateId)
+          const miniSlots = tpl ? renderSlots(tpl) : []
+          const isMat = tpl ? templateFamily(tpl) === 'mat' : false
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className="ff-nav-tile"
+              title={`Jump to spread ${i + 1} · hover to enlarge · drag to reorder`}
+              draggable
+              onDragStart={onDragStart(i)}
+              onDragOver={onDragOver(i)}
+              onDrop={onDrop(i)}
+              onDragEnd={onDragEnd}
+              onClick={() => {
+                document
+                  .getElementById(`ff-spread-${s.id}`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
               style={{
                 position: 'relative',
-                width: '100%',
-                aspectRatio: `${aspect}`,
-                borderRadius: 3,
-                overflow: 'hidden',
-                background: isMat ? '#1f1813' : '#1a1410',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 3,
+                padding: 4,
+                background: 'transparent',
+                border:
+                  dropTargetIdx === i && draggingIdx !== i
+                    ? `1.5px solid ${GOLD}`
+                    : '0.5px solid rgba(184,150,90,0.25)',
+                borderRadius: 6,
+                cursor: draggingIdx === i ? 'grabbing' : 'grab',
+                flexShrink: 0,
+                opacity: draggingIdx === i ? 0.4 : 1,
               }}
             >
-              {miniSlots.map((slot, si) => {
-                const pid = s.photoIds[si]
-                const src = pid ? previewFor(pid) : undefined
-                return (
-                  <div
-                    key={si}
-                    style={{
-                      position: 'absolute',
-                      left: `${slot.x}%`,
-                      top: `${slot.y}%`,
-                      width: `calc(${slot.w}% + 0.5px)`,
-                      height: `calc(${slot.h}% + 0.5px)`,
-                      overflow: 'hidden',
-                      background: '#2a211a',
-                    }}
-                  >
-                    {src ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={src}
-                        alt=""
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-            <span
-              style={{
-                fontSize: 10,
-                letterSpacing: 1,
-                color: 'var(--muted2)',
-                fontFamily: 'var(--font-body)',
-              }}
-            >
-              {i + 1}
-            </span>
-          </button>
-        )
-      })}
-    </nav>
+              <div
+                style={{
+                  position: 'relative',
+                  width: '100%',
+                  aspectRatio: `${aspect}`,
+                  borderRadius: 3,
+                  overflow: 'hidden',
+                  background: isMat ? '#1f1813' : '#1a1410',
+                }}
+              >
+                {miniSlots.map((slot, si) => {
+                  const pid = s.photoIds[si]
+                  const src = pid ? previewFor(pid) : undefined
+                  return (
+                    <div
+                      key={si}
+                      style={{
+                        position: 'absolute',
+                        left: `${slot.x}%`,
+                        top: `${slot.y}%`,
+                        width: `calc(${slot.w}% + 0.5px)`,
+                        height: `calc(${slot.h}% + 0.5px)`,
+                        overflow: 'hidden',
+                        background: '#2a211a',
+                      }}
+                    >
+                      {src ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={src}
+                          alt=""
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: 1,
+                  color: 'var(--muted2)',
+                  fontFamily: 'var(--font-body)',
+                }}
+              >
+                {i + 1}
+              </span>
+            </button>
+          )
+        })}
+      </nav>
+    </>
   )
 }
 
