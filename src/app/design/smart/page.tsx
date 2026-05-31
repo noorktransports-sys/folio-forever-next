@@ -2452,6 +2452,13 @@ function SmartDesignerInner() {
         spreadTexts,
         printSpreadLongEdgePx,
         printCoverLongEdgePx,
+        // Only upload the per-photo ORIGINALS when the client has
+        // opted into the polish-handoff add-on — the design team
+        // needs the raw files to re-crop / fine-tune. For standard
+        // orders the print lab only needs the spread composites
+        // (which bake every photo in already), so uploading originals
+        // on top is pure bandwidth + R2 waste.
+        uploadOriginals: polishHandoff,
         cover: coverState
           ? {
               type: coverState.type,

@@ -312,6 +312,19 @@ export interface SubmissionInput {
   /** Print-quality target for cover composite — height in pixels.
    *  Caller passes cover_face_height_inch × 200 (DPI). */
   printCoverLongEdgePx?: number
+  /**
+   * Whether to upload the per-photo ORIGINALS + watermarked previews
+   * to R2. The composites (which is what the print lab actually
+   * receives) bake every photo in already — so for standard orders
+   * uploading the raw originals on top is pure waste of bandwidth +
+   * R2 storage. Default: FALSE.
+   *
+   * Pass TRUE only when the polish-handoff add-on is on: the design
+   * team needs the originals to re-crop / re-pace / fine-tune. The
+   * client already paid $99 to opt into that work, so we accept the
+   * extra upload time only in that path.
+   */
+  uploadOriginals?: boolean
   /** Called as each photo finishes; total = photos.length */
   onProgress?: (done: number, total: number, label: string) => void
 }
@@ -342,6 +355,7 @@ export async function prepareSubmission({
   cover,
   printSpreadLongEdgePx,
   printCoverLongEdgePx,
+  uploadOriginals = false,
   onProgress,
 }: SubmissionInput): Promise<{
   photos: PhotoUploadResult[]
@@ -367,11 +381,20 @@ export async function prepareSubmission({
   const total = photoSteps + spreadSteps
   let done = 0
 
-  // ─── Pass 1: per-photo originals + watermarked previews ─────────────
+  // ─── Pass 1: per-photo source load (+ optional R2 upload) ─────────
+  // For every order we have to LOAD the photo blobs locally so the
+  // spread composite renderer (Pass 2) can draw them onto the canvas.
+  // What's OPTIONAL is uploading those originals to R2: the printed
+  // album only needs the composites, so by default we skip that and
+  // save the bandwidth / R2 storage. The polish-handoff add-on flips
+  // `uploadOriginals` on so the design team has the raw files.
   for (const p of photos) {
-    onProgress?.(done, total, `Uploading photo ${done + 1} of ${photoSteps}`)
+    const verb = uploadOriginals
+      ? `Uploading photo ${done + 1} of ${photoSteps}`
+      : `Loading photo ${done + 1} of ${photoSteps}`
+    onProgress?.(done, total, verb)
 
-    // 1. Get the source blob
+    // 1. Load the source blob (always — needed for composite render)
     let source: Blob
     const idbUrl = idbBlobs.get(p.id)
     if (idbUrl) {
@@ -383,23 +406,31 @@ export async function prepareSubmission({
       source = await r.blob()
     }
 
-    // 2. Upload original
-    const origUpload = await uploadToR2(source, designId, `${p.id}-orig.jpg`)
-
-    // 3. Generate + 4. upload preview (watermarked, compressed)
-    const previewBlob = await makePreviewBlob(source)
-    const previewUpload = await uploadToR2(
-      previewBlob,
-      designId,
-      `${p.id}-preview.jpg`,
-    )
+    // 2. (Conditional) upload original + watermarked preview to R2.
+    let originalKey = ''
+    let originalUrl = ''
+    let previewKey = ''
+    let previewUrl = ''
+    if (uploadOriginals) {
+      const origUpload = await uploadToR2(source, designId, `${p.id}-orig.jpg`)
+      originalKey = origUpload.key
+      originalUrl = origUpload.url
+      const previewBlob = await makePreviewBlob(source)
+      const previewUpload = await uploadToR2(
+        previewBlob,
+        designId,
+        `${p.id}-preview.jpg`,
+      )
+      previewKey = previewUpload.key
+      previewUrl = previewUpload.url
+    }
 
     photoResults.push({
       photoId: p.id,
-      originalKey: origUpload.key,
-      originalUrl: origUpload.url,
-      previewKey: previewUpload.key,
-      previewUrl: previewUpload.url,
+      originalKey,
+      originalUrl,
+      previewKey,
+      previewUrl,
       width: p.width,
       height: p.height,
     })
@@ -412,7 +443,13 @@ export async function prepareSubmission({
       height: p.height,
     })
     done++
-    onProgress?.(done, total, `Uploaded ${done}/${photoSteps} photos`)
+    onProgress?.(
+      done,
+      total,
+      uploadOriginals
+        ? `Uploaded ${done}/${photoSteps} photos`
+        : `Loaded ${done}/${photoSteps} photos`,
+    )
   }
 
   // ─── Pass 2: per-spread composite renders ──────────────────────────
@@ -453,14 +490,24 @@ export async function prepareSubmission({
   let coverBackUrl: string | null = null
   if (cover) {
     onProgress?.(total, total, 'Rendering cover')
-    // If the cover photo is a SPREAD photo (local blob preview), swap it
-    // for the uploaded original so the canvas can fetch it (CORS-safe).
-    const prevToOrig = new Map<string, string>()
+    // The cover composite renders RIGHT NOW (still in this browser
+    // session), so any of these source forms work as long as the
+    // canvas can fetch them:
+    //   1) An R2 URL we just uploaded (uploadOriginals=true path), or
+    //   2) The local blob URL the submit-helpers just rebuilt for
+    //      every photo (always available in photoLookup), or
+    //   3) The page's own blob URL (still alive — this session).
+    // Prefer the R2 URL when present so the saved cover.photoSrc is
+    // long-lived; otherwise fall back to the local blob URL so the
+    // composite still renders even when uploadOriginals=false.
+    const prevToFinal = new Map<string, string>()
     for (const p of photos) {
-      const up = photoResults.find((r) => r.photoId === p.id)
-      if (up) prevToOrig.set(p.preview, up.originalUrl)
+      const uploaded = photoResults.find((r) => r.photoId === p.id)
+      const lookup = photoLookup.get(p.id)
+      const final = uploaded?.originalUrl || lookup?.preview || p.preview
+      prevToFinal.set(p.preview, final)
     }
-    const rsv = (s: string | null) => (s ? prevToOrig.get(s) ?? s : null)
+    const rsv = (s: string | null) => (s ? prevToFinal.get(s) ?? s : null)
     cover = {
       ...cover,
       photoSrc: rsv(cover.photoSrc),
