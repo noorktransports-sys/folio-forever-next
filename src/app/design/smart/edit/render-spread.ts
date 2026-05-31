@@ -13,8 +13,9 @@
 //   • Per-slot zoom, rotation, and flip are applied via canvas
 //     transforms (translate + rotate + scale) around the slot centre.
 //   • Standard albums get a thin gutter line down the centre.
-//   • Hero slots get a small gold "HERO" badge in the corner so the
-//     printer / design team can spot which photo was the centrepiece.
+//   • Hero slot info is NOT painted onto the composite — that's
+//     editor-only UI. Baking a badge into the print file ended up
+//     visible on the final spread.
 //
 // Output is JPEG at quality 0.85. Default long edge is 2000 px (used
 // by on-screen previews like AlbumPreviewModal). Submit-time callers
@@ -414,36 +415,11 @@ export async function renderSpreadComposite({
       ctx.restore()
     }
 
-    // Hero badge — small gold pill in the slot's top-left corner.
-    if (slot.isHero) {
-      ctx.save()
-      const padX = sx + 8
-      const padY = sy + 8
-      const text = 'HERO'
-      ctx.font = `bold ${Math.round(W / 140)}px sans-serif`
-      const metrics = ctx.measureText(text)
-      const tw = metrics.width + 14
-      const th = Math.round(W / 95)
-      ctx.fillStyle = '#b8965a'
-      // rounded rect badge
-      const r = th / 2
-      ctx.beginPath()
-      ctx.moveTo(padX + r, padY)
-      ctx.lineTo(padX + tw - r, padY)
-      ctx.arcTo(padX + tw, padY, padX + tw, padY + r, r)
-      ctx.lineTo(padX + tw, padY + th - r)
-      ctx.arcTo(padX + tw, padY + th, padX + tw - r, padY + th, r)
-      ctx.lineTo(padX + r, padY + th)
-      ctx.arcTo(padX, padY + th, padX, padY + th - r, r)
-      ctx.lineTo(padX, padY + r)
-      ctx.arcTo(padX, padY, padX + r, padY, r)
-      ctx.closePath()
-      ctx.fill()
-      ctx.fillStyle = '#0e0c09'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(text, padX + 7, padY + th / 2 + 1)
-      ctx.restore()
-    }
+    // (No HERO badge painted onto the composite — that's an
+    // EDITOR-only UI overlay. Baking a gold pill into the print file
+    // ended up visible on the final spread, which looked unprofessional.
+    // The editor still draws its own HERO chip in the spread view so
+    // the client knows which slot is the hero.)
   }
 
   // Gutter line for standard albums
