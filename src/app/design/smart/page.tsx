@@ -4357,10 +4357,21 @@ function SmartDesignerInner() {
           </div>
         )}
 
-        {/* The fixed left-edge SpreadNavRail used to live here. It
-            overlapped the logo / header on shorter desktops and added
-            visual noise for short albums (≤4 spreads). Scrolling
-            through spreads is the natural navigation; removed. */}
+        {/* Spread navigator — horizontal thumbnail strip. Was a fixed
+            left-edge column that overlapped the header; now sits in
+            the page flow above the spread cards, scrolls horizontally
+            when there are more thumbnails than fit. */}
+        <SpreadNavRail
+          spreads={spreads}
+          previewFor={(id) => photos.find((p) => p.id === id)?.preview}
+          aspect={ALBUM_SPECS[size].spreadAspectRatio}
+          onDragStart={onSpreadDragStart}
+          onDragOver={onSpreadDragOver}
+          onDrop={onSpreadDrop}
+          onDragEnd={onSpreadDragEnd}
+          draggingIdx={draggingSpreadIdx}
+          dropTargetIdx={dropTargetIdx}
+        />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
           <div style={{ display: 'grid', gap: 10 }}>
@@ -6154,6 +6165,166 @@ function LayoutThumb({
   )
 }
 
+/**
+ * SpreadNavRail — horizontal thumbnail strip at the top of the spread
+ * list. One mini card per spread (number + tiny preview matching the
+ * actual template layout). Click jumps straight to that spread without
+ * scrolling. Drag a card to reorder.
+ *
+ * Previously this was a fixed left-edge column that overlapped the
+ * header / logo on the client's display; now it sits IN the page flow
+ * just above the spread cards, scrolling horizontally when there are
+ * more thumbnails than fit. No more overlap, no more cut-off look.
+ */
+function SpreadNavRail({
+  spreads,
+  previewFor,
+  aspect,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  draggingIdx,
+  dropTargetIdx,
+}: {
+  spreads: Spread[]
+  previewFor: (photoId: string) => string | undefined
+  aspect: number
+  onDragStart: (idx: number) => (e: React.DragEvent) => void
+  onDragOver: (idx: number) => (e: React.DragEvent) => void
+  onDrop: (idx: number) => (e: React.DragEvent) => void
+  onDragEnd: () => void
+  draggingIdx: number | null
+  dropTargetIdx: number | null
+}) {
+  if (spreads.length < 2) return null
+  return (
+    <nav
+      aria-label="Spread navigator"
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        gap: 8,
+        padding: '10px 12px',
+        marginBottom: 14,
+        background: 'rgba(20,16,12,0.55)',
+        border: '0.5px solid rgba(184,150,90,0.2)',
+        borderRadius: 10,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        // Subtle scrollbar — Firefox / WebKit both honour these vendor
+        // properties when present.
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'rgba(184,150,90,0.3) transparent',
+      }}
+    >
+      {spreads.map((s, i) => {
+        const tpl = TEMPLATE_BY_ID.get(s.templateId)
+        const miniSlots = tpl ? renderSlots(tpl) : []
+        const isMat = tpl ? templateFamily(tpl) === 'mat' : false
+        return (
+          <button
+            key={s.id}
+            type="button"
+            title={`Jump to spread ${i + 1} · drag to reorder`}
+            draggable
+            onDragStart={onDragStart(i)}
+            onDragOver={onDragOver(i)}
+            onDrop={onDrop(i)}
+            onDragEnd={onDragEnd}
+            onClick={() => {
+              document
+                .getElementById(`ff-spread-${s.id}`)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 3,
+              padding: 4,
+              // Each card has a fixed width so the row scrolls
+              // horizontally. 96px keeps the mini-spread legible
+              // (~72px tall at a 24:17 aspect) without crowding.
+              width: 96,
+              flexShrink: 0,
+              background: 'transparent',
+              border:
+                dropTargetIdx === i && draggingIdx !== i
+                  ? `1.5px solid ${GOLD}`
+                  : '0.5px solid rgba(184,150,90,0.25)',
+              borderRadius: 6,
+              cursor: draggingIdx === i ? 'grabbing' : 'grab',
+              opacity: draggingIdx === i ? 0.4 : 1,
+              transition: 'opacity 0.12s, border-color 0.12s',
+            }}
+            onMouseEnter={(e) => {
+              if (dropTargetIdx === i && draggingIdx !== i) return
+              e.currentTarget.style.borderColor = GOLD
+            }}
+            onMouseLeave={(e) => {
+              if (dropTargetIdx === i && draggingIdx !== i) return
+              e.currentTarget.style.borderColor = 'rgba(184,150,90,0.25)'
+            }}
+          >
+            <div
+              style={{
+                position: 'relative',
+                width: '100%',
+                aspectRatio: `${aspect}`,
+                borderRadius: 3,
+                overflow: 'hidden',
+                background: isMat ? '#1f1813' : '#1a1410',
+              }}
+            >
+              {miniSlots.map((slot, si) => {
+                const pid = s.photoIds[si]
+                const src = pid ? previewFor(pid) : undefined
+                return (
+                  <div
+                    key={si}
+                    style={{
+                      position: 'absolute',
+                      left: `${slot.x}%`,
+                      top: `${slot.y}%`,
+                      width: `calc(${slot.w}% + 0.5px)`,
+                      height: `calc(${slot.h}% + 0.5px)`,
+                      overflow: 'hidden',
+                      background: '#2a211a',
+                    }}
+                  >
+                    {src ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={src}
+                        alt=""
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+            <span
+              style={{
+                fontSize: 10,
+                letterSpacing: 1,
+                color: 'var(--muted2)',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              {i + 1}
+            </span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
 
 /**
  * SpreadBgControl — per-spread background picker in the header.
