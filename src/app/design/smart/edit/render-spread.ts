@@ -20,7 +20,7 @@
 // Output is JPEG at quality 0.85. Default long edge is 2000 px (used
 // by on-screen previews like AlbumPreviewModal). Submit-time callers
 // pass a higher `outputLongEdgePx` so the print files actually hit
-// 200 DPI for the album's physical size (24" → 4800 px, 30" → 6000 px).
+// 300 DPI for the album's physical size (24" → 7200 px, 30" → 9000 px).
 
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
@@ -191,7 +191,7 @@ export interface RenderSpreadInput {
   texts?: SpreadTextInput[]
   /** Long-edge target in pixels. Defaults to the small preview value
    *  (2000); submit-time callers should pass the print-quality value
-   *  (album_long_edge_inches × 200 DPI). */
+   *  (album_long_edge_inches × 300 DPI). */
   outputLongEdgePx?: number
 }
 

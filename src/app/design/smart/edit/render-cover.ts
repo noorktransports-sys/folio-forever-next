@@ -7,8 +7,8 @@
 // proof matches the printed cover.
 
 // Default long edge for on-screen previews. Submit-time callers
-// pass a higher `outputLongEdgePx` so the print files hit 200 DPI
-// for the cover's physical height (17" → 3400 px, 20" → 4000 px).
+// pass a higher `outputLongEdgePx` so the print files hit 300 DPI
+// for the cover's physical height (17" → 5100 px, 20" → 6000 px).
 const LONG_EDGE = 1600
 const JPEG_QUALITY = 0.86
 // Must match cover-builder.tsx COVER_REF_PX — the crop reference width
@@ -66,7 +66,7 @@ export interface CoverRenderInput {
   faceAspect?: number
   /** Long-edge (height) target in pixels. Defaults to the preview
    *  size (1600). Submit-time callers pass the print-quality value
-   *  (cover_face_height_inches × 200 DPI). */
+   *  (cover_face_height_inches × 300 DPI). */
   outputLongEdgePx?: number
 }
 

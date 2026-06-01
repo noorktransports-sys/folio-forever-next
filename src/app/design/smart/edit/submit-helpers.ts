@@ -306,11 +306,11 @@ export interface SubmissionInput {
     titleY?: number
   } | null
   /** Print-quality target for spread composites — long edge in pixels.
-   *  Caller passes album_long_inch × 200 (DPI). Falls back to the
+   *  Caller passes album_long_inch × 300 (DPI). Falls back to the
    *  renderer's default preview size when omitted. */
   printSpreadLongEdgePx?: number
   /** Print-quality target for cover composite — height in pixels.
-   *  Caller passes cover_face_height_inch × 200 (DPI). */
+   *  Caller passes cover_face_height_inch × 300 (DPI). */
   printCoverLongEdgePx?: number
   /**
    * Whether to upload the per-photo ORIGINALS + watermarked previews

@@ -282,12 +282,12 @@ You agree not to upload content that is illegal, sexually explicit, hateful, def
 You are responsible for the quality of the source files you upload. Low-resolution photos (under 1500 px on the shortest edge) may print soft or pixelated. We will not stop the order for resolution reasons unless you ask us to — but you accept the print result.`
 
 // Threshold for the "low resolution" soft-warning shown at upload +
-// on each photo card. We target 200 DPI for the printed album, so the
-// shortest edge needs ~2400 px to fill a single 12" page or a 17×24
-// matted slot crisply. Below this, the warning fires and the legal
+// on each photo card. We target 300 DPI for the printed album, so the
+// shortest edge needs ~3600 px to fill a single 12" page at 300 DPI
+// (12 × 300 = 3600). Below this the warning fires and the legal
 // "I accept soft print" acknowledgement reuses the same number so the
 // client knows what they're consenting to.
-const LOW_RES_PX = 2400
+const LOW_RES_PX = 3600
 
 
 
@@ -462,8 +462,8 @@ const DEFAULT_BG_BLUR = 9
 const BG_PHOTO_MAX_ZOOM = 2
 
 // ============== SMART ZOOM CAP (print-resolution aware) ==============
-// Minimum acceptable print resolution. Owner spec: 200 DPI.
-const MIN_PRINT_DPI = 200
+// Minimum acceptable print resolution. Owner spec: 300 DPI.
+const MIN_PRINT_DPI = 300
 // Global hard ceiling on zoom regardless of resolution (owner: 200%).
 const GLOBAL_MAX_ZOOM = 2
 
@@ -495,7 +495,7 @@ function coverDpi(
 /**
  * The maximum zoom this photo can take in this slot+album before it
  * drops below MIN_PRINT_DPI. Clamped to [1, GLOBAL_MAX_ZOOM]. If the
- * photo can't even hit 200 DPI at zoom 1, returns 1 (and effDpi at 1
+ * photo can't even hit 300 DPI at zoom 1, returns 1 (and effDpi at 1
  * will read red so the UI warns).
  */
 function smartMaxZoom(
@@ -2419,12 +2419,12 @@ function SmartDesignerInner() {
           { id: t.id, name: t.name, slots: t.slots },
         ]),
       )
-      // 200 DPI is our final-print target. Spread + cover composites
-      // are rendered to canvases sized so the JPEG hits 200 DPI for the
+      // 300 DPI is our final-print target. Spread + cover composites
+      // are rendered to canvases sized so the JPEG hits 300 DPI for the
       // album's PHYSICAL inches — e.g. a 17×24 album has a 24" wide
-      // spread, so the composite long edge is 24 × 200 = 4800 px. The
+      // spread, so the composite long edge is 24 × 300 = 7200 px. The
       // closed-book cover is the album's short side (17" for 17×24).
-      const PRINT_DPI = 200
+      const PRINT_DPI = 300
       const sizeDims = size.split('x').map((n) => Number.parseInt(n, 10))
       const coverFaceInch = Number.isFinite(sizeDims[0]) ? sizeDims[0] : 17
       const spreadLongInch = Number.isFinite(sizeDims[1]) ? sizeDims[1] : 24
@@ -8054,7 +8054,7 @@ function SpreadView({
         const editPhoto = editPhotoId ? photoMap.get(editPhotoId) : undefined
         const editSlotDef = rslots[editingSlot]
         // Smart cap: how far THIS photo can zoom in THIS slot at THIS
-        // album size before dropping under 200 DPI.
+        // album size before dropping under 300 DPI.
         const cap =
           editPhoto && editSlotDef
             ? smartMaxZoom(editPhoto, editSlotDef, albumSize)
@@ -8103,7 +8103,7 @@ function PhotoToolbar({
   onRemove: () => void
   slotIdx: number
   inSwapMode: boolean
-  /** Smart per-photo zoom ceiling (keeps ≥200 DPI at this album size). */
+  /** Smart per-photo zoom ceiling (keeps ≥300 DPI at this album size). */
   maxZoom: number
   /** Effective print DPI at the current zoom (for the quality badge). */
   effDpi: number
@@ -8203,7 +8203,7 @@ function PhotoToolbar({
             <span
               title={`Effective ${effDpi} DPI at this zoom. Zoom is auto-limited to ${Math.round(
                 zCap * 100,
-              )}% so this photo stays at least 200 DPI at this album size.`}
+              )}% so this photo stays at least 300 DPI at this album size.`}
               style={{
                 fontSize: 9,
                 letterSpacing: 1,

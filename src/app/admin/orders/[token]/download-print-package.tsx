@@ -4,7 +4,7 @@
  * DownloadPrintPackage — one-click ZIP of every file the print lab
  * needs to print the album:
  *
- *   • cover-front.jpg  (print-quality, 200 DPI for the album face)
+ *   • cover-front.jpg  (print-quality, 300 DPI for the album face)
  *   • cover-back.jpg   (photo covers only)
  *   • spread-NN.jpg    (one per spread, print-quality)
  *   • MANIFEST.txt     (order id, customer, shipping, album spec,
