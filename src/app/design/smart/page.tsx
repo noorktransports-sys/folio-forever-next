@@ -228,6 +228,15 @@ type Photo = {
    *  Used to auto-pan the photo inside its slot so faces aren't cropped
    *  off. Browsers without FaceDetector simply have no faces here. */
   faces?: FaceBox[]
+  /** Pre-design hint: client tagged this as a cover candidate. Single-
+   *  select across the whole album — picking another photo clears the
+   *  previous flag. The Cover step pre-selects this photo by default. */
+  isCoverCandidate?: boolean
+  /** Pre-design hint: client tagged this photo as a panorama. The
+   *  smart layout engine reserves a full-bleed, single-photo spread
+   *  for every panorama-tagged photo so they don't get squeezed into
+   *  a multi-photo grid. */
+  isPanorama?: boolean
 }
 
 type Step =
@@ -1999,6 +2008,8 @@ function SmartDesignerInner() {
         eventId: p.eventId,
         capturedAt: p.capturedAt,
         seqNum: p.seqNum,
+        // Pre-design hint — engine reserves a full-bleed solo spread.
+        isPanorama: p.isPanorama,
       }))
       const res = await fetch('/api/smart-layout', {
         method: 'POST',
@@ -2885,6 +2896,34 @@ function SmartDesignerInner() {
     })
   }
 
+  /**
+   * Pre-design hint toggles (cover candidate, panorama). Both live as
+   * flags on the Photo object and persist through the regular
+   * setPhotos flow.
+   *
+   *   • Cover candidate is SINGLE-SELECT — picking another photo clears
+   *     the previous mark so there is only one cover candidate.
+   *   • Panorama is per-photo toggle — every photo flagged gets its
+   *     own full-bleed solo spread from the smart layout engine.
+   */
+  const toggleCoverCandidate = (photoId: string) => {
+    setPhotos((prev) =>
+      prev.map((p) => {
+        if (p.id === photoId) return { ...p, isCoverCandidate: !p.isCoverCandidate }
+        // Single-select: clear any other photo's cover-candidate flag
+        // when picking this one. (When the click is to UN-mark this
+        // photo, no other photo is set, so this is a no-op.)
+        if (p.isCoverCandidate) return { ...p, isCoverCandidate: false }
+        return p
+      }),
+    )
+  }
+  const togglePanorama = (photoId: string) => {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === photoId ? { ...p, isPanorama: !p.isPanorama } : p)),
+    )
+  }
+
   const photoMap = useMemo(() => {
     const m = new Map<string, Photo>()
     photos.forEach((p) => m.set(p.id, p))
@@ -3341,6 +3380,31 @@ function SmartDesignerInner() {
 
         {photos.length > 0 && (
           <>
+            {/* Discovery banner for the new pre-design hints. Tells the
+                client about ⭐ (cover candidate) + ⟷ (panorama) toggles
+                that appear on every photo tile. */}
+            <div
+              style={{
+                marginTop: 24,
+                padding: '10px 14px',
+                background: 'rgba(184,150,90,0.06)',
+                border: '0.5px solid rgba(184,150,90,0.3)',
+                borderRadius: 6,
+                fontSize: 11,
+                color: 'var(--muted2)',
+                letterSpacing: 0.5,
+                lineHeight: 1.7,
+              }}
+            >
+              <strong style={{ color: '#b8965a' }}>Hint your designer:</strong>{' '}
+              hover any photo and click{' '}
+              <span style={{ color: '#b8965a' }}>★</span> to mark it as the
+              cover, or{' '}
+              <span style={{ color: '#b8965a' }}>⟷</span> to flag a panorama —
+              the smart layout will reserve a full-bleed solo spread for
+              every panorama, and the cover step will pre-pick your star
+              photo.
+            </div>
             {(() => {
               const lowResCount = photos.filter((p) => Math.min(p.width, p.height) < LOW_RES_PX).length
               if (lowResCount === 0) return null
@@ -3375,7 +3439,9 @@ function SmartDesignerInner() {
                 return (
                   <div
                     key={p.id}
-                    className="folio-photo-tile"
+                    className={`folio-photo-tile${
+                      p.isCoverCandidate || p.isPanorama ? ' is-hinted' : ''
+                    }`}
                     style={{
                       position: 'relative',
                       aspectRatio: '1',
@@ -3409,6 +3475,86 @@ function SmartDesignerInner() {
                         Low res
                       </span>
                     )}
+                    {/* Pre-design hint bar — bottom of the tile. Two
+                        toggles: ⭐ Cover candidate (single-select across
+                        all photos — picking another clears the previous)
+                        and ⟷ Panorama (the smart layout reserves a
+                        full-bleed solo spread for every panorama-tagged
+                        photo). Both auto-save into the photos state. */}
+                    <div
+                      className="folio-photo-hints"
+                      style={{
+                        position: 'absolute',
+                        left: 4,
+                        right: 4,
+                        bottom: 4,
+                        display: 'flex',
+                        gap: 4,
+                        justifyContent: 'flex-start',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        aria-label="Mark as cover candidate"
+                        aria-pressed={!!p.isCoverCandidate}
+                        title={
+                          p.isCoverCandidate
+                            ? 'Cover candidate (click to unmark)'
+                            : 'Mark as cover candidate — the Cover step will pre-pick this photo'
+                        }
+                        onClick={() => toggleCoverCandidate(p.id)}
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: '50%',
+                          border: 'none',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: p.isCoverCandidate
+                            ? '#b8965a'
+                            : 'rgba(14,12,9,0.72)',
+                          color: p.isCoverCandidate ? '#0e0c09' : '#fff',
+                          fontSize: 13,
+                          lineHeight: 1,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ★
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Mark as panorama"
+                        aria-pressed={!!p.isPanorama}
+                        title={
+                          p.isPanorama
+                            ? 'Panorama (click to unmark) — gets its own full-bleed spread'
+                            : 'Mark as panorama — gets a full-bleed solo spread'
+                        }
+                        onClick={() => togglePanorama(p.id)}
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: '50%',
+                          border: 'none',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: p.isPanorama
+                            ? '#b8965a'
+                            : 'rgba(14,12,9,0.72)',
+                          color: p.isPanorama ? '#0e0c09' : '#fff',
+                          fontSize: 12,
+                          lineHeight: 1,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        ⟷
+                      </button>
+                    </div>
+
                     {/* Remove this photo. Visible on hover (desktop) and
                         always tappable on touch. */}
                     <button
@@ -3447,12 +3593,20 @@ function SmartDesignerInner() {
                 fades in only when you hover the photo so the grid
                 stays clean. */}
             <style>{`
-              .folio-photo-remove { opacity: 1; transition: opacity 0.15s ease; }
+              .folio-photo-remove,
+              .folio-photo-hints { opacity: 1; transition: opacity 0.15s ease; }
               @media (hover: hover) {
-                .folio-photo-remove { opacity: 0; }
+                .folio-photo-remove,
+                .folio-photo-hints { opacity: 0; }
                 .folio-photo-tile:hover .folio-photo-remove,
-                .folio-photo-remove:focus-visible { opacity: 1; }
+                .folio-photo-tile:hover .folio-photo-hints,
+                .folio-photo-remove:focus-visible,
+                .folio-photo-hints:focus-within { opacity: 1; }
               }
+              /* Always show the hint bar when at least one toggle is
+                 active — so the user sees what they've already marked
+                 without having to hover every tile. */
+              .folio-photo-tile.is-hinted .folio-photo-hints { opacity: 1; }
             `}</style>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 32, alignItems: 'center' }}>
@@ -5234,6 +5388,11 @@ function SmartDesignerInner() {
   const renderCover = () => (
     <CoverBuilder
       uploadedPhotos={photos.map((p) => ({ id: p.id, src: p.preview }))}
+      // Pre-design hint from the upload step — when a photo was
+      // ⭐-marked, the cover builder pre-picks it for acrylic / photo
+      // covers so the client doesn't have to re-pick what they
+      // already starred.
+      coverCandidateId={photos.find((p) => p.isCoverCandidate)?.id ?? null}
       onBack={() => setStep('adjust')}
       onContinue={(cover) => {
         setCoverState(cover)

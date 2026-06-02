@@ -229,6 +229,10 @@ const initialState: CoverState = {
 interface CoverBuilderProps {
   /** Photos already uploaded by the client, available for acrylic/photo covers. */
   uploadedPhotos: { id: string; src: string }[];
+  /** Optional pre-design hint from the upload step. When set the cover
+   *  builder pre-selects this photo for acrylic / photo covers, so the
+   *  client doesn't have to re-pick a cover photo they already starred. */
+  coverCandidateId?: string | null;
   onBack: () => void;
   onContinue: (cover: CoverState) => void;
 }
@@ -325,7 +329,7 @@ function loadCoverPhotos(): { id: string; src: string }[] {
   }
 }
 
-export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: CoverBuilderProps) {
+export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack, onContinue }: CoverBuilderProps) {
   // Lazy initializers read once from localStorage on mount. Subsequent
   // updates are flushed back via the useEffects below.
   const [state, setState] = useState<CoverState>(loadCoverState);
@@ -335,6 +339,21 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>(loadCoverPhotos);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Pre-design hint: if the client starred a "cover candidate" on the
+  // upload step, pre-pick that photo here so they don't have to repeat
+  // the choice. Only fires when no cover photo is set yet (so an
+  // already-chosen cover isn't overwritten).
+  useEffect(() => {
+    if (!coverCandidateId) return;
+    if (state.photoSrc) return;
+    const match = uploadedPhotos.find((p) => p.id === coverCandidateId);
+    if (!match) return;
+    setState((prev) => ({ ...prev, photoSrc: match.src }));
+    // We deliberately don't depend on `state.photoSrc` — only the
+    // candidate id / list — so flipping in/out of cover doesn't re-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverCandidateId, uploadedPhotos]);
 
   // Drag-to-rotate state. Rotation lives in refs (no re-render per pointermove);
   // isDragging is state because we use it for the cursor className.

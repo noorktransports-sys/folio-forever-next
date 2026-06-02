@@ -61,6 +61,11 @@ export type LayoutPhoto = {
   /** Largest digit run in the original filename (e.g. IMG_0123.jpg).
    *  Used as a fallback when EXIF is missing. */
   seqNum?: number
+  /** Pre-design hint from the client: this photo is a panorama.
+   *  When set, the engine reserves a full-bleed, single-photo spread
+   *  for it (using the `panorama` or `one-full` template) rather
+   *  than squeezing it into a multi-photo grid where it'd be cropped. */
+  isPanorama?: boolean
 }
 
 // The single "mood" the client picks once (right after upload). The engine

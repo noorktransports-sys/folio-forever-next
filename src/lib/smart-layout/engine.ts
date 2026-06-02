@@ -262,6 +262,33 @@ function generateLayout(
       const remainingPhotos = seq.length - i
       const remainingSpreads = spreadBudget - eventSpreads.length
 
+      // Pre-design hint short-circuit: if the next photo was tagged as
+      // a PANORAMA by the client, it ALWAYS gets its own full-bleed
+      // single-photo spread. Squeezing a panorama into a 3-up grid
+      // crops it to nothing and was a common source of "Smart layout
+      // is messed up" feedback before this hint existed.
+      if (seq[i].isPanorama) {
+        const pano = seq[i]
+        i += 1
+        const tpl =
+          // First choice: the wide-aspect `panorama` template (layflat
+          // only; explicit preferred id + bleed family).
+          pickTemplate(type, 1, true, 'panorama', [pano], spreadAspectRatio, 'bleed', idx, avoidFor(1)) ??
+          // Second: any full-bleed 1-slot template for the album type.
+          pickTemplate(type, 1, true, undefined, [pano], spreadAspectRatio, 'bleed', idx, avoidFor(1)) ??
+          // Last: any 1-slot template (matted singles still give it a
+          // dedicated spread instead of cramming it into a multi-up).
+          pickTemplate(type, 1, true, undefined, [pano], spreadAspectRatio, undefined, idx, avoidFor(1))
+        if (tpl) {
+          eventSpreads.push({ id: `s-${idx++}`, templateId: tpl.id, photoIds: [pano.id], eventId: eid })
+          remember(tpl.id, tpl.slots.length)
+        } else {
+          // Defensive: no 1-slot template returned (shouldn't happen).
+          eventSpreads.push({ id: `s-${idx++}`, templateId: 'one-full', photoIds: [pano.id], eventId: eid })
+        }
+        continue
+      }
+
       // Full-page feature: at a gentle cadence (every 3rd album spread),
       // give the NEXT photo its own page. Two guards:
       //   • surplus  — more photos than spreads, so we're not forcing a
@@ -287,7 +314,12 @@ function generateLayout(
         // clamp to a sensible 1–5 photos per spread.
         let size = Math.ceil(remainingPhotos / remainingSpreads)
         size = Math.max(1, Math.min(5, size))
-        chunk = seq.slice(i, i + size)
+        // Don't pull a panorama into a multi-photo chunk — it has to
+        // get its own spread (handled by the short-circuit at the top
+        // of the loop). Truncate the chunk at the next panorama.
+        const candidate = seq.slice(i, i + size)
+        const nextPanoOffset = candidate.findIndex((p, k) => k > 0 && p.isPanorama)
+        chunk = nextPanoOffset > 0 ? candidate.slice(0, nextPanoOffset) : candidate
       }
       i += chunk.length
 
