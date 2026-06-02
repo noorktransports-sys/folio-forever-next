@@ -292,6 +292,48 @@ function _ns(base: string): string {
 }
 const COVER_LS_KEY = () => _ns('folio-cover-v1');
 const COVER_PHOTOS_LS_KEY = () => _ns('folio-cover-photos-v1');
+const COVER_VARIANTS_LS_KEY = () => _ns('folio-cover-variants-v1');
+
+/**
+ * Saved cover variant — a snapshot of CoverState the client can
+ * swap back to. Three slots (A / B / C) so clients can design 2-3
+ * concepts side-by-side and pick the one they want to print.
+ */
+interface CoverVariant {
+  /** "A" | "B" | "C" — fixed slot label. */
+  slot: 'A' | 'B' | 'C';
+  state: CoverState;
+  savedAt: number;
+}
+
+function loadCoverVariants(): (CoverVariant | null)[] {
+  if (typeof window === 'undefined') return [null, null, null];
+  try {
+    const raw = window.localStorage.getItem(COVER_VARIANTS_LS_KEY());
+    if (!raw) return [null, null, null];
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 1 || !Array.isArray(data.slots)) return [null, null, null];
+    return [0, 1, 2].map((i) => {
+      const s = data.slots[i];
+      if (!s || !s.state) return null;
+      return s as CoverVariant;
+    });
+  } catch {
+    return [null, null, null];
+  }
+}
+
+function persistCoverVariants(slots: (CoverVariant | null)[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      COVER_VARIANTS_LS_KEY(),
+      JSON.stringify({ v: 1, slots }),
+    );
+  } catch {
+    /* localStorage quota or disabled — best effort */
+  }
+}
 
 function loadCoverState(): CoverState {
   if (typeof window === 'undefined') return initialState;
@@ -337,6 +379,55 @@ export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack,
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>(loadCoverPhotos);
+  // Up-to-3 saved cover variants the client can swap between. Each
+  // slot is a full CoverState snapshot. Persisted in localStorage
+  // alongside the live cover state so revisits survive a refresh.
+  const [variants, setVariants] = useState<(CoverVariant | null)[]>(loadCoverVariants);
+
+  // Save the current editor state into one of the 3 slots (overwrites
+  // whatever was there). The "live" editor keeps editing the same
+  // state — the slot is just a frozen copy.
+  const saveVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const next: (CoverVariant | null)[] = [...prev];
+      next[slotIdx] = {
+        slot: (['A', 'B', 'C'] as const)[slotIdx],
+        state: { ...state },
+        savedAt: Date.now(),
+      };
+      persistCoverVariants(next);
+      return next;
+    });
+  }, [state]);
+
+  // Load a saved variant into the editor. The previous live state is
+  // discarded (the client can save it to another slot first if they
+  // want to keep it).
+  const loadVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const v = prev[slotIdx];
+      if (v) setState(v.state);
+      return prev;
+    });
+  }, []);
+
+  const clearVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const next: (CoverVariant | null)[] = [...prev];
+      next[slotIdx] = null;
+      persistCoverVariants(next);
+      return next;
+    });
+  }, []);
+
+  // Cheap "which slot matches the current editor" check — compares the
+  // serialised state strings. Used to highlight the slot the editor
+  // is currently in sync with so the client knows what they're editing.
+  const liveStateKey = JSON.stringify(state);
+  const activeSlotIdx = variants.findIndex(
+    (v) => v && JSON.stringify(v.state) === liveStateKey,
+  );
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -735,6 +826,111 @@ export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack,
         >
           Preview album →
         </button>
+      </div>
+
+      {/* VARIANT STRIP — 3 slots so the client can save A/B/C concepts,
+          switch between them, and submit whichever they like best.
+          Whatever's in the LIVE editor is what gets passed to
+          onContinue; the slots are just a save/load buffer. */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'stretch',
+          padding: '8px 18px 14px',
+          borderBottom: '0.5px solid rgba(184,150,90,0.18)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: 1.5,
+            color: '#9b8869',
+            textTransform: 'uppercase',
+            alignSelf: 'center',
+            marginRight: 4,
+          }}
+        >
+          Compare designs:
+        </div>
+        {([0, 1, 2] as const).map((idx) => {
+          const v = variants[idx];
+          const label = (['A', 'B', 'C'] as const)[idx];
+          const isActive = activeSlotIdx === idx;
+          return (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                border: isActive ? '1px solid #b8965a' : '0.5px solid rgba(184,150,90,0.3)',
+                background: isActive ? 'rgba(184,150,90,0.12)' : 'transparent',
+                borderRadius: 6,
+                padding: '4px 8px',
+              }}
+              title={
+                v
+                  ? `Variant ${label} saved · click to load · trash to clear`
+                  : `Variant ${label} is empty — click to save the current cover here`
+              }
+            >
+              {v ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => loadVariant(idx)}
+                    style={{
+                      background: 'transparent',
+                      color: '#f5f0e6',
+                      border: 'none',
+                      padding: '3px 6px',
+                      fontSize: 11,
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ★ Variant {label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => clearVariant(idx)}
+                    aria-label={`Clear variant ${label}`}
+                    style={{
+                      background: 'transparent',
+                      color: '#9b8869',
+                      border: 'none',
+                      padding: 2,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => saveVariant(idx)}
+                  style={{
+                    background: 'transparent',
+                    color: '#b8965a',
+                    border: 'none',
+                    padding: '3px 6px',
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  + Save as {label}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="cover-grid">
