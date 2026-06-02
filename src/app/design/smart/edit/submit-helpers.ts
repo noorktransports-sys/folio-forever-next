@@ -15,6 +15,10 @@
 import { loadAlbumBlobs } from './photo-blob-store'
 import { renderSpreadComposite } from './render-spread'
 import { renderCoverComposite } from './render-cover'
+import {
+  renderShareCardCover,
+  renderShareCardMontage,
+} from './render-share-pack'
 
 /* ─── Image processing ──────────────────────────────────────────────── */
 
@@ -362,12 +366,23 @@ export async function prepareSubmission({
   spreadComposites: SpreadCompositeResult[]
   coverFrontUrl: string | null
   coverBackUrl: string | null
+  /** Instagram-Story-sized cards the couple can share. Generated at
+   *  submit time using the just-rendered cover + first spread blobs.
+   *  Null when the corresponding source wasn't available. */
+  shareCoverUrl: string | null
+  shareMontageUrl: string | null
 }> {
   // Hydrate uploaded photo blobs from IDB so we can read the originals.
   // Sample photos won't be in IDB — we fetch their HTTPS URL instead.
   const idbBlobs = await loadAlbumBlobs(albumId)
   const photoResults: PhotoUploadResult[] = []
   const composites: SpreadCompositeResult[] = []
+
+  // Kept in memory across Pass 2 + cover + share-pack so the share
+  // cards can reuse the cover and the first 2 spread composites
+  // without re-fetching them from R2.
+  let coverFrontBlobCapture: Blob | null = null
+  const topSpreadBlobs: Blob[] = []
 
   // Photo lookup that the spread composite renderer can use later.
   // We rebuild it as we go (mapping photoId → loaded preview).
@@ -474,6 +489,10 @@ export async function prepareSubmission({
           texts: spreadTexts?.[s.id],
           outputLongEdgePx: printSpreadLongEdgePx,
         })
+        // Keep the first 2 spread blobs around in memory so the
+        // share-pack montage card (below) can reuse them without
+        // re-fetching from R2.
+        if (topSpreadBlobs.length < 2) topSpreadBlobs.push(blob)
         const up = await uploadToR2(blob, designId, `${s.id}-spread.jpg`)
         composites.push({ spreadId: s.id, key: up.key, url: up.url })
       } catch (err) {
@@ -536,6 +555,8 @@ export async function prepareSubmission({
       })
       const up = await uploadToR2(frontBlob, designId, 'cover-front.jpg')
       coverFrontUrl = up.url
+      // Reuse for the share-pack cover card below.
+      coverFrontBlobCapture = frontBlob
     } catch (err) {
       console.warn('[submit-helpers] cover front render failed', err)
     }
@@ -567,10 +588,52 @@ export async function prepareSubmission({
     }
   }
 
+  // ─── Share pack (Instagram-Story-sized cards) ──────────────────────
+  // Generated so the couple has share-ready content the moment the
+  // album order lands. Every share carries a discrete
+  // "folioforever.com" footer — each post is free organic acquisition.
+  // Best-effort: a failure here never blocks the submission.
+  let shareCoverUrl: string | null = null
+  let shareMontageUrl: string | null = null
+  try {
+    const primaryText = cover?.primaryText ?? ''
+    const subtitleText = cover?.subtitleText ?? ''
+    if (coverFrontBlobCapture) {
+      onProgress?.(total, total, 'Rendering share pack')
+      try {
+        const card = await renderShareCardCover({
+          coverBlob: coverFrontBlobCapture,
+          primaryText,
+          subtitleText,
+        })
+        const up = await uploadToR2(card, designId, 'share-cover.jpg')
+        shareCoverUrl = up.url
+      } catch (err) {
+        console.warn('[submit-helpers] share cover render failed', err)
+      }
+    }
+    if (topSpreadBlobs.length > 0) {
+      try {
+        const card = await renderShareCardMontage({
+          spreadBlobs: topSpreadBlobs,
+          primaryText,
+        })
+        const up = await uploadToR2(card, designId, 'share-montage.jpg')
+        shareMontageUrl = up.url
+      } catch (err) {
+        console.warn('[submit-helpers] share montage render failed', err)
+      }
+    }
+  } catch (err) {
+    console.warn('[submit-helpers] share-pack pass failed', err)
+  }
+
   return {
     photos: photoResults,
     spreadComposites: composites,
     coverFrontUrl,
     coverBackUrl,
+    shareCoverUrl,
+    shareMontageUrl,
   }
 }

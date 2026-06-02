@@ -145,6 +145,13 @@ interface SubmitPayload {
   /** Composite JPEGs of each spread, uploaded by the client at submit
    *  time so the emails can SHOW the album layout, not just list photos. */
   spreadComposites?: SpreadCompositeUpload[];
+  /** Share-ready 1080×1920 Instagram-Story cards rendered at submit so
+   *  the success page can offer downloads + share buttons. Best-effort:
+   *  either field may be null when the render failed. */
+  sharePack?: {
+    coverUrl?: string | null;
+    montageUrl?: string | null;
+  } | null;
   customEventNames?: Record<string, string>;
   /** Album cover (leather / acrylic / photo). Required from the client. */
   cover?: {
@@ -269,6 +276,10 @@ export async function POST(request: Request) {
       photos: payload.photos,
       spreads: payload.spreads,
       spreadComposites: payload.spreadComposites ?? [],
+      // Share-ready Instagram-Story-sized cards. Surfaced on the
+      // /design/smart/success page so the couple can post immediately
+      // — each carries a folioforever footer for organic acquisition.
+      sharePack: payload.sharePack ?? null,
       customEventNames: payload.customEventNames ?? {},
       // Legal records embedded in the order so admin views can show them
       // without a separate KV read. The standalone audit keys below are

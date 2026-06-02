@@ -2551,6 +2551,13 @@ function SmartDesignerInner() {
           photos: photosPayload,
           spreads,
           spreadComposites: result.spreadComposites,
+          // Instagram-Story-sized cards generated at submit time so the
+          // couple has share-ready content on the success page. Best-
+          // effort; null when the render failed.
+          sharePack: {
+            coverUrl: result.shareCoverUrl,
+            montageUrl: result.shareMontageUrl,
+          },
           customEventNames,
           polishHandoff,
           // ── Legal audit records (Phase 1 + Phase 2) ──

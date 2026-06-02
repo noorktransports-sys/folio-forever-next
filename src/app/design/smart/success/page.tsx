@@ -3,9 +3,13 @@
  *
  * Landing page after Stripe Checkout success. The customer is redirected
  * here with `?token=<orderToken>&order=<orderId>` in the URL. We do NOT
- * fetch order details — the confirmation email gives the customer
- * everything they need. This page just acknowledges receipt visually
- * and links back home.
+ * fetch order details for the bulk of the page — the confirmation email
+ * gives the customer everything they need.
+ *
+ * BUT — we DO fetch lightly to surface the SHARE PACK: two
+ * 1080×1920 Instagram-Story cards rendered at submit time with the
+ * cover + first spreads + a folioforever.com footer. Offering them
+ * here turns every couple who shares into a marketing channel.
  *
  * Stripe's webhook may not have processed the payment yet by the time
  * the customer lands here (it's async), so we don't claim "paid" —
@@ -16,15 +20,45 @@
 
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { Suspense } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 export const runtime = 'edge'
 
 const GOLD = '#b8965a'
 
+interface SharePack {
+  coverUrl?: string | null
+  montageUrl?: string | null
+}
+
 function SuccessInner() {
   const params = useSearchParams()
   const orderId = params?.get('order') ?? null
+  const token = params?.get('token') ?? null
+
+  const [sharePack, setSharePack] = useState<SharePack | null>(null)
+
+  // Fetch the saved design just to pull out the share-pack URLs. Best
+  // effort — a failure here is silent; the rest of the page (the
+  // thank-you message) is the primary content.
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/designs/${encodeURIComponent(token)}`)
+        if (!res.ok) return
+        const j = (await res.json()) as { sharePack?: SharePack | null }
+        if (cancelled) return
+        if (j.sharePack) setSharePack(j.sharePack)
+      } catch {
+        /* silent — no share pack shown */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   return (
     <div
@@ -38,6 +72,7 @@ function SuccessInner() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '40px 24px',
+        gap: 28,
       }}
     >
       <div
@@ -142,6 +177,148 @@ function SuccessInner() {
           Back to Home
         </Link>
       </div>
+
+      {/* ─── Share Pack ─────────────────────────────────────────────────
+          1080×1920 Instagram-Story cards rendered at submit time. Each
+          carries a discrete folioforever.com footer so every share is
+          organic acquisition. Shown only when the render succeeded. */}
+      {sharePack && (sharePack.coverUrl || sharePack.montageUrl) && (
+        <SharePackPanel sharePack={sharePack} orderId={orderId} />
+      )}
+    </div>
+  )
+}
+
+function SharePackPanel({
+  sharePack,
+  orderId,
+}: {
+  sharePack: SharePack
+  orderId: string | null
+}) {
+  const cards: Array<{ label: string; url: string; filename: string }> = []
+  if (sharePack.coverUrl) {
+    cards.push({
+      label: 'Cover',
+      url: sharePack.coverUrl,
+      filename: `folioforever-${orderId ?? 'album'}-cover.jpg`,
+    })
+  }
+  if (sharePack.montageUrl) {
+    cards.push({
+      label: 'Highlights',
+      url: sharePack.montageUrl,
+      filename: `folioforever-${orderId ?? 'album'}-highlights.jpg`,
+    })
+  }
+  if (cards.length === 0) return null
+
+  return (
+    <div
+      style={{
+        maxWidth: 560,
+        width: '100%',
+        background: '#1a1611',
+        border: `0.5px solid ${GOLD}40`,
+        borderRadius: 12,
+        padding: '28px 28px 24px',
+        textAlign: 'center',
+      }}
+    >
+      <p
+        style={{
+          fontFamily: "'Cormorant Garamond', Georgia, serif",
+          fontSize: 24,
+          fontWeight: 300,
+          color: '#f5f0e6',
+          margin: '0 0 6px',
+        }}
+      >
+        Share the moment.
+      </p>
+      <p
+        style={{
+          fontSize: 12,
+          letterSpacing: 1.5,
+          color: '#9b8869',
+          textTransform: 'uppercase',
+          margin: '0 0 22px',
+        }}
+      >
+        Story-ready cards · 1080 × 1920
+      </p>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: cards.length === 1 ? '1fr' : '1fr 1fr',
+          gap: 14,
+          marginBottom: 16,
+        }}
+      >
+        {cards.map((c) => (
+          <ShareCard key={c.url} card={c} />
+        ))}
+      </div>
+
+      <p style={{ fontSize: 11, color: '#8a7a65', lineHeight: 1.5, margin: 0 }}>
+        Save to your camera roll, then upload as an Instagram or Facebook Story.
+      </p>
+    </div>
+  )
+}
+
+function ShareCard({
+  card,
+}: {
+  card: { label: string; url: string; filename: string }
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        alignItems: 'center',
+      }}
+    >
+      {/* The card preview itself (small thumbnail at 9:16 aspect). */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={card.url}
+        alt={`${card.label} share card`}
+        style={{
+          width: '100%',
+          maxWidth: 220,
+          aspectRatio: '9 / 16',
+          objectFit: 'cover',
+          borderRadius: 8,
+          border: `0.5px solid ${GOLD}40`,
+          background: '#0e0c09',
+        }}
+      />
+      <a
+        href={card.url}
+        download={card.filename}
+        style={{
+          display: 'inline-block',
+          width: '100%',
+          maxWidth: 220,
+          background: 'transparent',
+          color: GOLD,
+          border: `0.5px solid ${GOLD}80`,
+          padding: '9px 0',
+          textDecoration: 'none',
+          fontSize: 10,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          borderRadius: 4,
+          fontFamily: 'inherit',
+          textAlign: 'center',
+        }}
+      >
+        ↓ Save {card.label.toLowerCase()}
+      </a>
     </div>
   )
 }
