@@ -428,6 +428,127 @@ export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack,
     (v) => v && JSON.stringify(v.state) === liveStateKey,
   );
 
+  // ─── PHOTOGRAPHER ACCOUNT TEMPLATES ──────────────────────────────────
+  // For logged-in photographers (pro_session cookie), cover designs can
+  // be saved to a server-side gallery and reused across clients. The
+  // gallery is fetched on mount; a 401 means "not a photographer" and
+  // we hide the entire UI block — regular customers never see it.
+  interface CoverTemplateSummary {
+    id: string;
+    name: string;
+    savedAt: number;
+  }
+  const [proLoggedIn, setProLoggedIn] = useState(false);
+  const [proTemplates, setProTemplates] = useState<CoverTemplateSummary[]>([]);
+  const [proPanelOpen, setProPanelOpen] = useState(false);
+  const [proSaveName, setProSaveName] = useState('');
+  const [proBusy, setProBusy] = useState(false);
+  const [proError, setProError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/pro/cover-templates');
+        if (cancelled) return;
+        if (res.status === 401 || !res.ok) {
+          setProLoggedIn(false);
+          return;
+        }
+        const j = (await res.json()) as { templates?: CoverTemplateSummary[] };
+        if (cancelled) return;
+        setProLoggedIn(true);
+        setProTemplates(j.templates ?? []);
+      } catch {
+        if (!cancelled) setProLoggedIn(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const proSaveTemplate = useCallback(async () => {
+    const name = proSaveName.trim();
+    if (!name) {
+      setProError('Give your template a name.');
+      return;
+    }
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch('/api/pro/cover-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, state }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        name?: string;
+        savedAt?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setProError(j.error || `Couldn't save (${res.status})`);
+        return;
+      }
+      if (j.id && j.name && j.savedAt) {
+        setProTemplates((prev) => [
+          { id: j.id!, name: j.name!, savedAt: j.savedAt! },
+          ...prev,
+        ]);
+      }
+      setProSaveName('');
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, [proSaveName, state]);
+
+  const proLoadTemplate = useCallback(async (id: string) => {
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch(`/api/pro/cover-templates/${encodeURIComponent(id)}`);
+      const j = (await res.json().catch(() => ({}))) as {
+        state?: CoverState;
+        error?: string;
+      };
+      if (!res.ok || !j.state) {
+        setProError(j.error || 'Could not load this template.');
+        return;
+      }
+      setState((prev) => ({ ...prev, ...j.state }));
+      setProPanelOpen(false);
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, []);
+
+  const proDeleteTemplate = useCallback(async (id: string) => {
+    if (!window.confirm('Delete this saved cover template?')) return;
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch(`/api/pro/cover-templates/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setProError(j.error || `Couldn't delete (${res.status})`);
+        return;
+      }
+      setProTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, []);
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -931,6 +1052,194 @@ export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack,
             </div>
           );
         })}
+
+        {/* PHOTOGRAPHER TEMPLATE PANEL — only shown to logged-in
+            photographers. Save the current cover spec as a reusable
+            template, load any saved one to start a new client's album
+            from your signature style. */}
+        {proLoggedIn && (
+          <div style={{ position: 'relative', marginLeft: 'auto' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setProPanelOpen((o) => !o);
+                setProError(null);
+              }}
+              style={{
+                background: proPanelOpen ? 'rgba(184,150,90,0.18)' : 'transparent',
+                color: '#b8965a',
+                border: '0.5px solid rgba(184,150,90,0.5)',
+                borderRadius: 6,
+                padding: '5px 12px',
+                fontSize: 11,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+              title="Save and reuse cover styles across clients"
+            >
+              📁 My templates{' '}
+              {proTemplates.length > 0 ? `(${proTemplates.length})` : ''}
+            </button>
+            {proPanelOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  width: 320,
+                  background: '#1a1611',
+                  border: '0.5px solid rgba(184,150,90,0.4)',
+                  borderRadius: 8,
+                  padding: 14,
+                  zIndex: 50,
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.5)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 1.5,
+                    color: '#9b8869',
+                    textTransform: 'uppercase',
+                    marginBottom: 8,
+                  }}
+                >
+                  Save current cover as…
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    value={proSaveName}
+                    onChange={(e) => setProSaveName(e.target.value)}
+                    placeholder='e.g. "Modern Editorial Black"'
+                    maxLength={60}
+                    disabled={proBusy}
+                    style={{
+                      flex: 1,
+                      background: '#0e0c09',
+                      color: '#f5f0e6',
+                      border: '0.5px solid rgba(184,150,90,0.4)',
+                      borderRadius: 4,
+                      padding: '6px 8px',
+                      fontSize: 12,
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={proSaveTemplate}
+                    disabled={proBusy || !proSaveName.trim()}
+                    style={{
+                      background: proSaveName.trim() ? '#b8965a' : 'transparent',
+                      color: proSaveName.trim() ? '#0e0c09' : '#9b8869',
+                      border: '0.5px solid rgba(184,150,90,0.5)',
+                      borderRadius: 4,
+                      padding: '6px 12px',
+                      fontSize: 10,
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      cursor: proBusy || !proSaveName.trim() ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+                {proError && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: '#ff8a8a',
+                      marginBottom: 10,
+                      padding: '6px 8px',
+                      background: 'rgba(255,138,138,0.08)',
+                      borderRadius: 4,
+                    }}
+                  >
+                    {proError}
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 1.5,
+                    color: '#9b8869',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Your saved templates
+                </div>
+                {proTemplates.length === 0 ? (
+                  <div style={{ fontSize: 11, color: '#7d6f59', padding: '6px 0' }}>
+                    No saved templates yet — save your first one above.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 240,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {proTemplates.map((t) => (
+                      <div
+                        key={t.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 8px',
+                          borderRadius: 4,
+                          background: 'rgba(184,150,90,0.06)',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => proLoadTemplate(t.id)}
+                          disabled={proBusy}
+                          style={{
+                            flex: 1,
+                            background: 'transparent',
+                            color: '#f5f0e6',
+                            border: 'none',
+                            padding: 0,
+                            textAlign: 'left',
+                            fontSize: 12,
+                            cursor: proBusy ? 'not-allowed' : 'pointer',
+                          }}
+                          title={`Saved ${new Date(t.savedAt).toLocaleDateString()}`}
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => proDeleteTemplate(t.id)}
+                          disabled={proBusy}
+                          aria-label="Delete template"
+                          style={{
+                            background: 'transparent',
+                            color: '#9b8869',
+                            border: 'none',
+                            padding: 2,
+                            fontSize: 12,
+                            cursor: proBusy ? 'not-allowed' : 'pointer',
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="cover-grid">
