@@ -3397,13 +3397,17 @@ function SmartDesignerInner() {
               }}
             >
               <strong style={{ color: '#b8965a' }}>Hint your designer:</strong>{' '}
-              hover any photo and click{' '}
-              <span style={{ color: '#b8965a' }}>★</span> to mark it as the
-              cover, or{' '}
-              <span style={{ color: '#b8965a' }}>⟷</span> to flag a panorama —
-              the smart layout will reserve a full-bleed solo spread for
-              every panorama, and the cover step will pre-pick your star
-              photo.
+              every photo has a{' '}
+              <span style={{ color: '#b8965a', fontWeight: 700 }}>+ COVER</span>{' '}
+              and{' '}
+              <span style={{ color: '#b8965a', fontWeight: 700 }}>+ PANO</span>{' '}
+              pill at the bottom. Tap{' '}
+              <span style={{ color: '#b8965a', fontWeight: 700 }}>COVER</span>{' '}
+              on the one shot you&rsquo;d like used on the album cover (only
+              one — the Cover step will pre-pick it). Tap{' '}
+              <span style={{ color: '#b8965a', fontWeight: 700 }}>PANO</span>{' '}
+              on any wide panoramic shot — smart layout will give each one
+              its own full-bleed spread. Both are optional.
             </div>
             {(() => {
               const lowResCount = photos.filter((p) => Math.min(p.width, p.height) < LOW_RES_PX).length
@@ -3475,83 +3479,100 @@ function SmartDesignerInner() {
                         Low res
                       </span>
                     )}
-                    {/* Pre-design hint bar — bottom of the tile. Two
-                        toggles: ⭐ Cover candidate (single-select across
-                        all photos — picking another clears the previous)
-                        and ⟷ Panorama (the smart layout reserves a
-                        full-bleed solo spread for every panorama-tagged
-                        photo). Both auto-save into the photos state. */}
+                    {/* Pre-design hint bar — bottom of the tile.
+                        Always visible (no hover required) so the
+                        feature is discoverable at a glance. We use
+                        text-labelled pills ("Cover" / "Pano") instead
+                        of icons so they (a) don't clash with the ★
+                        hero icon on the Tag step, and (b) self-document
+                        without a tooltip. Cover is single-select
+                        (picking another clears the previous);
+                        Panorama toggles freely. */}
                     <div
                       className="folio-photo-hints"
                       style={{
                         position: 'absolute',
-                        left: 4,
-                        right: 4,
-                        bottom: 4,
+                        left: 6,
+                        right: 6,
+                        bottom: 6,
                         display: 'flex',
-                        gap: 4,
+                        gap: 5,
                         justifyContent: 'flex-start',
                       }}
                     >
                       <button
                         type="button"
-                        aria-label="Mark as cover candidate"
+                        aria-label={
+                          p.isCoverCandidate
+                            ? 'Cover candidate (click to unmark)'
+                            : 'Mark as cover candidate'
+                        }
                         aria-pressed={!!p.isCoverCandidate}
                         title={
                           p.isCoverCandidate
-                            ? 'Cover candidate (click to unmark)'
-                            : 'Mark as cover candidate — the Cover step will pre-pick this photo'
+                            ? 'Cover candidate — click to unmark. The Cover step will pre-pick this photo.'
+                            : 'Mark as the cover photo — the Cover step will pre-pick this.'
                         }
                         onClick={() => toggleCoverCandidate(p.id)}
                         style={{
-                          width: 26,
-                          height: 26,
-                          borderRadius: '50%',
-                          border: 'none',
-                          padding: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          height: 22,
+                          padding: '0 9px',
+                          borderRadius: 11,
+                          border: p.isCoverCandidate
+                            ? '0.5px solid rgba(0,0,0,0.25)'
+                            : '0.5px solid rgba(184,150,90,0.55)',
                           background: p.isCoverCandidate
                             ? '#b8965a'
-                            : 'rgba(14,12,9,0.72)',
-                          color: p.isCoverCandidate ? '#0e0c09' : '#fff',
-                          fontSize: 13,
+                            : 'rgba(14,12,9,0.82)',
+                          color: p.isCoverCandidate ? '#0e0c09' : '#f3e7cf',
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: 1.2,
+                          textTransform: 'uppercase',
                           lineHeight: 1,
                           cursor: 'pointer',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+                          fontFamily: 'inherit',
                         }}
                       >
-                        ★
+                        {p.isCoverCandidate ? '✓ Cover' : '+ Cover'}
                       </button>
                       <button
                         type="button"
-                        aria-label="Mark as panorama"
+                        aria-label={
+                          p.isPanorama
+                            ? 'Panorama (click to unmark)'
+                            : 'Mark as panorama'
+                        }
                         aria-pressed={!!p.isPanorama}
                         title={
                           p.isPanorama
-                            ? 'Panorama (click to unmark) — gets its own full-bleed spread'
-                            : 'Mark as panorama — gets a full-bleed solo spread'
+                            ? 'Panorama — click to unmark. Smart layout will give this its own full-bleed spread.'
+                            : 'Mark as a panorama — smart layout will reserve a full-bleed solo spread for it.'
                         }
                         onClick={() => togglePanorama(p.id)}
                         style={{
-                          width: 26,
-                          height: 26,
-                          borderRadius: '50%',
-                          border: 'none',
-                          padding: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          height: 22,
+                          padding: '0 9px',
+                          borderRadius: 11,
+                          border: p.isPanorama
+                            ? '0.5px solid rgba(0,0,0,0.25)'
+                            : '0.5px solid rgba(184,150,90,0.55)',
                           background: p.isPanorama
                             ? '#b8965a'
-                            : 'rgba(14,12,9,0.72)',
-                          color: p.isPanorama ? '#0e0c09' : '#fff',
-                          fontSize: 12,
+                            : 'rgba(14,12,9,0.82)',
+                          color: p.isPanorama ? '#0e0c09' : '#f3e7cf',
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: 1.2,
+                          textTransform: 'uppercase',
                           lineHeight: 1,
                           cursor: 'pointer',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+                          fontFamily: 'inherit',
                         }}
                       >
-                        ⟷
+                        {p.isPanorama ? '✓ Pano' : '+ Pano'}
                       </button>
                     </div>
 
@@ -3588,25 +3609,26 @@ function SmartDesignerInner() {
                 )
               })}
             </div>
-            {/* Touch devices can't hover, so the remove (✕) button is
-                always visible there; on hover-capable devices it
-                fades in only when you hover the photo so the grid
-                stays clean. */}
+            {/* The destructive ✕ remove fades in only on hover/focus
+                (desktop) and is always visible on touch — same
+                pattern as before. The hint pills (Cover / Pano), by
+                contrast, are ALWAYS visible: they need to be
+                discoverable without the user knowing to hover, and
+                they're affirmative (not destructive) so they don't
+                clutter the grid in the same way. */}
             <style>{`
-              .folio-photo-remove,
-              .folio-photo-hints { opacity: 1; transition: opacity 0.15s ease; }
+              .folio-photo-remove { opacity: 1; transition: opacity 0.15s ease; }
               @media (hover: hover) {
-                .folio-photo-remove,
-                .folio-photo-hints { opacity: 0; }
+                .folio-photo-remove { opacity: 0; }
                 .folio-photo-tile:hover .folio-photo-remove,
-                .folio-photo-tile:hover .folio-photo-hints,
-                .folio-photo-remove:focus-visible,
-                .folio-photo-hints:focus-within { opacity: 1; }
+                .folio-photo-remove:focus-visible { opacity: 1; }
               }
-              /* Always show the hint bar when at least one toggle is
-                 active — so the user sees what they've already marked
-                 without having to hover every tile. */
-              .folio-photo-tile.is-hinted .folio-photo-hints { opacity: 1; }
+              /* Photos that already carry a Cover or Pano hint get a
+                 subtle gold ring so the user can see, at a glance,
+                 which shots they've already marked. */
+              .folio-photo-tile.is-hinted {
+                box-shadow: 0 0 0 2px #b8965a, 0 1px 4px rgba(0,0,0,0.3);
+              }
             `}</style>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 32, alignItems: 'center' }}>
