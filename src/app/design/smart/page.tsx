@@ -4705,8 +4705,36 @@ function SmartDesignerInner() {
                   const filledOthers = s.photoIds.filter(
                     (id, k) => k !== idx && !!id,
                   ).length
+                  // SPECIAL CASE: removing the only photo on a spread
+                  // used to silently fail with a toast — clients
+                  // couldn't see the Delete-spread button in the
+                  // header and got stuck. Convert that into an
+                  // explicit "delete the whole spread" prompt so the
+                  // last photo IS removable: it just takes the spread
+                  // with it. Photos return to the unused pool, undo
+                  // restores both.
                   if (filledOthers === 0) {
-                    showToast('Spread must have at least 1 photo')
+                    if (spreads.length <= 1) {
+                      showToast(
+                        "This is your last spread — can't remove the last photo on it. Add a second spread first, or click 'Add a spread' below.",
+                      )
+                      return
+                    }
+                    if (
+                      !window.confirm(
+                        "This is the only photo on this spread. Removing it will delete the whole spread (photo returns to the unused pool). Continue?",
+                      )
+                    )
+                      return
+                    undoApi.record(
+                      makeDeleteSpreadOp(
+                        { spreads: spreads as unknown as OpSpread[], unusedPhotoIds },
+                        s.id,
+                      ),
+                    )
+                    if (editSlot?.spreadId === s.id) setEditSlot(null)
+                    if (swapSlot?.spreadId === s.id) setSwapSlot(null)
+                    if (emptySlotPicker?.spreadId === s.id) setEmptySlotPicker(null)
                     return
                   }
                   const newIds: (string | null)[] = [...s.photoIds]
@@ -6409,7 +6437,7 @@ function SpreadNavRail({
           transform-origin: left center;
         }
         .ff-nav-tile:hover {
-          transform: scale(2.1);
+          transform: scale(1.9);
           z-index: 60;
           box-shadow: 0 16px 40px rgba(0,0,0,0.7);
           border-color: ${GOLD} !important;
@@ -6425,21 +6453,60 @@ function SpreadNavRail({
           top: 24,
           alignSelf: 'flex-start',
           flexShrink: 0,
-          width: 100,
+          // 144px is wide enough that the spread thumbnails read as
+          // real spreads (not as dots) and the "SPREAD 1 / SPREAD 2"
+          // labels are unambiguous.
+          width: 144,
           maxHeight: 'calc(100vh - 48px)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
-          padding: '10px 8px',
-          background: 'rgba(20,16,12,0.55)',
-          border: '0.5px solid rgba(184,150,90,0.2)',
+          gap: 10,
+          padding: '14px 10px 16px',
+          background: 'rgba(20,16,12,0.7)',
+          border: '0.5px solid rgba(184,150,90,0.35)',
           borderRadius: 10,
           overflowY: 'auto',
           overflowX: 'visible',
           scrollbarWidth: 'thin',
           scrollbarColor: 'rgba(184,150,90,0.3) transparent',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
         }}
       >
+        {/* Header — a single-line caption that anchors what the rail
+            is, plus the running count. Without this the column of
+            tiny thumbnails reads as decoration rather than as
+            navigation. */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            padding: '0 4px 8px',
+            borderBottom: '0.5px solid rgba(184,150,90,0.25)',
+            marginBottom: 4,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 9,
+              letterSpacing: 2,
+              color: GOLD,
+              textTransform: 'uppercase',
+              fontWeight: 700,
+            }}
+          >
+            Spreads
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: 'var(--muted2)',
+              fontFamily: 'var(--font-body)',
+            }}
+          >
+            {spreads.length}
+          </span>
+        </div>
         {spreads.map((s, i) => {
           const tpl = TEMPLATE_BY_ID.get(s.templateId)
           const miniSlots = tpl ? renderSlots(tpl) : []
@@ -6522,13 +6589,16 @@ function SpreadNavRail({
               </div>
               <span
                 style={{
-                  fontSize: 10,
-                  letterSpacing: 1,
-                  color: 'var(--muted2)',
+                  fontSize: 11,
+                  letterSpacing: 1.2,
+                  color: 'var(--cream)',
                   fontFamily: 'var(--font-body)',
+                  textTransform: 'uppercase',
+                  fontWeight: 600,
+                  marginTop: 1,
                 }}
               >
-                {i + 1}
+                Spread {i + 1}
               </span>
             </button>
           )
@@ -8138,26 +8208,13 @@ function SpreadView({
                       }}
                     />
                   ) : null}
-                  {slot.isHero && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: 4,
-                        left: 4,
-                        fontSize: 7,
-                        letterSpacing: 1.5,
-                        color: '#0e0c09',
-                        background: GOLD,
-                        padding: '2px 6px',
-                        borderRadius: 30,
-                        textTransform: 'uppercase',
-                        fontWeight: 700,
-                        pointerEvents: 'none',
-                      }}
-                    >
-                      Hero
-                    </span>
-                  )}
+                  {/* The "HERO" pill used to sit at top-left of every
+                      hero slot. It was already stripped from the
+                      print composite (commit b716cc7); the on-screen
+                      version is now also hidden so clients don't see
+                      a label that doesn't appear in the printed
+                      album. The slot is still semantically a hero —
+                      it's just no longer self-labelled. */}
                 </>
               ) : (
                 // Empty slot: dashed gold border + "+ Add" hint.
@@ -8257,6 +8314,7 @@ function SpreadView({
             onSwap={() => onStartSwap(editingSlot)}
             onReset={() => onResetAdjust(editingSlot)}
             onRemove={() => onRemovePhoto(editingSlot)}
+            onDeleteSpread={onDeleteSpread}
             slotIdx={editingSlot}
             inSwapMode={swappingSlot === editingSlot}
             maxZoom={cap}
@@ -8279,6 +8337,7 @@ function PhotoToolbar({
   onSwap,
   onReset,
   onRemove,
+  onDeleteSpread,
   slotIdx,
   inSwapMode,
   maxZoom,
@@ -8289,6 +8348,11 @@ function PhotoToolbar({
   onSwap: () => void
   onReset: () => void
   onRemove: () => void
+  /** Wired so clients have one-tap access to "delete the whole
+   *  spread" from the same toolbar where they look for Remove.
+   *  Previously the only entry point was a small text button in
+   *  the spread header — easy to miss when scrolled past. */
+  onDeleteSpread: () => void
   slotIdx: number
   inSwapMode: boolean
   /** Smart per-photo zoom ceiling (keeps ≥300 DPI at this album size). */
@@ -8626,7 +8690,18 @@ function PhotoToolbar({
           {inSwapMode ? 'Swap mode active — pick from pool →' : '⇄ Swap photo'}
         </button>
         <button type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
-          ✕ Remove
+          ✕ Remove photo
+        </button>
+        {/* Delete the whole spread from the slot toolbar — same
+            destructive flow as the small header button, but right
+            where clients look when they want to remove things. */}
+        <button
+          type="button"
+          style={btnDanger}
+          onClick={onDeleteSpread}
+          title="Delete this entire spread — its photos return to the unused pool"
+        >
+          ✕ Delete spread
         </button>
       </div>
     </div>
