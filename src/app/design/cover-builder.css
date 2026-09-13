@@ -72,7 +72,9 @@
 /* GRID — preview left, controls right */
 .cover-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  /* Two slim control columns flank the centred preview so neither side
+   * is empty and the user almost never has to scroll. */
+  grid-template-columns: 320px 1fr 320px;
   flex: 1;
   min-height: 0;
 }
@@ -87,13 +89,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  /* The right controls panel is 380px wide, which pushes everything in
-   * the preview panel ~190px left of the viewport's true horizontal
-   * center. Adding matching left padding rebalances it: the cover now
-   * sits at the visual center of the full viewport, not just the
-   * center of the preview area. The original 32px symmetric padding
-   * is preserved as the breathing-room baseline. */
-  padding: 24px 32px 24px calc(380px + 32px);
+  /* Two-column controls (320px + 320px) flank the preview, so the
+   * preview's column is already centred in the viewport. Use plain
+   * symmetric padding — the old asymmetric left padding was leftover
+   * from the single-right-controls layout and was pushing the cover
+   * (and the back-cover thumbnail bar) into the right controls panel,
+   * which silently swallowed clicks on the back-cover picker. */
+  padding: 24px 32px;
   background: linear-gradient(180deg, var(--dark) 0%, var(--dark2) 100%);
   /* hidden (not auto): the preview is a 3D scene, never wants its own
    * scrollbar. The canvas inside scales via width:100% to stay within
@@ -628,8 +630,16 @@
   overflow-y: auto;
   padding: 24px 22px 60px;
 }
-.cover-controls-panel::-webkit-scrollbar { width: 4px; }
-.cover-controls-panel::-webkit-scrollbar-thumb { background: rgba(184, 150, 90, 0.25); border-radius: 2px; }
+.cover-controls-panel-left {
+  background: var(--dark2);
+  border-right: 0.5px solid rgba(184, 150, 90, 0.15);
+  overflow-y: auto;
+  padding: 24px 22px 60px;
+}
+.cover-controls-panel::-webkit-scrollbar,
+.cover-controls-panel-left::-webkit-scrollbar { width: 4px; }
+.cover-controls-panel::-webkit-scrollbar-thumb,
+.cover-controls-panel-left::-webkit-scrollbar-thumb { background: rgba(184, 150, 90, 0.25); border-radius: 2px; }
 
 .cover-section { margin-bottom: 28px; }
 .cover-section-title {
@@ -1142,6 +1152,7 @@
 /* RESPONSIVE */
 @media (max-width: 860px) {
   .cover-grid { grid-template-columns: 1fr; }
+  .cover-controls-panel-left { border-right: none; border-bottom: 0.5px solid rgba(184, 150, 90, 0.15); }
   .cover-controls-panel { border-left: none; border-top: 0.5px solid rgba(184, 150, 90, 0.15); }
   .cover-stage { max-width: 320px; }
   /* On the single-column mobile layout the controls panel stacks below

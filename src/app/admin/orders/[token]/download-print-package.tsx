@@ -1,24 +1,30 @@
 'use client';
 
 /**
- * DownloadAll — fetches every photo for an order in the browser and
- * bundles them into a single ZIP file.
+ * DownloadPrintPackage — one-click ZIP of every file the print lab
+ * needs to print the album:
  *
- * Why client-side: Cloudflare Workers' edge runtime has tight CPU /
- * memory limits per request, and a 200 MB ZIP for 40 photos is right
- * at the edge of what's safe. The admin browser, by contrast, has
- * gigs of RAM and an unlimited stream. JSZip from cdnjs handles
- * the heavy lifting.
+ *   • cover-front.jpg  (print-quality, 300 DPI for the album face)
+ *   • cover-back.jpg   (photo covers only)
+ *   • spread-NN.jpg    (one per spread, print-quality)
+ *   • MANIFEST.txt     (order id, customer, shipping, album spec,
+ *                       cover spec, totals, dates — everything the
+ *                       lab needs without opening the dashboard)
  *
- * Progress text updates as photos are fetched so Jayvee knows it's
- * working. Errors per-photo don't stop the whole job — partial ZIP
- * is still useful.
+ * Bundling runs client-side (JSZip via cdnjs) so a 200 MB package
+ * never hits the edge worker's CPU / memory caps. The browser has
+ * gigs of RAM and an unlimited stream.
+ *
+ * This is the ONLY bulk download on the admin order page. Originals
+ * are still individually downloadable from the photo grid below
+ * (click → right-click → Save image as) for the rare case where a
+ * specific original is needed.
  */
 
 import { useState } from 'react';
 
 interface JSZipFile {
-  file(name: string, data: ArrayBuffer): void;
+  file(name: string, data: ArrayBuffer | string): void;
   generateAsync(options: { type: string }): Promise<Blob>;
 }
 interface JSZipCtor {
@@ -45,19 +51,27 @@ async function loadJSZip(): Promise<JSZipCtor> {
   return window.JSZip;
 }
 
-export default function DownloadAll({
+export interface PrintFile {
+  url: string;
+  /** Filename inside the ZIP, e.g. "spread-01.jpg" */
+  name: string;
+}
+
+export default function DownloadPrintPackage({
   orderId,
-  photos,
+  files,
+  manifestText,
 }: {
   orderId: string;
-  photos: { id: string; url: string }[];
+  files: PrintFile[];
+  manifestText: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
 
   async function start() {
-    if (busy || photos.length === 0) return;
+    if (busy || files.length === 0) return;
     setBusy(true);
     setProgress(0);
     setErrors([]);
@@ -66,31 +80,35 @@ export default function DownloadAll({
       const zip = new JSZip();
       let done = 0;
       const localErrors: string[] = [];
-      for (const p of photos) {
+
+      // 1) MANIFEST.txt first so it's at the top of the ZIP listing.
+      zip.file('MANIFEST.txt', manifestText);
+
+      // 2) Every print file, fetched in sequence so progress is honest.
+      for (const f of files) {
         try {
-          const res = await fetch(p.url, { credentials: 'same-origin' });
+          const res = await fetch(f.url, { credentials: 'same-origin' });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const buf = await res.arrayBuffer();
-          // Use the photo id (already includes the extension) as the
-          // file name; collisions impossible since R2 keys are unique.
-          const guess = guessName(p.url, p.id);
-          zip.file(guess, buf);
+          zip.file(f.name, buf);
         } catch (e) {
-          localErrors.push(`${p.id}: ${e instanceof Error ? e.message : 'failed'}`);
+          localErrors.push(
+            `${f.name}: ${e instanceof Error ? e.message : 'failed'}`,
+          );
         }
         done++;
         setProgress(done);
       }
       if (localErrors.length) setErrors(localErrors);
+
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${orderId || 'album'}-photos.zip`;
+      a.download = `${orderId || 'album'}-print.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Revoke after a tick so the download has time to start.
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e) {
       setErrors([e instanceof Error ? e.message : 'unknown error']);
@@ -105,15 +123,20 @@ export default function DownloadAll({
         type="button"
         className="admin-action-primary"
         onClick={start}
-        disabled={busy || photos.length === 0}
+        disabled={busy || files.length === 0}
+        title={
+          files.length === 0
+            ? 'No print files yet — composites + cover render at submit time.'
+            : `Bundles ${files.length} print files + MANIFEST.txt into one ZIP for the print lab.`
+        }
       >
         {busy
-          ? `Bundling ${progress} / ${photos.length}…`
-          : `Download all photos (.zip)`}
+          ? `Bundling ${progress} / ${files.length}…`
+          : `📦 Download layouts for print (.zip)`}
       </button>
       {errors.length > 0 ? (
         <div className="admin-download-errors">
-          {errors.length} photo{errors.length === 1 ? '' : 's'} failed:
+          {errors.length} file{errors.length === 1 ? '' : 's'} failed:
           <ul>
             {errors.slice(0, 5).map((e, i) => (
               <li key={i}>{e}</li>
@@ -124,19 +147,4 @@ export default function DownloadAll({
       ) : null}
     </div>
   );
-}
-
-/**
- * Given a URL like "/api/photo/designs/{designId}/{id}.jpg", pull
- * the trailing filename for use as the ZIP entry name. Falls back to
- * the supplied id with .jpg.
- */
-function guessName(url: string, id: string): string {
-  try {
-    const u = new URL(url, 'https://_');
-    const seg = u.pathname.split('/').filter(Boolean);
-    const last = seg[seg.length - 1];
-    if (last && /\.\w+$/.test(last)) return last;
-  } catch { /* ignore */ }
-  return `${id}.jpg`;
 }

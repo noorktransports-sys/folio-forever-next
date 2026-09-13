@@ -141,6 +141,11 @@ export type CoverState = {
    */
   customTextHex: string;
   position: Position;
+  /** Free X / Y position (0..1) of the title block, ONLY for photo +
+   *  acrylic covers (leather stays on the foil-stamp presets). When
+   *  undefined the `position` enum is used. */
+  titleX?: number;
+  titleY?: number;
 };
 
 /**
@@ -224,6 +229,10 @@ const initialState: CoverState = {
 interface CoverBuilderProps {
   /** Photos already uploaded by the client, available for acrylic/photo covers. */
   uploadedPhotos: { id: string; src: string }[];
+  /** Optional pre-design hint from the upload step. When set the cover
+   *  builder pre-selects this photo for acrylic / photo covers, so the
+   *  client doesn't have to re-pick a cover photo they already starred. */
+  coverCandidateId?: string | null;
   onBack: () => void;
   onContinue: (cover: CoverState) => void;
 }
@@ -283,6 +292,48 @@ function _ns(base: string): string {
 }
 const COVER_LS_KEY = () => _ns('folio-cover-v1');
 const COVER_PHOTOS_LS_KEY = () => _ns('folio-cover-photos-v1');
+const COVER_VARIANTS_LS_KEY = () => _ns('folio-cover-variants-v1');
+
+/**
+ * Saved cover variant — a snapshot of CoverState the client can
+ * swap back to. Three slots (A / B / C) so clients can design 2-3
+ * concepts side-by-side and pick the one they want to print.
+ */
+interface CoverVariant {
+  /** "A" | "B" | "C" — fixed slot label. */
+  slot: 'A' | 'B' | 'C';
+  state: CoverState;
+  savedAt: number;
+}
+
+function loadCoverVariants(): (CoverVariant | null)[] {
+  if (typeof window === 'undefined') return [null, null, null];
+  try {
+    const raw = window.localStorage.getItem(COVER_VARIANTS_LS_KEY());
+    if (!raw) return [null, null, null];
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 1 || !Array.isArray(data.slots)) return [null, null, null];
+    return [0, 1, 2].map((i) => {
+      const s = data.slots[i];
+      if (!s || !s.state) return null;
+      return s as CoverVariant;
+    });
+  } catch {
+    return [null, null, null];
+  }
+}
+
+function persistCoverVariants(slots: (CoverVariant | null)[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      COVER_VARIANTS_LS_KEY(),
+      JSON.stringify({ v: 1, slots }),
+    );
+  } catch {
+    /* localStorage quota or disabled — best effort */
+  }
+}
 
 function loadCoverState(): CoverState {
   if (typeof window === 'undefined') return initialState;
@@ -320,7 +371,7 @@ function loadCoverPhotos(): { id: string; src: string }[] {
   }
 }
 
-export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: CoverBuilderProps) {
+export default function CoverBuilder({ uploadedPhotos, coverCandidateId, onBack, onContinue }: CoverBuilderProps) {
   // Lazy initializers read once from localStorage on mount. Subsequent
   // updates are flushed back via the useEffects below.
   const [state, setState] = useState<CoverState>(loadCoverState);
@@ -328,8 +379,193 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [extraCoverPhotos, setExtraCoverPhotos] = useState<{ id: string; src: string }[]>(loadCoverPhotos);
+  // Up-to-3 saved cover variants the client can swap between. Each
+  // slot is a full CoverState snapshot. Persisted in localStorage
+  // alongside the live cover state so revisits survive a refresh.
+  const [variants, setVariants] = useState<(CoverVariant | null)[]>(loadCoverVariants);
+
+  // Save the current editor state into one of the 3 slots (overwrites
+  // whatever was there). The "live" editor keeps editing the same
+  // state — the slot is just a frozen copy.
+  const saveVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const next: (CoverVariant | null)[] = [...prev];
+      next[slotIdx] = {
+        slot: (['A', 'B', 'C'] as const)[slotIdx],
+        state: { ...state },
+        savedAt: Date.now(),
+      };
+      persistCoverVariants(next);
+      return next;
+    });
+  }, [state]);
+
+  // Load a saved variant into the editor. The previous live state is
+  // discarded (the client can save it to another slot first if they
+  // want to keep it).
+  const loadVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const v = prev[slotIdx];
+      if (v) setState(v.state);
+      return prev;
+    });
+  }, []);
+
+  const clearVariant = useCallback((slotIdx: 0 | 1 | 2) => {
+    setVariants((prev) => {
+      const next: (CoverVariant | null)[] = [...prev];
+      next[slotIdx] = null;
+      persistCoverVariants(next);
+      return next;
+    });
+  }, []);
+
+  // Cheap "which slot matches the current editor" check — compares the
+  // serialised state strings. Used to highlight the slot the editor
+  // is currently in sync with so the client knows what they're editing.
+  const liveStateKey = JSON.stringify(state);
+  const activeSlotIdx = variants.findIndex(
+    (v) => v && JSON.stringify(v.state) === liveStateKey,
+  );
+
+  // ─── PHOTOGRAPHER ACCOUNT TEMPLATES ──────────────────────────────────
+  // For logged-in photographers (pro_session cookie), cover designs can
+  // be saved to a server-side gallery and reused across clients. The
+  // gallery is fetched on mount; a 401 means "not a photographer" and
+  // we hide the entire UI block — regular customers never see it.
+  interface CoverTemplateSummary {
+    id: string;
+    name: string;
+    savedAt: number;
+  }
+  const [proLoggedIn, setProLoggedIn] = useState(false);
+  const [proTemplates, setProTemplates] = useState<CoverTemplateSummary[]>([]);
+  const [proPanelOpen, setProPanelOpen] = useState(false);
+  const [proSaveName, setProSaveName] = useState('');
+  const [proBusy, setProBusy] = useState(false);
+  const [proError, setProError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/pro/cover-templates');
+        if (cancelled) return;
+        if (res.status === 401 || !res.ok) {
+          setProLoggedIn(false);
+          return;
+        }
+        const j = (await res.json()) as { templates?: CoverTemplateSummary[] };
+        if (cancelled) return;
+        setProLoggedIn(true);
+        setProTemplates(j.templates ?? []);
+      } catch {
+        if (!cancelled) setProLoggedIn(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const proSaveTemplate = useCallback(async () => {
+    const name = proSaveName.trim();
+    if (!name) {
+      setProError('Give your template a name.');
+      return;
+    }
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch('/api/pro/cover-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, state }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        name?: string;
+        savedAt?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setProError(j.error || `Couldn't save (${res.status})`);
+        return;
+      }
+      if (j.id && j.name && j.savedAt) {
+        setProTemplates((prev) => [
+          { id: j.id!, name: j.name!, savedAt: j.savedAt! },
+          ...prev,
+        ]);
+      }
+      setProSaveName('');
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, [proSaveName, state]);
+
+  const proLoadTemplate = useCallback(async (id: string) => {
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch(`/api/pro/cover-templates/${encodeURIComponent(id)}`);
+      const j = (await res.json().catch(() => ({}))) as {
+        state?: CoverState;
+        error?: string;
+      };
+      if (!res.ok || !j.state) {
+        setProError(j.error || 'Could not load this template.');
+        return;
+      }
+      setState((prev) => ({ ...prev, ...j.state }));
+      setProPanelOpen(false);
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, []);
+
+  const proDeleteTemplate = useCallback(async (id: string) => {
+    if (!window.confirm('Delete this saved cover template?')) return;
+    setProBusy(true);
+    setProError(null);
+    try {
+      const res = await fetch(`/api/pro/cover-templates/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        setProError(j.error || `Couldn't delete (${res.status})`);
+        return;
+      }
+      setProTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch {
+      setProError('Network error — try again.');
+    } finally {
+      setProBusy(false);
+    }
+  }, []);
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Pre-design hint: if the client starred a "cover candidate" on the
+  // upload step, pre-pick that photo here so they don't have to repeat
+  // the choice. Only fires when no cover photo is set yet (so an
+  // already-chosen cover isn't overwritten).
+  useEffect(() => {
+    if (!coverCandidateId) return;
+    if (state.photoSrc) return;
+    const match = uploadedPhotos.find((p) => p.id === coverCandidateId);
+    if (!match) return;
+    setState((prev) => ({ ...prev, photoSrc: match.src }));
+    // We deliberately don't depend on `state.photoSrc` — only the
+    // candidate id / list — so flipping in/out of cover doesn't re-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coverCandidateId, uploadedPhotos]);
 
   // Drag-to-rotate state. Rotation lives in refs (no re-render per pointermove);
   // isDragging is state because we use it for the cursor className.
@@ -408,8 +644,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
       setUploadError('JPG, PNG, or WEBP only');
       return;
     }
-    if (file.size > 30 * 1024 * 1024) {
-      setUploadError('Max 30 MB per photo');
+    if (file.size > 35 * 1024 * 1024) {
+      setUploadError('Max 35 MB per photo');
       return;
     }
     setUploadingCover(true);
@@ -713,6 +949,299 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
         </button>
       </div>
 
+      {/* VARIANT STRIP — 3 slots so the client can save A/B/C concepts,
+          switch between them, and submit whichever they like best.
+          Whatever's in the LIVE editor is what gets passed to
+          onContinue; the slots are just a save/load buffer. */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 10,
+          alignItems: 'stretch',
+          padding: '8px 18px 14px',
+          borderBottom: '0.5px solid rgba(184,150,90,0.18)',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: 1.5,
+            color: '#9b8869',
+            textTransform: 'uppercase',
+            alignSelf: 'center',
+            marginRight: 4,
+          }}
+        >
+          Compare designs:
+        </div>
+        {([0, 1, 2] as const).map((idx) => {
+          const v = variants[idx];
+          const label = (['A', 'B', 'C'] as const)[idx];
+          const isActive = activeSlotIdx === idx;
+          return (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                border: isActive ? '1px solid #b8965a' : '0.5px solid rgba(184,150,90,0.3)',
+                background: isActive ? 'rgba(184,150,90,0.12)' : 'transparent',
+                borderRadius: 6,
+                padding: '4px 8px',
+              }}
+              title={
+                v
+                  ? `Variant ${label} saved · click to load · trash to clear`
+                  : `Variant ${label} is empty — click to save the current cover here`
+              }
+            >
+              {v ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => loadVariant(idx)}
+                    style={{
+                      background: 'transparent',
+                      color: '#f5f0e6',
+                      border: 'none',
+                      padding: '3px 6px',
+                      fontSize: 11,
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ★ Variant {label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => clearVariant(idx)}
+                    aria-label={`Clear variant ${label}`}
+                    style={{
+                      background: 'transparent',
+                      color: '#9b8869',
+                      border: 'none',
+                      padding: 2,
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      lineHeight: 1,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => saveVariant(idx)}
+                  style={{
+                    background: 'transparent',
+                    color: '#b8965a',
+                    border: 'none',
+                    padding: '3px 6px',
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  + Save as {label}
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* PHOTOGRAPHER TEMPLATE PANEL — only shown to logged-in
+            photographers. Save the current cover spec as a reusable
+            template, load any saved one to start a new client's album
+            from your signature style. */}
+        {proLoggedIn && (
+          <div style={{ position: 'relative', marginLeft: 'auto' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setProPanelOpen((o) => !o);
+                setProError(null);
+              }}
+              style={{
+                background: proPanelOpen ? 'rgba(184,150,90,0.18)' : 'transparent',
+                color: '#b8965a',
+                border: '0.5px solid rgba(184,150,90,0.5)',
+                borderRadius: 6,
+                padding: '5px 12px',
+                fontSize: 11,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                cursor: 'pointer',
+              }}
+              title="Save and reuse cover styles across clients"
+            >
+              📁 My templates{' '}
+              {proTemplates.length > 0 ? `(${proTemplates.length})` : ''}
+            </button>
+            {proPanelOpen && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  width: 320,
+                  background: '#1a1611',
+                  border: '0.5px solid rgba(184,150,90,0.4)',
+                  borderRadius: 8,
+                  padding: 14,
+                  zIndex: 50,
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.5)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 1.5,
+                    color: '#9b8869',
+                    textTransform: 'uppercase',
+                    marginBottom: 8,
+                  }}
+                >
+                  Save current cover as…
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                  <input
+                    type="text"
+                    value={proSaveName}
+                    onChange={(e) => setProSaveName(e.target.value)}
+                    placeholder='e.g. "Modern Editorial Black"'
+                    maxLength={60}
+                    disabled={proBusy}
+                    style={{
+                      flex: 1,
+                      background: '#0e0c09',
+                      color: '#f5f0e6',
+                      border: '0.5px solid rgba(184,150,90,0.4)',
+                      borderRadius: 4,
+                      padding: '6px 8px',
+                      fontSize: 12,
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={proSaveTemplate}
+                    disabled={proBusy || !proSaveName.trim()}
+                    style={{
+                      background: proSaveName.trim() ? '#b8965a' : 'transparent',
+                      color: proSaveName.trim() ? '#0e0c09' : '#9b8869',
+                      border: '0.5px solid rgba(184,150,90,0.5)',
+                      borderRadius: 4,
+                      padding: '6px 12px',
+                      fontSize: 10,
+                      letterSpacing: 1,
+                      textTransform: 'uppercase',
+                      cursor: proBusy || !proSaveName.trim() ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+                {proError && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: '#ff8a8a',
+                      marginBottom: 10,
+                      padding: '6px 8px',
+                      background: 'rgba(255,138,138,0.08)',
+                      borderRadius: 4,
+                    }}
+                  >
+                    {proError}
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: 1.5,
+                    color: '#9b8869',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  Your saved templates
+                </div>
+                {proTemplates.length === 0 ? (
+                  <div style={{ fontSize: 11, color: '#7d6f59', padding: '6px 0' }}>
+                    No saved templates yet — save your first one above.
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      maxHeight: 240,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    {proTemplates.map((t) => (
+                      <div
+                        key={t.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 8px',
+                          borderRadius: 4,
+                          background: 'rgba(184,150,90,0.06)',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => proLoadTemplate(t.id)}
+                          disabled={proBusy}
+                          style={{
+                            flex: 1,
+                            background: 'transparent',
+                            color: '#f5f0e6',
+                            border: 'none',
+                            padding: 0,
+                            textAlign: 'left',
+                            fontSize: 12,
+                            cursor: proBusy ? 'not-allowed' : 'pointer',
+                          }}
+                          title={`Saved ${new Date(t.savedAt).toLocaleDateString()}`}
+                        >
+                          {t.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => proDeleteTemplate(t.id)}
+                          disabled={proBusy}
+                          aria-label="Delete template"
+                          style={{
+                            background: 'transparent',
+                            color: '#9b8869',
+                            border: 'none',
+                            padding: 2,
+                            fontSize: 12,
+                            cursor: proBusy ? 'not-allowed' : 'pointer',
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="cover-grid">
         {/* LIVE PREVIEW (LEFT) — real WebGL via Three.js Album3D.
             Replaces the old CSS-3D cover-stage that exposed flat-math
@@ -720,6 +1249,233 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             color/photo update reactively. Niceties left out for now:
             "Open the Album" reveal animation, drag-to-position title,
             photo crop mode. To rebuild in v2 if needed. */}
+        {/* LEFT CONTROLS — style (type, colours, foil, font) */}
+        <div className="cover-controls-panel-left">
+          <section className="cover-section">
+            <h3 className="cover-section-title">Cover Type</h3>
+            <div className="cover-type-grid">
+              {(() => {
+                // Owner spec — photo included, leather +$25, acrylic +$39.
+                const PRICE: Record<CoverType, number> = {
+                  photo: 0,
+                  leather: 25,
+                  acrylic: 39,
+                };
+                return (['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={
+                      'cover-type-btn' + (state.type === t ? ' active' : '')
+                    }
+                    onClick={() => update('type', t)}
+                  >
+                    <span
+                      className="cover-type-name"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        {t === 'leather' && 'Leather'}
+                        {t === 'acrylic' && 'Acrylic'}
+                        {t === 'photo' && 'Photo Cover'}
+                        {t === 'acrylic' && (
+                          <span
+                            style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 9,
+                              letterSpacing: 1.4,
+                              textTransform: 'uppercase',
+                              padding: '2px 8px',
+                              borderRadius: 30,
+                              background: 'var(--gold)',
+                              color: '#0e0c09',
+                              fontWeight: 700,
+                            }}
+                          >
+                            Recommended
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-body)',
+                          fontSize: 11,
+                          letterSpacing: 1.2,
+                          textTransform: 'uppercase',
+                          color: 'var(--gold)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {PRICE[t] === 0 ? 'Included' : `+ $${PRICE[t]}`}
+                      </span>
+                    </span>
+                    <span className="cover-type-desc">
+                      {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
+                      {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
+                      {t === 'photo' && 'Your photo · 3D tactile printing'}
+                    </span>
+                  </button>
+                ));
+              })()}
+            </div>
+          </section>
+          <section className="cover-section">
+            <h3 className="cover-section-title">
+              {state.type === 'leather' ? 'Leather Color' : 'Binding Color'}
+            </h3>
+            <div className="cover-swatch-row">
+              {LEATHER_COLORS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
+                  style={{ background: c.hex }}
+                  title={c.label}
+                  onClick={() => update('leatherColor', c.id)}
+                >
+                  <span className="cover-swatch-label">{c.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+          {/* Foil (leather) or text color (photo) */}
+          {(state.type === 'leather' || state.type === 'acrylic') && (
+            <section className="cover-section">
+              <h3 className="cover-section-title">
+                {state.type === 'leather' ? 'Foil Color' : 'Back Stamp Foil'}
+              </h3>
+              <div className="cover-swatch-row">
+                {FOIL_COLORS.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={'cover-swatch' + (state.foilColor === c.id ? ' active' : '')}
+                    style={{ background: c.hex }}
+                    title={c.label}
+                    onClick={() => update('foilColor', c.id)}
+                  >
+                    <span className="cover-swatch-label">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {(state.type === 'photo' || state.type === 'acrylic') && (
+            <section className="cover-section">
+              <h3 className="cover-section-title">Text Color</h3>
+              {/* Quick-pick shortcuts above the RGB picker — saves the
+                  common cases (white / black / gold) from a trip through
+                  the color wheel. Clicking a shortcut just sets
+                  customTextHex; the RGB picker stays in sync. */}
+              <div className="cover-swatch-row" style={{ marginBottom: 10 }}>
+                {PHOTO_TEXT_COLORS.map((c) => {
+                  const isActive =
+                    state.customTextHex.toLowerCase() === c.hex.toLowerCase();
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={'cover-swatch' + (isActive ? ' active' : '')}
+                      style={{ background: c.hex }}
+                      title={c.label}
+                      onClick={() => update('customTextHex', c.hex)}
+                    >
+                      <span className="cover-swatch-label">{c.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Full RGB picker — the printer takes any color. We store
+                  customTextHex as #rrggbb and feed it into textHex which
+                  paints the title canvas. */}
+              <label
+                className="cover-rgb-row"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 0',
+                }}
+              >
+                <input
+                  type="color"
+                  value={state.customTextHex}
+                  onChange={(e) => update('customTextHex', e.target.value)}
+                  className="cover-rgb-input"
+                  aria-label="Cover text color"
+                />
+                <input
+                  type="text"
+                  value={state.customTextHex}
+                  onChange={(e) => {
+                    // Accept either '#rgb' or '#rrggbb' shorthand; normalize
+                    // before saving so textHex's regex test passes.
+                    const v = e.target.value.trim();
+                    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+                      const r = v[1], g = v[2], b = v[3];
+                      update('customTextHex', `#${r}${r}${g}${g}${b}${b}`.toLowerCase());
+                    } else if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                      update('customTextHex', v.toLowerCase());
+                    } else {
+                      // typing-in-progress — store raw, regex will reject
+                      // until valid so textHex falls back gracefully.
+                      update('customTextHex', v);
+                    }
+                  }}
+                  className="cover-rgb-text"
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    background: 'var(--dark3)',
+                    border: '0.5px solid rgba(184, 150, 90, 0.2)',
+                    borderRadius: 4,
+                    color: 'var(--cream)',
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    padding: '6px 10px',
+                    outline: 'none',
+                  }}
+                />
+              </label>
+              <p
+                className="cover-hint"
+                style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5 }}
+              >
+                Any RGB color works — text is printed in ink. Bright reds,
+                oranges, and neon greens may print slightly muted (RGB →
+                CMYK conversion).
+              </p>
+            </section>
+          )}
+          <section className="cover-section">
+            <h3 className="cover-section-title">Font</h3>
+            <div className="cover-font-grid">
+              {FONTS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={'cover-font-btn' + (state.fontId === f.id ? ' active' : '')}
+                  onClick={() => update('fontId', f.id)}
+                  style={{
+                    fontFamily: f.family,
+                    fontStyle: f.style ?? 'normal',
+                  }}
+                >
+                  <span className="cover-font-sample">
+                    {state.primaryText || 'Sarah & James'}
+                  </span>
+                  <span className="cover-font-name">{f.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+
         <div className="cover-preview-panel">
           <div className="cover-three-mount">
             <Album3D
@@ -741,6 +1497,8 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               fontStyle={font.style ?? 'normal'}
               fontSizePx={state.fontSize}
               position={state.position}
+              titleX={state.titleX}
+              titleY={state.titleY}
               width={560}
               caption=""
               /* Crop mode — when on, the WebGL canvas treats pointer drag
@@ -822,7 +1580,59 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             Live preview · {state.type === 'leather' && 'Leather + foil stamp'}
             {state.type === 'acrylic' && 'Clear acrylic with photo inside'}
             {state.type === 'photo' && 'Full-bleed photo with 3D tactile finish'}
+            {state.type === 'photo' && ' · drag the album to see the back'}
           </p>
+
+          {/* Photo-cover back preview — flat thumbnail so the client can
+              see the back without having to rotate the 3D album. */}
+          {state.type === 'photo' && (state.backPhotoSrc || state.photoSrc) && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                marginTop: 14,
+                padding: '10px 12px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '0.5px solid rgba(184,150,90,0.25)',
+                borderRadius: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                  color: '#b8965a',
+                }}
+              >
+                Back cover
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={state.backPhotoSrc || state.photoSrc || ''}
+                alt="Back cover"
+                style={{
+                  width: 92,
+                  height: 116,
+                  objectFit: 'cover',
+                  borderRadius: 4,
+                  border: '1px solid rgba(184,150,90,0.3)',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'rgba(245,235,215,0.7)',
+                  lineHeight: 1.5,
+                }}
+              >
+                {state.backPhotoSrc
+                  ? 'Prints on the back of your album.'
+                  : 'Same as front (pick a different photo below to change).'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* === STALE BLOCK BELOW — kept temporarily so any references
@@ -1143,30 +1953,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
         {/* CONTROLS (RIGHT) */}
         <div className="cover-controls-panel">
           {/* Cover type */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">Cover Type</h3>
-            <div className="cover-type-grid">
-              {(['leather', 'acrylic', 'photo'] as CoverType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={'cover-type-btn' + (state.type === t ? ' active' : '')}
-                  onClick={() => update('type', t)}
-                >
-                  <span className="cover-type-name">
-                    {t === 'leather' && 'Leather'}
-                    {t === 'acrylic' && 'Acrylic'}
-                    {t === 'photo' && 'Photo Cover'}
-                  </span>
-                  <span className="cover-type-desc">
-                    {t === 'leather' && 'Premium hide · 4 colors · foil stamped text'}
-                    {t === 'acrylic' && 'Clear acrylic · photo visible behind glass'}
-                    {t === 'photo' && 'Your photo · 3D tactile printing'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {/* Leather / binding color picker.
               For 'leather' covers this is the leather body itself. For
@@ -1176,25 +1962,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
               the same `leatherColor` field for both so we don't duplicate
               state, and so a customer who switches cover type doesn't
               lose their color choice. */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">
-              {state.type === 'leather' ? 'Leather Color' : 'Binding Color'}
-            </h3>
-            <div className="cover-swatch-row">
-              {LEATHER_COLORS.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className={'cover-swatch' + (state.leatherColor === c.id ? ' active' : '')}
-                  style={{ background: c.hex }}
-                  title={c.label}
-                  onClick={() => update('leatherColor', c.id)}
-                >
-                  <span className="cover-swatch-label">{c.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {(state.type === 'acrylic' || state.type === 'photo') && (
             <section className="cover-section">
@@ -1424,28 +2191,6 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
           </section>
 
           {/* Font picker */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">Font</h3>
-            <div className="cover-font-grid">
-              {FONTS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  className={'cover-font-btn' + (state.fontId === f.id ? ' active' : '')}
-                  onClick={() => update('fontId', f.id)}
-                  style={{
-                    fontFamily: f.family,
-                    fontStyle: f.style ?? 'normal',
-                  }}
-                >
-                  <span className="cover-font-sample">
-                    {state.primaryText || 'Sarah & James'}
-                  </span>
-                  <span className="cover-font-name">{f.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {/* Font size slider */}
           <section className="cover-section">
@@ -1464,134 +2209,266 @@ export default function CoverBuilder({ uploadedPhotos, onBack, onContinue }: Cov
             </div>
           </section>
 
-          {/* Foil (leather) or text color (photo) */}
-          {(state.type === 'leather' || state.type === 'acrylic') && (
-            <section className="cover-section">
-              <h3 className="cover-section-title">
-                {state.type === 'leather' ? 'Foil Color' : 'Back Stamp Foil'}
-              </h3>
-              <div className="cover-swatch-row">
-                {FOIL_COLORS.map((c) => (
+
+
+          {/* Position — leather keeps the 3 foil-stamp presets (the
+              press anchors the foil at fixed positions). Photo +
+              acrylic get a free drag pad with centre-snap guides. */}
+          <section className="cover-section">
+            <h3 className="cover-section-title">Text Position</h3>
+            {state.type === 'leather' ? (
+              <div className="cover-position-row">
+                {(['top', 'center', 'lower'] as Position[]).map((p) => (
                   <button
-                    key={c.id}
+                    key={p}
                     type="button"
-                    className={'cover-swatch' + (state.foilColor === c.id ? ' active' : '')}
-                    style={{ background: c.hex }}
-                    title={c.label}
-                    onClick={() => update('foilColor', c.id)}
+                    className={
+                      'cover-position-btn' +
+                      (state.position === p ? ' active' : '')
+                    }
+                    onClick={() => update('position', p)}
                   >
-                    <span className="cover-swatch-label">{c.label}</span>
+                    {p[0].toUpperCase() + p.slice(1)}
                   </button>
                 ))}
               </div>
-            </section>
-          )}
-
-          {(state.type === 'photo' || state.type === 'acrylic') && (
-            <section className="cover-section">
-              <h3 className="cover-section-title">Text Color</h3>
-              {/* Quick-pick shortcuts above the RGB picker — saves the
-                  common cases (white / black / gold) from a trip through
-                  the color wheel. Clicking a shortcut just sets
-                  customTextHex; the RGB picker stays in sync. */}
-              <div className="cover-swatch-row" style={{ marginBottom: 10 }}>
-                {PHOTO_TEXT_COLORS.map((c) => {
-                  const isActive =
-                    state.customTextHex.toLowerCase() === c.hex.toLowerCase();
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={'cover-swatch' + (isActive ? ' active' : '')}
-                      style={{ background: c.hex }}
-                      title={c.label}
-                      onClick={() => update('customTextHex', c.hex)}
-                    >
-                      <span className="cover-swatch-label">{c.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {/* Full RGB picker — the printer takes any color. We store
-                  customTextHex as #rrggbb and feed it into textHex which
-                  paints the title canvas. */}
-              <label
-                className="cover-rgb-row"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 0',
-                }}
-              >
-                <input
-                  type="color"
-                  value={state.customTextHex}
-                  onChange={(e) => update('customTextHex', e.target.value)}
-                  className="cover-rgb-input"
-                  aria-label="Cover text color"
-                />
-                <input
-                  type="text"
-                  value={state.customTextHex}
-                  onChange={(e) => {
-                    // Accept either '#rgb' or '#rrggbb' shorthand; normalize
-                    // before saving so textHex's regex test passes.
-                    const v = e.target.value.trim();
-                    if (/^#[0-9a-fA-F]{3}$/.test(v)) {
-                      const r = v[1], g = v[2], b = v[3];
-                      update('customTextHex', `#${r}${r}${g}${g}${b}${b}`.toLowerCase());
-                    } else if (/^#[0-9a-fA-F]{6}$/.test(v)) {
-                      update('customTextHex', v.toLowerCase());
-                    } else {
-                      // typing-in-progress — store raw, regex will reject
-                      // until valid so textHex falls back gracefully.
-                      update('customTextHex', v);
-                    }
-                  }}
-                  className="cover-rgb-text"
-                  spellCheck={false}
-                  style={{
-                    flex: 1,
-                    background: 'var(--dark3)',
-                    border: '0.5px solid rgba(184, 150, 90, 0.2)',
-                    borderRadius: 4,
-                    color: 'var(--cream)',
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    padding: '6px 10px',
-                    outline: 'none',
-                  }}
-                />
-              </label>
-              <p
-                className="cover-hint"
-                style={{ marginTop: 8, fontSize: 10, lineHeight: 1.5 }}
-              >
-                Any RGB color works — text is printed in ink. Bright reds,
-                oranges, and neon greens may print slightly muted (RGB →
-                CMYK conversion).
-              </p>
-            </section>
-          )}
-
-          {/* Position */}
-          <section className="cover-section">
-            <h3 className="cover-section-title">Text Position</h3>
-            <div className="cover-position-row">
-              {(['top', 'center', 'lower'] as Position[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  className={'cover-position-btn' + (state.position === p ? ' active' : '')}
-                  onClick={() => update('position', p)}
-                >
-                  {p[0].toUpperCase() + p.slice(1)}
-                </button>
-              ))}
-            </div>
+            ) : (
+              <CoverTitlePositionPad
+                titleX={state.titleX ?? 0.5}
+                titleY={
+                  state.titleY ??
+                  (state.position === 'top'
+                    ? 0.18
+                    : state.position === 'lower'
+                    ? 0.82
+                    : 0.5)
+                }
+                bindingFrac={state.type === 'acrylic' ? 0.12 : 0}
+                onChange={(x, y) =>
+                  setState((prev) => ({ ...prev, titleX: x, titleY: y }))
+                }
+                onReset={() =>
+                  setState((prev) => ({
+                    ...prev,
+                    titleX: undefined,
+                    titleY: undefined,
+                  }))
+                }
+              />
+            )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * CoverTitlePositionPad — small draggable pad for placing the cover
+ * title freely on photo / acrylic covers. Drag the gold knob; centre
+ * lines (h/v) snap when within SNAP of the middle, with bright guide
+ * lines highlighting the snap.
+ */
+function CoverTitlePositionPad({
+  titleX,
+  titleY,
+  onChange,
+  onReset,
+  bindingFrac = 0,
+}: {
+  titleX: number;
+  titleY: number;
+  onChange: (x: number, y: number) => void;
+  onReset: () => void;
+  /** Width fraction occupied by the leather binding strip on the left
+   *  (acrylic only — 0.12). Rendered as a faint strip on the pad and
+   *  the centre-snap target moves accordingly so "centre" lands on the
+   *  centre of the visible photo area, not the whole face. */
+  bindingFrac?: number;
+}) {
+  const padRef = useRef<HTMLDivElement | null>(null);
+  const [guide, setGuide] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
+  const SNAP = 0.03; // fraction of pad
+  const MIN = 0.04;
+  const MAX = 0.96;
+  // Visible photo area on the pad runs from `bindingFrac` to 1 along X.
+  // Knob X is stored in VISIBLE-area coords (0..1 of that strip).
+  const visStart = bindingFrac;
+  const visW = 1 - bindingFrac;
+  const knobPadX = visStart + titleX * visW; // 0..1 in pad coords
+  const centerPadX = visStart + 0.5 * visW; // visible centre on the pad
+
+  function moveTo(clientX: number, clientY: number) {
+    const el = padRef.current;
+    if (!el) return;
+    const rc = el.getBoundingClientRect();
+    // Mouse position in pad coords (0..1 of the whole pad).
+    let padX = Math.min(MAX, Math.max(MIN, (clientX - rc.left) / rc.width));
+    let y = Math.min(MAX, Math.max(MIN, (clientY - rc.top) / rc.height));
+    const nearV = Math.abs(padX - centerPadX) <= SNAP;
+    const nearH = Math.abs(y - 0.5) <= SNAP;
+    if (nearV) padX = centerPadX;
+    if (nearH) y = 0.5;
+    // Convert pad X → visible X for storage. Clamp so the title can't
+    // sit ON the binding strip on acrylic.
+    const xVisible = visW > 0 ? (padX - visStart) / visW : padX;
+    setGuide({ v: nearV, h: nearH });
+    onChange(Math.min(1, Math.max(0, xVisible)), y);
+  }
+
+  function onDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    moveTo(e.clientX, e.clientY);
+    const mv = (ev: globalThis.PointerEvent) => moveTo(ev.clientX, ev.clientY);
+    const up = () => {
+      setGuide({ v: false, h: false });
+      window.removeEventListener('pointermove', mv);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', mv);
+    window.addEventListener('pointerup', up);
+  }
+
+  return (
+    <div>
+      <div
+        ref={padRef}
+        onPointerDown={onDown}
+        style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: '4 / 5',
+          background: 'rgba(255,255,255,0.04)',
+          border: '0.5px solid rgba(184,150,90,0.3)',
+          borderRadius: 4,
+          cursor: 'crosshair',
+          userSelect: 'none',
+          touchAction: 'none',
+        }}
+        title="Drag to position the title · snaps to centre"
+      >
+        {/* Leather binding strip — acrylic only. Cosmetic + tells the
+            user the photo area starts AFTER this strip. */}
+        {bindingFrac > 0 && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${bindingFrac * 100}%`,
+              background:
+                'linear-gradient(90deg,#1a1410 0%,#3a2a1a 60%,#0b0805 100%)',
+              borderRight: '1px solid rgba(0,0,0,0.5)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Persistent faint centre cross — at the VISIBLE centre */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: `${centerPadX * 100}%`,
+            top: 0,
+            bottom: 0,
+            width: 0,
+            borderLeft: '1px dashed rgba(184,150,90,0.18)',
+            transform: 'translateX(-0.5px)',
+            pointerEvents: 'none',
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: 0,
+            right: 0,
+            height: 0,
+            borderTop: '1px dashed rgba(184,150,90,0.18)',
+            transform: 'translateY(-0.5px)',
+            pointerEvents: 'none',
+          }}
+        />
+        {/* Bright snap guides while dragging onto centre */}
+        {guide.v && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: `${centerPadX * 100}%`,
+              top: 0,
+              bottom: 0,
+              width: 0,
+              borderLeft: '1.5px solid #b8965a',
+              transform: 'translateX(-0.75px)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {guide.h && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: 0,
+              right: 0,
+              height: 0,
+              borderTop: '1.5px solid #b8965a',
+              transform: 'translateY(-0.75px)',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Knob — positioned in pad coords (visible X mapped to face X) */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: `${knobPadX * 100}%`,
+            top: `${titleY * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            background: '#b8965a',
+            border: '2px solid #0e0c09',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.6)',
+            pointerEvents: 'none',
+          }}
+        />
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 6,
+          fontSize: 10,
+          color: 'rgba(245,235,215,0.6)',
+        }}
+      >
+        <span>
+          x {Math.round(titleX * 100)}% · y {Math.round(titleY * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={onReset}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#b8965a',
+            fontSize: 10,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+          }}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );

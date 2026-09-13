@@ -44,9 +44,22 @@ interface SlotImageProps {
   /** Called with new adjust when the user drags directly on the image. */
   onAdjustChange?: (next: SlotAdjust) => void
   style?: React.CSSProperties
+<<<<<<< HEAD
 }
 
 export function SlotImage({ src, alt = '', adjust, onAdjustChange, style }: SlotImageProps) {
+=======
+  /**
+   * 'fill' = object-fit cover (default — image crops to fill the slot).
+   * 'contain' = object-fit contain (image fits inside slot, may show
+   * letterbox bars on white). Used by the smart wizard's
+   * "Fit Fill / Fit Original" toggle.
+   */
+  fit?: 'fill' | 'contain'
+}
+
+export function SlotImage({ src, alt = '', adjust, onAdjustChange, style, fit = 'fill' }: SlotImageProps) {
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
   const containerRef = useRef<HTMLDivElement>(null)
   const dragState = useRef<{
     startX: number; startY: number;
@@ -75,8 +88,15 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style }: Slot
     // → object-position decreases), scale by zoom (more zoom = same drag has less effect on pan%).
     const dxPct = ((e.clientX - ds.startX) / ds.rect.width) * 100 / Math.max(1, adjust.zoom)
     const dyPct = ((e.clientY - ds.startY) / ds.rect.height) * 100 / Math.max(1, adjust.zoom)
+<<<<<<< HEAD
     const nextX = Math.max(0, Math.min(100, ds.startPanX - dxPct))
     const nextY = Math.max(0, Math.min(100, ds.startPanY - dyPct))
+=======
+    // Round to integers so toolbar display doesn't show 56.61231503%.
+    // Visual pan still feels smooth — users won't notice 1% snapping.
+    const nextX = Math.round(Math.max(0, Math.min(100, ds.startPanX - dxPct)))
+    const nextY = Math.round(Math.max(0, Math.min(100, ds.startPanY - dyPct)))
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
     onAdjustChange({ ...adjust, panX: nextX, panY: nextY })
   }, [adjust, onAdjustChange])
 
@@ -88,6 +108,16 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style }: Slot
   // Build the transform. Order matters: rotate, then scale, then flip.
   const flipScale = `${adjust.flipH ? -1 : 1}, ${adjust.flipV ? -1 : 1}`
   const transform = `rotate(${adjust.rotate}deg) scale(${adjust.zoom}) scale(${flipScale})`
+<<<<<<< HEAD
+=======
+  // Anchor scaling to the pan point. At zoom=1 this has no effect (no
+  // scaling), so object-position alone handles the crop. At zoom > 1,
+  // shifting the pivot means panX=0 scales out from the LEFT edge
+  // (showing the left of the image), panX=100 from the right, etc.
+  // This is what makes "pan freely while zoomed" feel right — without
+  // it, scale always pivots on center and pan range never increases.
+  const transformOrigin = `${adjust.panX}% ${adjust.panY}%`
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 
   return (
     <div
@@ -110,6 +140,7 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style }: Slot
         draggable={false}
         style={{
           width: '100%', height: '100%',
+<<<<<<< HEAD
           objectFit: 'cover',
           // ─── This is the line your bug is on ─────────────────────────
           objectPosition: `${adjust.panX}% ${adjust.panY}%`,
@@ -118,6 +149,15 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style }: Slot
           transformOrigin: 'center center',
           userSelect: 'none',
           pointerEvents: 'none', // let the container handle drag
+=======
+          objectFit: fit === 'contain' ? 'contain' : 'cover',
+          objectPosition: `${adjust.panX}% ${adjust.panY}%`,
+          transform,
+          transformOrigin,
+          userSelect: 'none',
+          pointerEvents: 'none', // let the container handle drag
+          background: fit === 'contain' ? '#ffffff' : 'transparent',
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
         }}
       />
     </div>

@@ -14,9 +14,10 @@
  *
  * Validation gates (per locked spec):
  *   - JPG / PNG / WEBP only
- *   - Max 30 MB per photo. Client compresses most uploads to ~5 MB before
- *     sending; the 30 MB ceiling exists for full-bleed 20×30 spreads where
- *     the photographer opts out of optimization.
+ *   - Max 35 MB per photo. Covers full-resolution 20×30 full-bleed
+ *     exports (typically 20–32 MB) with a tight margin. Anything
+ *     bigger is almost always an unoptimized RAW export that won't
+ *     gain print quality over a high-quality 25 MB JPEG.
  *   - 2-month retention will be applied via a cron job (Task #later); the
  *     route only handles ingest.
  *
@@ -34,7 +35,12 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 
 export const runtime = 'edge';
 
-const MAX_BYTES = 30 * 1024 * 1024; // 30 MB hard cap; client compresses most uploads to ~5 MB before sending. The 30 MB ceiling exists for the rare case where a photographer opts out of optimization for a full-bleed 20×30 spread.
+// 35 MB hard per-photo cap. Covers full-resolution 20×30 full-bleed
+// JPEG exports (typically 20–32 MB) with a tight margin. Anything
+// above 35 MB is almost always an unoptimized RAW export — those
+// don't gain print quality over a high-quality 25 MB JPEG and
+// would balloon R2 storage costs for no end-user benefit.
+const MAX_BYTES = 35 * 1024 * 1024;
 const ALLOWED_TYPES: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -82,7 +88,13 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return err(400, 'no file field in request');
   if (file.size === 0) return err(400, 'file is empty');
   if (file.size > MAX_BYTES) {
-    return err(413, `file too large; max ${MAX_BYTES} bytes (30 MB)`);
+    const nameRaw = file.name || 'photo'
+    const safe = nameRaw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80)
+    const mb = (file.size / 1024 / 1024).toFixed(1)
+    return err(
+      413,
+      `${safe} is ${mb} MB; the per-photo limit is 35 MB. Please export at a lower resolution or higher JPEG compression (sRGB JPEG quality 90 from a 6000 px long-edge source is the sweet spot).`,
+    );
   }
   const ext = ALLOWED_TYPES[file.type];
   if (!ext) {
@@ -93,9 +105,26 @@ export async function POST(request: Request) {
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const key = `designs/${designId}/${id}.${ext}`;
 
-  await env.PHOTOS.put(key, await file.arrayBuffer(), {
-    httpMetadata: { contentType: file.type },
-  });
+  // Wrap the arrayBuffer read AND R2 put in try/catch — without this
+  // any failure (transient R2 outage, memory pressure on a huge file,
+  // network timeout to the bucket) bubbles up as an uncaught worker
+  // exception. Cloudflare then returns a bare 5xx with no JSON body,
+  // which the client surfaces as "Upload failed (503)" — no clue
+  // which photo or why. Now we always respond JSON.
+  try {
+    const buf = await file.arrayBuffer();
+    await env.PHOTOS.put(key, buf, {
+      httpMetadata: { contentType: file.type },
+    });
+  } catch (e) {
+    const detail = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
+    const nameRaw = file.name || 'photo';
+    const safe = nameRaw.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80);
+    return err(
+      502,
+      `Couldn't save ${safe} to storage: ${detail}. Try again in a moment.`,
+    );
+  }
 
   return new Response(
     JSON.stringify({

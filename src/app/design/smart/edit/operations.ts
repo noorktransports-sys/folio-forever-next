@@ -15,6 +15,15 @@ export interface Spread {
   id: string
   templateId: string
   photoIds: (string | null)[]
+<<<<<<< HEAD
+=======
+  /**
+   * Smart wizard tags each spread with the event it belongs to (prep,
+   * ceremony, portraits, reception, other). Optional here so the ops
+   * library stays generic. Preserved across applyOp via spread-rest.
+   */
+  eventId?: string
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 /** A snapshot of one spread's mutable state. */
@@ -45,6 +54,20 @@ export interface Op {
   ts: number                 // Date.now(), for debugging
   spreads: SpreadDelta[]     // can be 1 (in-spread swap) or 2 (cross-spread swap)
   unused?: UnusedDelta       // present when unused pool changed
+<<<<<<< HEAD
+=======
+  /**
+   * Reorder ops (kind 'reorder-spread') store the full spread-id order
+   * before and after. applyOp reorders state.spreads to match.
+   */
+  spreadOrder?: { before: string[]; after: string[] }
+  /**
+   * Whole-spread deletion (kind 'delete-spread'). Forward removes the
+   * spread at this position; undo re-inserts it. The op's `unused`
+   * delta carries the photo movement so undo also restores them.
+   */
+  deletedSpread?: DeletedSpreadInfo
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 export type OpKind =
@@ -54,6 +77,24 @@ export type OpKind =
   | 'add'               // photo dragged from unused → spread (template grows by 1)
   | 'photo-count'       // user changed dropdown 2→3, etc.
   | 'layout-variant'    // user picked alternate template at same count
+<<<<<<< HEAD
+=======
+  | 'reorder-spread'    // user dragged a spread to a new position
+  | 'delete-spread'     // user deleted a whole spread (its photos → unused pool)
+
+/**
+ * Carries the full state needed to restore a deleted spread on undo:
+ * its position in the spreads list and a snapshot of its mutable
+ * fields. (Used only when `op.kind === 'delete-spread'`.)
+ */
+export interface DeletedSpreadInfo {
+  position: number
+  id: string
+  templateId: string
+  photoIds: (string | null)[]
+  eventId?: string
+}
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 
 // ─── Apply / Undo ─────────────────────────────────────────────────────────
 
@@ -69,13 +110,61 @@ export function applyOp(
   const target = direction === 'forward' ? 'after' : 'before'
 
   // Apply spread deltas
+<<<<<<< HEAD
   const nextSpreads = state.spreads.map(s => {
+=======
+  let nextSpreads = state.spreads.map(s => {
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
     const delta = op.spreads.find(d => d.spreadId === s.id)
     if (!delta) return s
     const snap = delta[target]
     return { ...s, templateId: snap.templateId, photoIds: [...snap.photoIds] }
   })
 
+<<<<<<< HEAD
+=======
+  // Apply spread order (reorder ops)
+  if (op.spreadOrder) {
+    const orderTarget = op.spreadOrder[target]
+    const byId = new Map(nextSpreads.map(s => [s.id, s] as const))
+    const reordered = orderTarget
+      .map(id => byId.get(id))
+      .filter((s): s is Spread => Boolean(s))
+    // Append any spreads not in the order list (shouldn't happen, but
+    // keeps spreads from disappearing if state drifts).
+    nextSpreads.forEach(s => {
+      if (!orderTarget.includes(s.id)) reordered.push(s)
+    })
+    nextSpreads = reordered
+  }
+
+  // Apply spread deletion / restoration (delete-spread ops).
+  // Forward: remove the spread. Backward: re-insert it at its original
+  // position. The photo movement is carried by the `unused` delta.
+  if (op.deletedSpread) {
+    const d = op.deletedSpread
+    if (direction === 'forward') {
+      nextSpreads = nextSpreads.filter(s => s.id !== d.id)
+    } else {
+      const exists = nextSpreads.some(s => s.id === d.id)
+      if (!exists) {
+        const restored: Spread = {
+          id: d.id,
+          templateId: d.templateId,
+          photoIds: [...d.photoIds],
+          ...(d.eventId !== undefined ? { eventId: d.eventId } : {}),
+        }
+        const pos = Math.max(0, Math.min(nextSpreads.length, d.position))
+        nextSpreads = [
+          ...nextSpreads.slice(0, pos),
+          restored,
+          ...nextSpreads.slice(pos),
+        ]
+      }
+    }
+  }
+
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
   // Apply unused delta (if any)
   const nextUnused = op.unused
     ? [...op.unused[target]]
@@ -279,3 +368,90 @@ export function makeLayoutVariantOp(
     spreads: [{ spreadId, before, after }],
   }
 }
+<<<<<<< HEAD
+=======
+
+/**
+ * User dragged a spread from one position to another.
+ *
+ * `fromIndex` and `toIndex` are the visible (1-based for label, but
+ * 0-based for the array math). The op records the full id order before
+ * and after so undo / redo restore exactly.
+ *
+ * Move semantics: the dragged spread is removed from `fromIndex` and
+ * inserted at `toIndex` (insert-before, not swap). If toIndex is past
+ * the original position the insert visually "skips over" itself; the
+ * caller can pass toIndex - 1 in that case if pure-insert semantics is
+ * preferred. We don't auto-correct here so the caller decides.
+ */
+export function makeReorderSpreadOp(
+  state: { spreads: Spread[] },
+  fromIndex: number,
+  toIndex: number,
+): Op {
+  const before = state.spreads.map(s => s.id)
+  const after = [...before]
+  const [movedId] = after.splice(fromIndex, 1)
+  if (movedId == null) {
+    // No-op fallback; return an empty op that won't affect state.
+    return {
+      id: uuid(),
+      kind: 'reorder-spread',
+      label: 'No-op reorder',
+      ts: Date.now(),
+      spreads: [],
+      spreadOrder: { before, after: before },
+    }
+  }
+  after.splice(toIndex, 0, movedId)
+  return {
+    id: uuid(),
+    kind: 'reorder-spread',
+    label: `Move Spread ${fromIndex + 1} → position ${toIndex + 1}`,
+    ts: Date.now(),
+    spreads: [],
+    spreadOrder: { before, after },
+  }
+}
+
+/**
+ * Delete an entire spread. Every photo currently on the spread returns
+ * to the unused pool (so nothing is lost — the client can drop the
+ * photos onto other spreads or rebuild a new spread). Undo restores
+ * the spread at its original position and pulls those photos back out
+ * of unused.
+ */
+export function makeDeleteSpreadOp(
+  state: { spreads: Spread[]; unusedPhotoIds: string[] },
+  spreadId: string,
+): Op {
+  const position = state.spreads.findIndex(s => s.id === spreadId)
+  if (position < 0) throw new Error(`Spread ${spreadId} not found`)
+  const s = state.spreads[position]
+  const photosOnSpread = s.photoIds.filter(
+    (id): id is string => Boolean(id),
+  )
+  // Don't double-add a photo if it's somehow already in the unused
+  // pool (shouldn't happen, but defensive).
+  const unusedBefore = [...state.unusedPhotoIds]
+  const unusedAfter = [
+    ...unusedBefore,
+    ...photosOnSpread.filter(id => !unusedBefore.includes(id)),
+  ]
+  return {
+    id: uuid(),
+    kind: 'delete-spread',
+    label: `Delete Spread ${position + 1}`,
+    ts: Date.now(),
+    spreads: [],
+    unused: { before: unusedBefore, after: unusedAfter },
+    deletedSpread: {
+      position,
+      id: s.id,
+      templateId: s.templateId,
+      photoIds: [...s.photoIds],
+      ...(s.eventId !== undefined ? { eventId: s.eventId } : {}),
+    },
+  }
+}
+>>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5

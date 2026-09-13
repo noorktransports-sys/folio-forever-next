@@ -55,6 +55,11 @@ export interface Album3DProps {
   fontSizePx?: number;
   /** Vertical anchor for the title block on the cover. */
   position?: 'top' | 'center' | 'lower';
+  /** Free X / Y position (0..1 of the cover face). When defined,
+   *  overrides `position` — used for the draggable title on photo /
+   *  acrylic covers (leather keeps the foil-stamp presets). */
+  titleX?: number;
+  titleY?: number;
   width?: number;
   caption?: string;
   className?: string;
@@ -221,6 +226,16 @@ function paintFoilCanvas(
   fontStyle: 'normal' | 'italic' = 'italic',
   fontSizePx = 52,
   position: 'top' | 'center' | 'lower' = 'center',
+  /** Free position (0..1 of the VISIBLE photo area, NOT the whole
+   *  face). When defined, overrides the top/center/lower preset —
+   *  used for photo/acrylic covers. */
+  titleXFrac?: number,
+  titleYFrac?: number,
+  /** Width fraction of the cover taken by the leather binding strip
+   *  on the left (acrylic only). 0 for photo/leather covers. Title
+   *  X coords are mapped onto the (1 - bindingFrac) photo area so
+   *  "centre" on the pad lands on the visible centre. */
+  bindingFrac = 0,
 ) {
   const w = canvas.width;
   const h = canvas.height;
@@ -245,12 +260,25 @@ function paintFoilCanvas(
   // canvas height — matches the 'top' / 'center' / 'lower' offsets that
   // the cover-builder previously used for its CSS-3D preview.
   let cy: number;
-  switch (position) {
-    case 'top':   cy = h * 0.18; break;
-    case 'lower': cy = h * 0.82; break;
-    case 'center':
-    default:      cy = h * 0.5;
+  if (typeof titleYFrac === 'number') {
+    cy = h * Math.min(1, Math.max(0, titleYFrac));
+  } else {
+    switch (position) {
+      case 'top':   cy = h * 0.18; break;
+      case 'lower': cy = h * 0.82; break;
+      case 'center':
+      default:      cy = h * 0.5;
+    }
   }
+  // Title X is given in VISIBLE-area fraction (0..1 of the photo area
+  // after the binding strip). Project onto the full face.
+  const visStart = bindingFrac
+  const visW = 1 - bindingFrac
+  const tx =
+    typeof titleXFrac === 'number'
+      ? Math.min(1, Math.max(0, titleXFrac))
+      : 0.5
+  const cx = w * (visStart + tx * visW)
 
   // Earlier versions of this function painted decorative dashes on
   // either side of the title at vertical-center cy. Long names ("Sana
@@ -266,14 +294,14 @@ function paintFoilCanvas(
   // to the next family in the stack — usually fine, and fixed on the
   // next repaint after fonts.ready.
   ctx.font = `${fontStyle} ${titleSize}px ${fontFamily}`;
-  ctx.fillText(title, w / 2, cy);
+  ctx.fillText(title, cx, cy);
 
   if (subtitle) {
     // Subtitle uses Montserrat with letter-spaced caps for the classic
     // wedding-album look, regardless of title font choice.
     ctx.font = `500 ${subSize}px "Montserrat", sans-serif`;
     const tracked = subtitle.toUpperCase().split('').join('  ');
-    ctx.fillText(tracked, w / 2, cy + subGap);
+    ctx.fillText(tracked, cx, cy + subGap);
   }
 }
 
@@ -367,6 +395,8 @@ export default function Album3D({
   fontStyle = 'italic',
   fontSizePx = 52,
   position = 'center',
+  titleX,
+  titleY,
   width = 360,
   caption = 'Drag to rotate · Real 3D leather',
   className = '',
@@ -827,9 +857,12 @@ export default function Album3D({
       fontStyle,
       fontSizePx,
       position,
+      titleX,
+      titleY,
+      variant === 'acrylic' ? 0.12 : 0,
     );
     r.foilFrontTex.needsUpdate = true;
-  }, [title, subtitle, foilHex, fontFamily, fontStyle, fontSizePx, position]);
+  }, [title, subtitle, foilHex, fontFamily, fontStyle, fontSizePx, position, titleX, titleY, variant]);
 
   // ─── REACT TO VARIANT ────────────────────────────────────────
   // Variant effect ONLY swaps which material is bound to the visible
@@ -892,35 +925,33 @@ export default function Album3D({
       r.acrylicStrip = strip;
 
       const sheenW = BOOK_W - stripW;
-      const sheenGeom = new THREE.PlaneGeometry(sheenW, BOOK_H);
-      // Acrylic sheen — was metalness:0.6 + opacity:0.10 which, with no
-      // env-map on this scene, made the metallic component reflect the
-      // default "black void" right back at the camera. Net effect: a
-      // ~60%-dark wash over the photo (the symptom in the bug report:
-      // "you don't see the photo, just a faint silhouette").
-      //
-      // Switch to MeshBasicMaterial: pure additive-style overlay with no
-      // PBR shading. Low opacity + AdditiveBlending gives the glassy
-      // highlight without darkening anything underneath.
+      // Owner spec: any acrylic gloss overlay washes the cover photo and
+      // (worse) tints whatever text sits in the top band. Remove the
+      // sheen entirely — the leather binding strip is the visual cue
+      // for "acrylic". `sheen` mesh is kept-but-invisible to preserve
+      // the lazy-create / visible-toggle path further down.
+      const sheenH = BOOK_H * 0.22;
+      const sheenGeom = new THREE.PlaneGeometry(sheenW, sheenH);
       const sheenMat = new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.18,
-        blending: THREE.AdditiveBlending,
+        opacity: 0,
         depthWrite: false,
         side: THREE.DoubleSide,
       });
       const sheen = new THREE.Mesh(sheenGeom, sheenMat);
+      sheen.visible = false;
       sheen.position.set(
         stripW / 2,
-        0,
+        BOOK_H / 2 - sheenH / 2 - BOOK_H * 0.04,
         PAGE_D / 2 + COVER_T + COVER_T * 0.5,
       );
       r.book.add(sheen);
       r.acrylicSheen = sheen;
     }
     if (r.acrylicStrip) r.acrylicStrip.visible = needsAcrylic;
-    if (r.acrylicSheen) r.acrylicSheen.visible = needsAcrylic;
+    // Sheen kept permanently hidden — owner spec, was washing the cover.
+    if (r.acrylicSheen) r.acrylicSheen.visible = false;
 
     // Foil title overlay: visible for ALL variants. Leather no longer
     // carries the foil on its own material (the emissive approach broke
