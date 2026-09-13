@@ -25,7 +25,7 @@ export default async function ProLogin({
   return (
     <main className="pro-login-shell">
       <div className="pro-login-card">
-        <div className="pro-tag">Folio &amp; Forever Pro</div>
+        <div className="pro-tag">Folio Forever Pro</div>
         <h1>Sign in</h1>
         <p className="pro-login-desc">
           Enter your email and we&rsquo;ll send a one-time sign-in link.

@@ -13,7 +13,7 @@
  *      Left/right arrows, keyboard ← → navigation, page indicator at the
  *      bottom (e.g. "Spread 4 / 12"). Cursor / dots stay subtle.
  *   4. Past the last spread → "End" card with "View again" + (owner-only)
- *      "Edit this design" + a "Made with Folio & Forever" sigil.
+ *      "Edit this design" + a "Made with Folio Forever" sigil.
  *
  * Layout maths mirror the builder's layouts[] table — same grid columns
  * and rows, so a 'Side by Side' spread renders identically here. Image
@@ -607,7 +607,7 @@ export default function AlbumViewer({
           the button is now an explicit affordance always on screen. */}
       <header className="album-top">
         <Link href="/" className="album-brand">
-          FOLIO &amp; FOREVER
+          FOLIO FOREVER
         </Link>
         <div className="album-meta">
           {stage !== 'cover' ? (

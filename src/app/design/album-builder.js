@@ -311,7 +311,7 @@ export default function SmartDesignerPage() {
       <header className="border-b border-stone-200 bg-stone-50/80 backdrop-blur sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <a href="/" className="font-serif tracking-[0.3em] text-xs text-stone-700">
-            FOLIO &nbsp;&amp;&nbsp; FOREVER
+            FOLIO FOREVER
           </a>
           <span className="bg-amber-400 text-stone-900 text-[10px] tracking-widest px-2 py-0.5 font-semibold">
             BETA

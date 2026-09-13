@@ -47,7 +47,7 @@ interface Env {
   OWNER_EMAIL?: string; // optional override; defaults below
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
 
 interface DesignPhoto {
@@ -184,10 +184,10 @@ export async function POST(request: Request) {
     const customerHtml = `
 <!doctype html><html><body style="margin:0;padding:0;background:#f6f1e8;font-family:Georgia,serif;color:#2a2419">
   <div style="max-width:560px;margin:0 auto;padding:32px 24px">
-    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio &amp; Forever</div>
+    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio Forever</div>
     <h1 style="font-size:24px;margin:0 0 16px;font-weight:400">Your album design is saved</h1>
     <p style="font-size:14px;line-height:1.7">${greeting}</p>
-    <p style="font-size:14px;line-height:1.7">Thank you for using Folio &amp; Forever. Your design is saved and ready when you are.</p>
+    <p style="font-size:14px;line-height:1.7">Thank you for using Folio Forever. Your design is saved and ready when you are.</p>
     <p style="margin:24px 0">
       <a href="${escapeHtml(designLink)}" style="display:inline-block;background:#b8965a;color:#0e0c09;padding:12px 24px;text-decoration:none;border-radius:4px;font-size:11px;letter-spacing:2px;text-transform:uppercase">View your design</a>
     </p>
@@ -203,7 +203,7 @@ export async function POST(request: Request) {
     const r = await sendEmail(env.RESEND_API_KEY, {
       from: fromAddr,
       to: [customerEmail],
-      subject: `Your Folio & Forever design is saved (${orderId})`,
+      subject: `Your Folio Forever design is saved (${orderId})`,
       html: customerHtml,
     });
     customerEmailSent = r.ok;
@@ -243,7 +243,7 @@ export async function POST(request: Request) {
   const ownerHtml = `
 <!doctype html><html><body style="margin:0;padding:0;background:#fafafa;font-family:-apple-system,Segoe UI,sans-serif;color:#222">
   <div style="max-width:680px;margin:0 auto;padding:24px">
-    <div style="font-size:11px;letter-spacing:2px;color:#b8965a;text-transform:uppercase;margin-bottom:6px">New order — Folio &amp; Forever</div>
+    <div style="font-size:11px;letter-spacing:2px;color:#b8965a;text-transform:uppercase;margin-bottom:6px">New order — Folio Forever</div>
     <h1 style="font-size:20px;margin:0 0 16px">Order ${escapeHtml(orderId)}</h1>
     <table style="font-size:13px;line-height:1.8;border-collapse:collapse;width:100%">
       <tr><td style="padding:4px 0;color:#666;width:140px">Customer name</td><td>${escapeHtml(customerName || '—')}</td></tr>

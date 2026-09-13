@@ -32,7 +32,7 @@ interface Env {
 }
 
 const PHOTOGRAPHER_INDEX_KEY = '_photographers_v1';
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
 
 interface IndexEntry {
@@ -165,7 +165,7 @@ export async function POST(request: Request) {
     const html = `
 <!doctype html><html><body style="font-family:-apple-system,Segoe UI,sans-serif;color:#222;background:#fafafa;margin:0;padding:0">
   <div style="max-width:560px;margin:0 auto;padding:24px">
-    <div style="font-size:11px;letter-spacing:2px;color:#b8965a;text-transform:uppercase;margin-bottom:6px">Folio &amp; Forever — pro signup</div>
+    <div style="font-size:11px;letter-spacing:2px;color:#b8965a;text-transform:uppercase;margin-bottom:6px">Folio Forever — pro signup</div>
     <h1 style="font-size:20px;margin:0 0 14px">New photographer pending approval</h1>
     <table style="font-size:13px;line-height:1.7;border-collapse:collapse;width:100%">
       <tr><td style="color:#666;width:120px">Studio</td><td><strong>${escapeHtml(studioName)}</strong></td></tr>

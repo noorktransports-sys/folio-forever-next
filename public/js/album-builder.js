@@ -1,5 +1,5 @@
 /**
- * Folio & Forever — Album Builder (Next.js port)
+ * Folio Forever — Album Builder (Next.js port)
  *
  * Loaded as a plain <script> via Next.js <Script> on the /design route.
  * This file deliberately stays vanilla JS so the existing builder logic

@@ -26,7 +26,7 @@ interface Env {
   ORDER_FROM_EMAIL?: string;
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 
 interface IndexEntry {
   email: string;
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
     const html = `
 <!doctype html><html><body style="margin:0;padding:0;background:#f6f1e8;font-family:Georgia,serif;color:#2a2419">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px">
-    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio &amp; Forever Pro</div>
+    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio Forever Pro</div>
     <h1 style="font-size:24px;margin:0 0 14px;font-weight:400">Sign in link</h1>
     <p style="font-size:14px;line-height:1.7">Click the button below to sign into your photographer dashboard. The link is good for 15 minutes.</p>
     <p style="margin:24px 0">
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           from: fromAddr,
           to: [email],
-          subject: 'Your Folio & Forever sign-in link',
+          subject: 'Your Folio Forever sign-in link',
           html,
         }),
       });

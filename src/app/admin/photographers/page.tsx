@@ -67,7 +67,7 @@ export default async function AdminPhotographers() {
     <main className="admin-shell">
       <header className="admin-top">
         <div>
-          <div className="admin-tag">Folio &amp; Forever — admin</div>
+          <div className="admin-tag">Folio Forever — admin</div>
           <h1>Photographers</h1>
         </div>
         <Link href="/admin" className="admin-logout">← Back to orders</Link>

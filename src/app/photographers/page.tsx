@@ -32,7 +32,7 @@ export default function PhotographersPage() {
       {/* NAV */}
       <nav>
         <Link href={ROUTE_HOME} className="nav-logo">
-          FOLIO &amp; FOREVER
+          FOLIO FOREVER
         </Link>
         <ul className="nav-links">
           <li>
@@ -114,7 +114,7 @@ export default function PhotographersPage() {
                 awkward.
               </p>
               <p>
-                So I built Folio &amp; Forever — a print company designed
+                So I built Folio Forever — a print company designed
                 specifically for photographers who care about their craft. Our
                 3D tactile printing and oversized formats are things no other
                 online printer offers.
@@ -547,7 +547,7 @@ export default function PhotographersPage() {
 
       {/* FOOTER */}
       <footer>
-        <div className="footer-logo">FOLIO &amp; FOREVER</div>
+        <div className="footer-logo">FOLIO FOREVER</div>
         <ul className="footer-links">
           <li>
             <Link href={ROUTE_HOME}>Home</Link>
@@ -569,7 +569,7 @@ export default function PhotographersPage() {
           </li>
         </ul>
         <span className="footer-copy">
-          © {new Date().getFullYear()} Folio &amp; Forever. All rights
+          © {new Date().getFullYear()} Folio Forever. All rights
           reserved.
         </span>
       </footer>

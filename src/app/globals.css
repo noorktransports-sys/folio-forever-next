@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
- * Folio & Forever brand tokens.
+ * Folio Forever brand tokens.
  *
  * Mirrored in tailwind.config.ts. Defined here as CSS variables so legacy
  * inline-styled markup ported from the WP templates keeps working without

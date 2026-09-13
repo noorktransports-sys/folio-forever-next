@@ -13,7 +13,7 @@ export default function ProJoin() {
   return (
     <main className="pro-login-shell">
       <div className="pro-login-card pro-join-card">
-        <div className="pro-tag">Folio &amp; Forever Pro</div>
+        <div className="pro-tag">Folio Forever Pro</div>
         <h1>Apply for a photographer account</h1>
         <p className="pro-login-desc">
           Submit your studio details and we&rsquo;ll review your

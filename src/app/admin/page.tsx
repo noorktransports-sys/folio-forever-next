@@ -133,7 +133,7 @@ export default async function AdminPage({
     <main className="admin-shell">
       <header className="admin-top">
         <div>
-          <div className="admin-tag">Folio &amp; Forever — admin</div>
+          <div className="admin-tag">Folio Forever — admin</div>
           <h1>Orders dashboard</h1>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>

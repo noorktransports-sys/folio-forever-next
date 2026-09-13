@@ -23,7 +23,7 @@ export default function HomePage() {
       {/* NAVBAR */}
       <nav>
         <Link href="/" className="nav-logo">
-          FOLIO &amp; FOREVER
+          FOLIO FOREVER
         </Link>
         <ul className="nav-links">
           <li>
@@ -418,7 +418,7 @@ export default function HomePage() {
 
       {/* FOOTER */}
       <footer>
-        <div className="footer-logo">FOLIO &amp; FOREVER</div>
+        <div className="footer-logo">FOLIO FOREVER</div>
         <ul className="footer-links">
           <li>
             <a href="#albums">Albums</a>
@@ -440,7 +440,7 @@ export default function HomePage() {
           </li>
         </ul>
         <span className="footer-copy">
-          © {new Date().getFullYear()} Folio &amp; Forever. All rights reserved.
+          © {new Date().getFullYear()} Folio Forever. All rights reserved.
           {' · '}
           {/* Discreet admin link — not advertised on the homepage hero
               (would attract brute-force attempts) but easy to find for

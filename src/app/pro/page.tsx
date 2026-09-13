@@ -102,7 +102,7 @@ export default async function ProDashboard() {
     <main className="pro-shell">
       <header className="pro-top">
         <div>
-          <div className="pro-tag">Folio &amp; Forever Pro</div>
+          <div className="pro-tag">Folio Forever Pro</div>
           <h1>{record.studioName}</h1>
           <div className="pro-sub">
             Signed in as {record.name} · {record.email}

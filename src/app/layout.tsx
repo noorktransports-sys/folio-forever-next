@@ -3,8 +3,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Folio & Forever — Heirloom wedding albums',
-    template: '%s | Folio & Forever',
+    default: 'Folio Forever — Heirloom wedding albums',
+    template: '%s | Folio Forever',
   },
   description:
     'Hand-bound, archival wedding albums for photographers and couples. Trade pricing for studios.',

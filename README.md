@@ -1,4 +1,4 @@
-# Folio & Forever — Next.js + Cloudflare Pages
+# Folio Forever — Next.js + Cloudflare Pages
 
 Successor to the WordPress child theme `folio-forever-child`. Same brand,
 different stack: Next.js 15 (app router) deployed to Cloudflare Pages,

@@ -1,4 +1,4 @@
-# Folio & Forever — System Handoff
+# Folio Forever — System Handoff
 
 **Read this first if you're a new developer, a returning Jayvee, or pasting this into Claude after a month.** It covers what the system is, where every piece of data lives, what to do when something breaks, and what's still on the roadmap.
 
@@ -78,7 +78,7 @@ Set in Cloudflare Pages → folio-forever-next → Settings → Variables and Se
 | Name | Value | Purpose |
 |---|---|---|
 | `SITE_URL` | `https://folioforever.com` | Used in email links + share URLs |
-| `SITE_NAME` | `Folio & Forever` | Reserved for future branding |
+| `SITE_NAME` | `Folio Forever` | Reserved for future branding |
 | `DESIGN_RETENTION_DAYS` | `60` | Reference for KV TTLs |
 | `MAX_UPLOAD_BYTES` | `31457280` (30 MB) | Hard cap on photo upload size |
 
@@ -199,7 +199,7 @@ Set in Cloudflare Pages → folio-forever-next → Settings → Variables and Se
 
 - **Provider:** Resend (resend.com)
 - **Sending domain:** `folioforever.com` (verified via Resend's Cloudflare-DNS auto-config)
-- **From address:** `Folio & Forever <orders@folioforever.com>` (overridable via `ORDER_FROM_EMAIL` env var)
+- **From address:** `Folio Forever <orders@folioforever.com>` (overridable via `ORDER_FROM_EMAIL` env var)
 - **Owner address:** `noorktransports@gmail.com` (overridable via `OWNER_EMAIL` env var)
 
 ### Two email modes (single endpoint, `/api/notify-order`)

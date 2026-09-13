@@ -37,7 +37,7 @@ export default function AdminLogin() {
   return (
     <main className="admin-login-shell">
       <form className="admin-login-card" onSubmit={onSubmit}>
-        <div className="admin-tag">Folio &amp; Forever</div>
+        <div className="admin-tag">Folio Forever</div>
         <h1>Admin sign-in</h1>
         <p className="admin-login-desc">
           Enter the admin password to view submitted orders.
