@@ -7884,6 +7884,21 @@ function SpreadView({
   const [pickerFamily, setPickerFamily] = useState<LayoutFamily>(
     TEMPLATE_BY_ID.get(spread.templateId)?.id.startsWith('mat-') ? 'mat' : 'bleed',
   )
+  // Hand-drag panning of the SELECTED photo. `moved` suppresses the
+  // click that follows a drag so the toolbar doesn't toggle closed.
+  const panDrag = useRef<{
+    slot: number
+    x: number
+    y: number
+    w: number
+    h: number
+    sx: number
+    sy: number
+    step: number
+    zoom: number
+    moved: boolean
+  } | null>(null)
+  const suppressClick = useRef(false)
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
   const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
@@ -8224,6 +8239,9 @@ function SpreadView({
           // Only photo-bearing slots are draggable — empty slots can
           // still receive drops but you can't drag from them.
           const slotDH = slotDragHandlers(spread.id, i)
+          // Selected photo = hand-pan mode (drag moves the photo inside its
+          // frame). Unselected photos keep drag-to-swap.
+          const panMode = editing && !!photo && adj.fit === 'fill'
           return (
             <div
               key={i}
@@ -8231,10 +8249,58 @@ function SpreadView({
               data-ff-slot={i}
               onClick={(e) => {
                 e.stopPropagation()
+                if (suppressClick.current) {
+                  suppressClick.current = false
+                  return
+                }
                 onPhotoClick(i)
               }}
-              draggable={!!photo}
-              onDragStart={photo ? slotDH.onDragStart : undefined}
+              onPointerDown={
+                panMode
+                  ? (e) => {
+                      if (e.button !== 0 && e.pointerType === 'mouse') return
+                      const r = e.currentTarget.getBoundingClientRect()
+                      const step = panStep(adj.rotate)
+                      const { sx, sy } = panImageToScreen(adj.panX, adj.panY, step)
+                      panDrag.current = {
+                        slot: i, x: e.clientX, y: e.clientY, w: r.width, h: r.height,
+                        sx, sy, step, zoom: Math.max(1, adj.zoom), moved: false,
+                      }
+                      e.currentTarget.setPointerCapture(e.pointerId)
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }
+                  : undefined
+              }
+              onPointerMove={
+                panMode
+                  ? (e) => {
+                      const d = panDrag.current
+                      if (!d || d.slot !== i) return
+                      const dx = e.clientX - d.x
+                      const dy = e.clientY - d.y
+                      if (!d.moved && Math.hypot(dx, dy) < 3) return
+                      d.moved = true
+                      const nsx = clampPct(d.sx - ((dx / d.w) * 100) / d.zoom)
+                      const nsy = clampPct(d.sy - ((dy / d.h) * 100) / d.zoom)
+                      const { px, py } = panScreenToImage(nsx, nsy, d.step)
+                      onAdjustChange(i, { panX: px, panY: py })
+                    }
+                  : undefined
+              }
+              onPointerUp={
+                panMode
+                  ? (e) => {
+                      const d = panDrag.current
+                      panDrag.current = null
+                      if (d && d.moved) suppressClick.current = true
+                      try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+                    }
+                  : undefined
+              }
+              onPointerCancel={panMode ? () => { panDrag.current = null } : undefined}
+              draggable={!!photo && !panMode}
+              onDragStart={photo && !panMode ? slotDH.onDragStart : undefined}
               onDragOver={slotDH.onDragOver}
               onDrop={(e) => {
                 slotDH.onDrop(e)
@@ -8256,7 +8322,8 @@ function SpreadView({
                 borderRadius: isCircle ? '50%' : undefined,
                 // Lets the built-in frame size itself in cqw (% of slot width).
                 containerType: slot.frame ? 'inline-size' : undefined,
-                cursor: photo ? 'grab' : 'pointer',
+                cursor: photo ? (panMode ? 'move' : 'grab') : 'pointer',
+                touchAction: panMode ? 'none' : undefined,
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,
                 overflow: 'hidden',
@@ -8264,7 +8331,7 @@ function SpreadView({
                 // the spread background, never a contrasting white line.
                 background: photo ? 'transparent' : '#f5f0e8',
               }}
-              title={slot.isHero ? 'Hero photo · drag to swap' : 'Photo · drag to swap'}
+              title={panMode ? 'Drag to reposition · zoom in the toolbar' : slot.isHero ? 'Hero photo · drag to swap' : 'Photo · drag to swap'}
             >
               {photo ? (
                 <>
@@ -8445,6 +8512,35 @@ function SpreadView({
 // Mirrors the manual builder's photoFloatToolbar: zoom, pan, fit-fill /
 // fit-original, flip H/V, rotate ±90°, reset, swap, remove.
 
+/* ── Hand-drag panning (same feel as the magazine editor) ──────────
+ * Pan is stored in IMAGE coordinates (objectPosition %). When the photo
+ * is rotated by 90°/180°/270° the on-screen axes differ, so a drag in
+ * SCREEN space is mapped back to image space here. Fine tilts (±15°)
+ * snap to step 0, which is visually close enough. */
+function panStep(rotate: number | undefined): number {
+  const r = ((Math.round(rotate ?? 0) % 360) + 360) % 360
+  return Math.round(r / 90) % 4
+}
+function panImageToScreen(px: number, py: number, step: number) {
+  const inv = (v: number) => 100 - v
+  switch (step) {
+    case 1: return { sx: inv(py), sy: px }
+    case 2: return { sx: inv(px), sy: inv(py) }
+    case 3: return { sx: py, sy: inv(px) }
+    default: return { sx: px, sy: py }
+  }
+}
+function panScreenToImage(sx: number, sy: number, step: number) {
+  const inv = (v: number) => 100 - v
+  switch (step) {
+    case 1: return { px: sy, py: inv(sx) }
+    case 2: return { px: inv(sx), py: inv(sy) }
+    case 3: return { px: inv(sy), py: sx }
+    default: return { px: sx, py: sy }
+  }
+}
+const clampPct = (v: number) => Math.round(Math.max(0, Math.min(100, v)))
+
 function PhotoToolbar({
   adj,
   onChange,
@@ -8476,6 +8572,8 @@ function PhotoToolbar({
 }) {
   // Slider/buttons never let the customer zoom past the smart cap.
   const zCap = Math.max(1, maxZoom)
+  // Simple by default (zoom + drag); everything else behind "More".
+  const [more, setMore] = useState(false)
   const dpiColor = effDpi >= 200 ? '#7fd18f' : effDpi >= 150 ? '#e0b15a' : '#ff8a8a'
   const dpiLabel = effDpi >= 200 ? 'Sharp' : effDpi >= 150 ? 'OK' : 'Soft'
   const btn: React.CSSProperties = {
@@ -8517,19 +8615,8 @@ function PhotoToolbar({
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>
-          Slot {slotIdx + 1} · Photo tools
+          ✋ Drag the photo to reposition
         </span>
-
-        {/* FIT mode */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={groupLabel}>Fit</span>
-          <button type="button" style={adj.fit === 'fill' ? btnActive : btn} onClick={() => onChange({ fit: 'fill' })}>
-            Fill
-          </button>
-          <button type="button" style={adj.fit === 'contain' ? btnActive : btn} onClick={() => onChange({ fit: 'contain' })}>
-            Original
-          </button>
-        </div>
 
         {/* ZOOM — smart-capped so it never pixelates at print */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -8588,6 +8675,47 @@ function PhotoToolbar({
               max {Math.round(zCap * 100)}%
             </span>
           )}
+        </div>
+
+        {/* Primary actions */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+          <button
+            type="button"
+            style={inSwapMode ? btnActive : btn}
+            onClick={onSwap}
+            title="Pick a different photo from the unused pool"
+          >
+            {inSwapMode ? 'Swap mode — pick from pool →' : '⇄ Swap photo'}
+          </button>
+          <button type="button" style={btn} onClick={onReset}>
+            ↺ Reset
+          </button>
+          <button type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
+            ✕ Remove
+          </button>
+          <button
+            type="button"
+            style={more ? btnActive : btn}
+            onClick={() => setMore((m) => !m)}
+            aria-expanded={more}
+          >
+            More {more ? '▴' : '▾'}
+          </button>
+        </div>
+      </div>
+
+      {/* MORE — fit, flip, rotate, border, delete spread */}
+      {more && (
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14, paddingTop: 10, borderTop: '0.5px solid rgba(184,150,90,0.15)' }}>
+        {/* FIT mode */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={groupLabel}>Fit</span>
+          <button type="button" style={adj.fit === 'fill' ? btnActive : btn} onClick={() => onChange({ fit: 'fill' })}>
+            Fill
+          </button>
+          <button type="button" style={adj.fit === 'contain' ? btnActive : btn} onClick={() => onChange({ fit: 'contain' })}>
+            Original
+          </button>
         </div>
 
         {/* FLIP */}
@@ -8709,106 +8837,8 @@ function PhotoToolbar({
             })}
           </div>
         </div>
-      </div>
-
-      {/* PAN sliders (only meaningful when fit=fill).
-          Sliders are in SCREEN coordinates — "X" always moves left/right on
-          screen, "Y" always moves up/down. When the image is rotated 90°/180°/
-          270°, internally we map screen-X/Y to the image's coordinate axes so
-          the pan still matches what the user sees. */}
-      {adj.fit === 'fill' && (() => {
-        // Snap to nearest 90° step for axis mapping. Fine tilts (e.g. ±15°)
-        // map to step 0 — pan stays in image coords, which is close enough to
-        // visual coords for small angles.
-        const r = ((Math.round(adj.rotate ?? 0) % 360) + 360) % 360
-        const step = Math.round(r / 90) % 4
-        // imageToScreen: convert stored image-coord pan → what the user sees.
-        // screenToImage: convert slider value → image-coord pan to store.
-        const inv = (v: number) => 100 - v
-        const imageToScreen = (px: number, py: number) => {
-          switch (step) {
-            case 1: return { sx: inv(py), sy: px }       // 90° CW
-            case 2: return { sx: inv(px), sy: inv(py) }  // 180°
-            case 3: return { sx: py, sy: inv(px) }       // 270° CW
-            default: return { sx: px, sy: py }
-          }
-        }
-        const screenToImage = (sx: number, sy: number) => {
-          switch (step) {
-            case 1: return { px: sy, py: inv(sx) }
-            case 2: return { px: inv(sx), py: inv(sy) }
-            case 3: return { px: inv(sy), py: sx }
-            default: return { px: sx, py: sy }
-          }
-        }
-        const { sx, sy } = imageToScreen(adj.panX, adj.panY)
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
-            <span style={groupLabel}>Pan</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>X</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={Math.round(sx)}
-                onChange={(e) => {
-                  const newSx = parseInt(e.target.value)
-                  const { px, py } = screenToImage(newSx, sy)
-                  onChange({ panX: px, panY: py })
-                }}
-                style={{ width: 100, accentColor: GOLD }}
-              />
-              <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
-                {Math.round(sx)}%
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 9, letterSpacing: 1, color: 'var(--cream)' }}>Y</span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={Math.round(sy)}
-                onChange={(e) => {
-                  const newSy = parseInt(e.target.value)
-                  const { px, py } = screenToImage(sx, newSy)
-                  onChange({ panX: px, panY: py })
-                }}
-                style={{ width: 100, accentColor: GOLD }}
-              />
-              <span style={{ fontSize: 9, color: 'var(--muted2)', minWidth: 32, textAlign: 'right' }}>
-                {Math.round(sy)}%
-              </span>
-            </div>
-            <span style={{ fontSize: 10, color: 'var(--muted2)', fontStyle: 'italic' }}>
-              tip: zoom in first to see pan have more effect
-            </span>
-          </div>
-        )
-      })()}
-
-      {/* ACTIONS */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 6, borderTop: '0.5px solid rgba(184,150,90,0.15)' }}>
-        <button type="button" style={btn} onClick={onReset}>
-          ↺ Reset adjustments
-        </button>
-        <button
-          type="button"
-          style={inSwapMode ? btnActive : btn}
-          onClick={onSwap}
-          title="Pick a different photo from the unused pool"
-        >
-          {inSwapMode ? 'Swap mode active — pick from pool →' : '⇄ Swap photo'}
-        </button>
-        <button type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
-          ✕ Remove photo
-        </button>
         {/* Delete the whole spread from the slot toolbar — same
-            destructive flow as the small header button, but right
-            where clients look when they want to remove things. */}
+            destructive flow as the small header button. */}
         <button
           type="button"
           style={btnDanger}
@@ -8818,6 +8848,7 @@ function PhotoToolbar({
           ✕ Delete spread
         </button>
       </div>
+      )}
     </div>
   )
 }
