@@ -231,7 +231,7 @@ export default function DesignerPage() {
    * album-builder.js's _folioReadAlbumsIndex; if the script hasn't
    * loaded yet we read straight from localStorage as a fallback.
    */
-  type AlbumIndexEntry = { id: string; name: string; createdAt: string; lastEditedAt: string };
+  type AlbumIndexEntry = { id: string; name: string; createdAt: string; lastEditedAt: string; mode?: 'smart' | 'manual' };
   const [albums, setAlbums] = useState<AlbumIndexEntry[]>([]);
   const refreshAlbums = () => {
     if (typeof window === 'undefined') return;
@@ -601,7 +601,7 @@ export default function DesignerPage() {
                 return (
                   <div
                     key={album.id}
-                    onClick={() => router.push('/design/build?album=' + album.id)}
+                    onClick={() => router.push((album.mode === 'smart' ? '/design/smart?album=' : '/design/build?album=') + album.id)}
                     style={{
                       position: 'relative',
                       background: 'var(--dark2)',
@@ -632,8 +632,23 @@ export default function DesignerPage() {
                       letterSpacing: 1.5,
                       color: 'var(--muted2)',
                       textTransform: 'uppercase',
+                      display: 'flex',
+                      gap: 8,
+                      alignItems: 'center',
                     }}>
-                      {edited ? `Edited ${edited}` : 'Draft'}
+                      <span>{edited ? `Edited ${edited}` : 'Draft'}</span>
+                      {album.mode === 'smart' && (
+                        <span style={{
+                          fontSize: 8,
+                          letterSpacing: 1.5,
+                          color: 'var(--gold)',
+                          border: '0.5px solid rgba(184,150,90,0.4)',
+                          padding: '2px 6px',
+                          borderRadius: 30,
+                        }}>
+                          Smart
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -695,6 +710,38 @@ export default function DesignerPage() {
         )}
 
         <div className="path-choice">
+          <div
+            className="path-card recommended"
+            onClick={() => router.push('/design/smart')}
+          >
+            <div className="path-badge">Recommended</div>
+            <div className="path-icon">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 2l1.2 3.6 3.8.3-2.9 2.5.9 3.7L10 10.2l-3 1.9.9-3.7L5 5.9l3.8-.3z" stroke="#b8965a" strokeWidth="0.8" fill="none" />
+                <circle cx="16" cy="4" r="1" stroke="#b8965a" strokeWidth="0.6" />
+                <circle cx="4" cy="16" r="1" stroke="#b8965a" strokeWidth="0.6" />
+              </svg>
+            </div>
+            <p className="path-name">Smart Auto-Layout</p>
+            <span className="path-tagline">AI-assisted designer · Beta</span>
+            <p className="path-desc">
+              Tag your favorites and our smart layout engine arranges
+              the album for you. Adjust before ordering.
+            </p>
+            <ul className="path-features">
+              <li>Pick path: engagement, wedding, family, custom</li>
+              <li>Tag heroes &amp; favorites — AI prioritizes them</li>
+              <li>Auto-grouped by event (ceremony, reception…)</li>
+              <li>Review &amp; tweak the layout before submit</li>
+            </ul>
+            <span className="path-price">
+              Included <span>in your album price</span>
+            </span>
+            <button type="button" className="btn-path btn-path-primary">
+              Try Smart Auto-Layout
+            </button>
+          </div>
+
           <div className="path-card" onClick={() => startNewAlbumAndNavigate(router, '/design/product')}>
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -725,10 +772,9 @@ export default function DesignerPage() {
           </div>
 
           <div
-            className="path-card recommended"
+            className="path-card"
             onClick={() => router.push('/design/expert')}
           >
-            <div className="path-badge">Recommended</div>
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path
