@@ -28,6 +28,7 @@ import {
   fillMagazine,
   magSlotBox,
 } from '@/lib/magazine/pages'
+import HelpSearch from '../help/HelpSearch'
 import MagPageView, {
   MAG_DEFAULT_ADJUST,
   slotDpi,
@@ -360,9 +361,12 @@ function MagazineDesigner() {
         >
           Folio Forever
         </Link>
-        <Link href="/design" style={{ color: GOLD, fontSize: 9, letterSpacing: 3, textTransform: 'uppercase', textDecoration: 'none' }}>
-          ← All options
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <HelpSearch app="magazine" />
+          <Link href="/design" style={{ color: GOLD, fontSize: 9, letterSpacing: 3, textTransform: 'uppercase', textDecoration: 'none' }}>
+            ← All options
+          </Link>
+        </div>
       </nav>
 
       <input
@@ -439,7 +443,7 @@ function MagazineDesigner() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => fileRef.current?.click()} style={btn(false)}>
+          <button data-help="mag-upload" type="button" onClick={() => fileRef.current?.click()} style={btn(false)}>
             + Upload photos
           </button>
           {photos.length === 0 && (
@@ -448,7 +452,7 @@ function MagazineDesigner() {
             </button>
           )}
           {photos.length > 0 && (
-            <button
+            <button data-help="mag-build"
               type="button"
               onClick={() => {
                 if (pages && !window.confirm('Rebuild the magazine? Your swaps and crops will be reset.')) return
@@ -700,7 +704,7 @@ function MagazineDesigner() {
               </label>
               <span style={{ fontSize: 10, color: selDpi < 150 ? '#e57373' : 'var(--muted2)' }}>{selDpi} dpi</span>
               <span style={{ fontSize: 10, color: 'var(--muted2)' }}>Drag the photo to reposition</span>
-              <button type="button" style={btn(false)} onClick={() => setSwapFrom(sel)}>
+              <button data-help="mag-swap" type="button" style={btn(false)} onClick={() => setSwapFrom(sel)}>
                 Swap
               </button>
               <button type="button" style={btn(false)} onClick={() => onAdjust(sel.page, sel.slot, MAG_DEFAULT_ADJUST)}>

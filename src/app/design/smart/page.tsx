@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useUndo } from './edit/use-undo'
 import { UndoButtons, useToast } from './edit/UndoButtons'
+import HelpSearch from '../help/HelpSearch'
 import {
   makeSwapOp,
   makeSwapWithUnusedOp,
@@ -3181,7 +3182,7 @@ function SmartDesignerInner() {
           </div>
         )}
 
-        <div
+        <div data-help="upload-add"
           onClick={() => {
             if (photos.length >= PHOTO_CAP) return
             setShowSourcePicker(true)
@@ -3209,7 +3210,7 @@ function SmartDesignerInner() {
           <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>or</span>
         </div>
 
-        <button
+        <button data-help="upload-sample"
           type="button"
           onClick={loadSamples}
           style={{ ...css.btnGhost, width: '100%', padding: '14px 20px' }}
@@ -3636,7 +3637,7 @@ function SmartDesignerInner() {
             `}</style>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 32, alignItems: 'center' }}>
-              <button type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
+              <button data-help="clear-all" type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
                 Clear all
               </button>
               <button type="button" style={css.btnPrimary} onClick={() => setStep('group')}>
@@ -3735,7 +3736,7 @@ function SmartDesignerInner() {
                 ✨ <strong>{eligible.length}</strong> untagged photos have
                 date info — auto-group them into ceremonies by time?
               </span>
-              <button
+              <button data-help="smart-group"
                 type="button"
                 onClick={runSmartGroup}
                 style={{
@@ -4317,7 +4318,7 @@ function SmartDesignerInner() {
           <span style={{ fontFamily: 'var(--font-display)', fontSize: 48, color: GOLD }}>{pageCount}</span>
         </div>
 
-        <input
+        <input data-help="spreads-slider"
           type="range"
           min={spec.minSpreads}
           max={spec.maxSpreads}
@@ -4347,7 +4348,7 @@ function SmartDesignerInner() {
             Not sure which look you want? Pick a mood — we&apos;ll design every
             spread for you. You can still restyle any single spread later.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div data-help="style-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {(
               [
                 {
@@ -4460,7 +4461,7 @@ function SmartDesignerInner() {
           <button type="button" style={css.btnSecondary} onClick={() => setStep('tag')}>
             ← Back
           </button>
-          <button type="button" style={css.btnPrimary} onClick={runGenerate}>
+          <button data-help="generate" type="button" style={css.btnPrimary} onClick={runGenerate}>
             Generate Layout →
           </button>
         </div>
@@ -4520,7 +4521,7 @@ function SmartDesignerInner() {
               onUndo={undoApi.undo}
               onRedo={undoApi.redo}
             />
-            <button type="button" style={css.btnGhost} onClick={regenerate}>
+            <button data-help="regenerate" type="button" style={css.btnGhost} onClick={regenerate}>
               ↻ Regenerate
             </button>
           </div>
@@ -4798,7 +4799,7 @@ function SmartDesignerInner() {
                 >
                   Unused ({unusedPhotos.length})
                 </p>
-                <button
+                <button data-help="add-photos-later"
                   type="button"
                   onClick={() => addMorePhotosInputRef.current?.click()}
                   disabled={photos.length >= PHOTO_CAP}
@@ -4942,7 +4943,7 @@ function SmartDesignerInner() {
                 gap: 6,
               }}
             >
-              <button
+              <button data-help="add-spread"
                 type="button"
                 onClick={handleAddSpread}
                 disabled={atMax}
@@ -4995,7 +4996,7 @@ function SmartDesignerInner() {
             For an extra <strong style={{ color: GOLD }}>$99</strong>, our designers fine-tune crops, refine spread pacing,
             and balance the visual flow. Proof in 24 hours.
           </p>
-          <button
+          <button data-help="handoff"
             type="button"
             onClick={() => setPolishHandoff((v) => !v)}
             style={{
@@ -5016,7 +5017,7 @@ function SmartDesignerInner() {
             <button type="button" style={css.btnSecondary} onClick={() => setStep('pages')}>
               ← Back
             </button>
-            <button
+            <button data-help="to-cover"
               type="button"
               style={css.btnPrimary}
               onClick={() => {
@@ -5589,7 +5590,7 @@ function SmartDesignerInner() {
                 </p>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button
+                <button data-help="open-album"
                   type="button"
                   style={{
                     ...css.btnPrimary,
@@ -5684,7 +5685,7 @@ function SmartDesignerInner() {
             </strong>{' '}
             of {spreads.length} spreads reviewed
           </span>
-          <button
+          <button data-help="mark-reviewed"
             type="button"
             onClick={markAll}
             style={{
@@ -5993,7 +5994,7 @@ function SmartDesignerInner() {
           >
             ← Back to edit
           </button>
-          <button
+          <button data-help="approve"
             type="button"
             disabled={!allReviewed}
             onClick={onApprove}
@@ -6117,6 +6118,7 @@ function SmartDesignerInner() {
               {albumName} ✎
             </button>
           )}
+          <HelpSearch app="smart" step={step} />
           <Link href="/design" style={css.navBack}>
             ← Back to Design
           </Link>
@@ -7675,10 +7677,10 @@ function SpreadTextLayer({
           pointerEvents: 'none',
         }}
       >
-        <button type="button" style={pill} onClick={() => add('text')}>
+        <button data-help="add-text" type="button" style={pill} onClick={() => add('text')}>
           ＋ Text
         </button>
-        <button type="button" style={pill} onClick={() => add('title')}>
+        <button data-help="add-title" type="button" style={pill} onClick={() => add('title')}>
           ＋ Title
         </button>
       </div>
@@ -8072,7 +8074,7 @@ function SpreadView({
             {(['bleed', 'mat'] as LayoutFamily[]).map((fam) => {
               const on = pickerFamily === fam
               return (
-                <button
+                <button data-help="bleed-toggle"
                   key={fam}
                   type="button"
                   onClick={(e) => {
@@ -8858,7 +8860,7 @@ function PhotoToolbar({
   }
 
   return (
-    <div
+    <div data-help="photo-toolbar"
       onClick={(e) => e.stopPropagation()}
       style={{
         marginTop: 10,
@@ -8885,7 +8887,7 @@ function PhotoToolbar({
           >
             −
           </button>
-          <input
+          <input data-help="zoom"
             type="range"
             min="100"
             max={Math.round(zCap * 100)}
@@ -8943,7 +8945,7 @@ function PhotoToolbar({
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={groupLabel}>Straighten</span>
-              <input
+              <input data-help="straighten"
                 type="range"
                 min={-45}
                 max={45}
@@ -8967,7 +8969,7 @@ function PhotoToolbar({
 
         {/* Primary actions */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-          <button
+          <button data-help="swap"
             type="button"
             style={inSwapMode ? btnActive : btn}
             onClick={onSwap}
@@ -8975,13 +8977,13 @@ function PhotoToolbar({
           >
             {inSwapMode ? 'Swap mode — pick from pool →' : '⇄ Swap photo'}
           </button>
-          <button type="button" style={btn} onClick={onReset}>
+          <button data-help="reset" type="button" style={btn} onClick={onReset}>
             ↺ Reset
           </button>
-          <button type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
+          <button data-help="remove" type="button" style={btnDanger} onClick={onRemove} title="Remove from spread (photo returns to unused pool)">
             ✕ Remove
           </button>
-          <button
+          <button data-help="more"
             type="button"
             style={more ? btnActive : btn}
             onClick={() => setMore((m) => !m)}
