@@ -6508,7 +6508,10 @@ function SpreadNavRail({
           border-color: ${GOLD} !important;
         }
       `}</style>
-      <nav
+      {/* A <div>, not <nav>: the site-wide `nav {}` rule (70px fixed
+          top bar, centred items) would otherwise crush this rail. */}
+      <div
+        role="navigation"
         aria-label="Spread navigator"
         style={{
           position: 'sticky',
@@ -6683,7 +6686,7 @@ function SpreadNavRail({
             </button>
           )
         })}
-      </nav>
+      </div>
     </>
   )
 }
