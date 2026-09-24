@@ -26,6 +26,7 @@ import { useSlotDrag } from './edit/swap'
 import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 import { renderCoverComposite } from './edit/render-cover'
+import { effectiveZoom } from '@/lib/smart-layout/rotate-cover'
 
 // Lazy: pulls the two composite renderers + render math only when the
 // client actually opens the album preview modal.
@@ -5830,7 +5831,11 @@ function SmartDesignerInner() {
                     const slotAdjust: SlotAdjust = {
                       panX: adj.panX,
                       panY: adj.panY,
-                      zoom: adj.zoom,
+                      // Same auto-fill-on-rotate zoom as editor + print.
+                      zoom:
+                        photo && adj.fit === 'fill' && photo.width && photo.height
+                          ? effectiveZoom(adj.zoom, photo.width / photo.height, (slot.w / slot.h) * aspect, adj.rotate)
+                          : adj.zoom,
                       rotate: adj.rotate,
                       flipH: adj.flipH,
                       flipV: adj.flipV,
@@ -7899,12 +7904,39 @@ function SpreadView({
     moved: boolean
   } | null>(null)
   const suppressClick = useRef(false)
+  // Two-finger pinch zoom on the selected photo.
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null)
+  // Corner-handle rotation (live angle shown while dragging).
+  const rotDrag = useRef<{ cx: number; cy: number; a0: number; r0: number } | null>(null)
+  const [rotLabel, setRotLabel] = useState<number | null>(null)
+  // ctrl/⌘ + wheel (and trackpad pinch) zoom — needs a NON-passive
+  // native listener so the browser doesn't zoom the whole page.
+  const boxRef = useRef<HTMLDivElement>(null)
+  const wheelCtx = useRef<{ slot: number; zoom: number; cap: number; apply: (z: number) => void } | null>(null)
+  useEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      const w = wheelCtx.current
+      if (!w || !(e.ctrlKey || e.metaKey)) return
+      const slotEl = (e.target as HTMLElement | null)?.closest('[data-ff-slot]')
+      if (!slotEl || Number(slotEl.getAttribute('data-ff-slot')) !== w.slot) return
+      e.preventDefault()
+      const z = Math.max(1, Math.min(w.cap, w.zoom * Math.exp(-e.deltaY * 0.01)))
+      w.zoom = z
+      w.apply(+z.toFixed(3))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
   const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
   // Edge-to-edge slots for bleed layouts (no white gaps); mat unchanged.
   // slotBox() gives circle slots their true (aspect-corrected) height.
   const rslots = renderSlots(tpl).map((s) => slotBox(s, aspect))
+  wheelCtx.current = null // re-armed below for the selected photo
   // Matted photos get an automatic thin frame (contrast-aware) so the
   // edge always looks intentional — never a stray cream/white seam.
   const matFrame = templateFamily(tpl) === 'mat' ? frameColorForBg(bg) : null
@@ -8148,7 +8180,9 @@ function SpreadView({
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>{eventName}</span>
       </div>
 
+      <div style={{ position: 'relative' }}>
       <div
+        ref={boxRef}
         // Spread-level drop target. HTML5 drop here = +1 layout (legacy).
         // The universal pointer-drag hit-tests data-ff-bgzone: dropping
         // a photo on the empty/matted area sets it as the blurred bg.
@@ -8225,13 +8259,27 @@ function SpreadView({
           const photo = id ? photoMap.get(id) : undefined
           const editing = editingSlot === i
           const adj = adjusts[adjustKey(spread.id, i)] ?? DEFAULT_ADJUST
+          // Rotated photos auto-zoom just enough to keep the frame full
+          // (the client's own zoom is kept; rotating back restores it).
+          const effZ =
+            photo && adj.fit === 'fill' && photo.width && photo.height
+              ? effectiveZoom(adj.zoom, photo.width / photo.height, (slot.w / slot.h) * aspect, adj.rotate)
+              : adj.zoom
           const slotAdjust: SlotAdjust = {
             panX: adj.panX,
             panY: adj.panY,
-            zoom: adj.zoom,
+            zoom: effZ,
             rotate: adj.rotate,
             flipH: adj.flipH,
             flipV: adj.flipV,
+          }
+          if (editing && photo) {
+            wheelCtx.current = {
+              slot: i,
+              zoom: adj.zoom,
+              cap: smartMaxZoom(photo, slot, albumSize),
+              apply: (z) => onAdjustChange(i, { zoom: z }),
+            }
           }
           // Slot-level DnD: each slot is BOTH draggable (drag a photo
           // to another slot to swap) AND a drop target (drop a slot
@@ -8259,12 +8307,24 @@ function SpreadView({
                 panMode
                   ? (e) => {
                       if (e.button !== 0 && e.pointerType === 'mouse') return
+                      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+                      if (pointers.current.size === 2) {
+                        // Second finger down → pinch-zoom instead of pan.
+                        const [a, b] = Array.from(pointers.current.values())
+                        pinch.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: adj.zoom }
+                        if (panDrag.current) panDrag.current.moved = true
+                        panDrag.current = null
+                        e.currentTarget.setPointerCapture(e.pointerId)
+                        e.preventDefault()
+                        e.stopPropagation()
+                        return
+                      }
                       const r = e.currentTarget.getBoundingClientRect()
                       const step = panStep(adj.rotate)
                       const { sx, sy } = panImageToScreen(adj.panX, adj.panY, step)
                       panDrag.current = {
                         slot: i, x: e.clientX, y: e.clientY, w: r.width, h: r.height,
-                        sx, sy, step, zoom: Math.max(1, adj.zoom), moved: false,
+                        sx, sy, step, zoom: Math.max(1, effZ), moved: false,
                       }
                       e.currentTarget.setPointerCapture(e.pointerId)
                       e.preventDefault()
@@ -8275,6 +8335,18 @@ function SpreadView({
               onPointerMove={
                 panMode
                   ? (e) => {
+                      if (pointers.current.has(e.pointerId)) {
+                        pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+                      }
+                      if (pinch.current && pointers.current.size >= 2 && photo) {
+                        const [a, b] = Array.from(pointers.current.values())
+                        const dist = Math.hypot(a.x - b.x, a.y - b.y)
+                        const cap = smartMaxZoom(photo, slot, albumSize)
+                        const z = Math.max(1, Math.min(cap, pinch.current.zoom * (dist / pinch.current.dist)))
+                        onAdjustChange(i, { zoom: +z.toFixed(3) })
+                        suppressClick.current = true
+                        return
+                      }
                       const d = panDrag.current
                       if (!d || d.slot !== i) return
                       const dx = e.clientX - d.x
@@ -8291,6 +8363,8 @@ function SpreadView({
               onPointerUp={
                 panMode
                   ? (e) => {
+                      pointers.current.delete(e.pointerId)
+                      if (pointers.current.size < 2) pinch.current = null
                       const d = panDrag.current
                       panDrag.current = null
                       if (d && d.moved) suppressClick.current = true
@@ -8298,7 +8372,15 @@ function SpreadView({
                     }
                   : undefined
               }
-              onPointerCancel={panMode ? () => { panDrag.current = null } : undefined}
+              onPointerCancel={
+                panMode
+                  ? (e) => {
+                      pointers.current.delete(e.pointerId)
+                      pinch.current = null
+                      panDrag.current = null
+                    }
+                  : undefined
+              }
               draggable={!!photo && !panMode}
               onDragStart={photo && !panMode ? slotDH.onDragStart : undefined}
               onDragOver={slotDH.onDragOver}
@@ -8473,6 +8555,174 @@ function SpreadView({
         <SpreadTextLayer texts={texts} onChange={onTextsChange} />
       </div>
 
+      {/* ── Crop preview + rotate handles for the SELECTED photo ──
+          The part of the photo cut off by the frame shows faded around
+          it (so the client sees exactly what's cropped), and four corner
+          handles rotate the photo. Rendered OUTSIDE the clipped spread
+          box so the faded overflow can extend past the page edge. */}
+      {(() => {
+        if (editingSlot < 0) return null
+        const gs = rslots[editingSlot]
+        const gid = spread.photoIds[editingSlot]
+        const gp = gid ? photoMap.get(gid) : undefined
+        const ga = adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST
+        if (!gs || !gp || ga.fit !== 'fill' || !gp.width || !gp.height) return null
+        const ia = gp.width / gp.height
+        const sa = (gs.w / gs.h) * aspect
+        const z = effectiveZoom(ga.zoom, ia, sa, ga.rotate)
+        // Cover-fit box of the photo, in % of the frame (object-fit: cover).
+        const cw = ia > sa ? (ia / sa) * 100 : 100
+        const ch = ia > sa ? 100 : (sa / ia) * 100
+        const left = ((100 - cw) * ga.panX) / 100
+        const top = ((100 - ch) * ga.panY) / 100
+        const dx = ga.panX - 50
+        const dy = ga.panY - 50
+        const tf =
+          `rotate(${ga.rotate}deg) scale(${ga.flipH ? -1 : 1}, ${ga.flipV ? -1 : 1}) ` +
+          `translate(${dx}%, ${dy}%) scale(${z}) translate(${-dx}%, ${-dy}%)`
+        const x0 = gs.x
+        const y0 = gs.y
+        const x1 = gs.x + gs.w
+        const y1 = gs.y + gs.h
+        // Outer box minus the frame (even-odd hole) → faded part only
+        // shows OUTSIDE the frame; inside the frame the real photo shows.
+        const hole = `polygon(evenodd, -400% -400%, 500% -400%, 500% 500%, -400% 500%, -400% -400%, ${x0}% ${y0}%, ${x1}% ${y0}%, ${x1}% ${y1}%, ${x0}% ${y1}%, ${x0}% ${y0}%)`
+        const corners: [number, number][] = [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+        ]
+        return (
+          <>
+            <div
+              aria-hidden
+              style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 6, clipPath: hole }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${gs.x}%`,
+                  top: `${gs.y}%`,
+                  width: `${gs.w}%`,
+                  height: `${gs.h}%`,
+                  transform: tf,
+                  transformOrigin: '50% 50%',
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={gp.preview}
+                  alt=""
+                  draggable={false}
+                  style={{
+                    position: 'absolute',
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    width: `${cw}%`,
+                    height: `${ch}%`,
+                    maxWidth: 'none',
+                    opacity: 0.38,
+                    outline: '1px dashed rgba(184,150,90,0.9)',
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 7 }}>
+              {corners.map(([cx, cy], k) => (
+                <div
+                  key={k}
+                  title="Drag to rotate"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const layer = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
+                    const ccx = layer.left + ((x0 + x1) / 2 / 100) * layer.width
+                    const ccy = layer.top + ((y0 + y1) / 2 / 100) * layer.height
+                    rotDrag.current = {
+                      cx: ccx,
+                      cy: ccy,
+                      a0: Math.atan2(e.clientY - ccy, e.clientX - ccx),
+                      r0: ga.rotate ?? 0,
+                    }
+                    setRotLabel(Math.round(ga.rotate ?? 0))
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                  }}
+                  onPointerMove={(e) => {
+                    const d = rotDrag.current
+                    if (!d) return
+                    const a = Math.atan2(e.clientY - d.cy, e.clientX - d.cx)
+                    let r = d.r0 + ((a - d.a0) * 180) / Math.PI
+                    r = ((((r + 180) % 360) + 360) % 360) - 180 // → -180..180
+                    // Snap to straight (0 / ±90 / 180) within 3° — Shift = 15° steps.
+                    const snap = Math.round(r / 90) * 90
+                    if (Math.abs(r - snap) < 3) r = snap
+                    if (e.shiftKey) r = Math.round(r / 15) * 15
+                    r = Math.round(r * 10) / 10
+                    setRotLabel(Math.round(r))
+                    onAdjustChange(editingSlot, { rotate: r })
+                  }}
+                  onPointerUp={(e) => {
+                    rotDrag.current = null
+                    setRotLabel(null)
+                    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+                  }}
+                  onPointerCancel={() => {
+                    rotDrag.current = null
+                    setRotLabel(null)
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: `calc(${cx}% - 11px)`,
+                    top: `calc(${cy}% - 11px)`,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    background: '#ffffff',
+                    border: `2px solid ${GOLD}`,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
+                    pointerEvents: 'auto',
+                    cursor: 'grab',
+                    touchAction: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: GOLD,
+                    fontSize: 12,
+                    lineHeight: 1,
+                    userSelect: 'none',
+                  }}
+                >
+                  ↻
+                </div>
+              ))}
+              {rotLabel !== null && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${(x0 + x1) / 2}%`,
+                    top: `${(y0 + y1) / 2}%`,
+                    transform: 'translate(-50%, -50%)',
+                    background: 'rgba(14,12,9,0.85)',
+                    color: GOLD,
+                    border: `1px solid ${GOLD}`,
+                    borderRadius: 30,
+                    padding: '6px 14px',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    letterSpacing: 1,
+                  }}
+                >
+                  {rotLabel}°
+                </div>
+              )}
+            </div>
+          </>
+        )
+      })()}
+      </div>
+
       {/* Photo edit toolbar (full set, mirrors manual builder) */}
       {editingSlot >= 0 && (() => {
         const editAdj = adjusts[adjustKey(spread.id, editingSlot)] ?? DEFAULT_ADJUST
@@ -8487,7 +8737,11 @@ function SpreadView({
             : GLOBAL_MAX_ZOOM
         const cd =
           editPhoto && editSlotDef ? coverDpi(editPhoto, editSlotDef, albumSize) : 0
-        const effDpi = cd > 0 ? Math.round(cd / Math.max(1, editAdj.zoom)) : 0
+        const effZoomSel =
+          editPhoto && editSlotDef && editAdj.fit === 'fill' && editPhoto.width && editPhoto.height
+            ? effectiveZoom(editAdj.zoom, editPhoto.width / editPhoto.height, (editSlotDef.w / editSlotDef.h) * aspect, editAdj.rotate)
+            : editAdj.zoom
+        const effDpi = cd > 0 ? Math.round(cd / Math.max(1, effZoomSel)) : 0
         return (
           <PhotoToolbar
             adj={editAdj}
@@ -8615,7 +8869,7 @@ function PhotoToolbar({
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>
-          ✋ Drag the photo to reposition
+          ✋ Drag to move · ↻ corners to rotate · pinch to zoom
         </span>
 
         {/* ZOOM — smart-capped so it never pixelates at print */}
@@ -8676,6 +8930,37 @@ function PhotoToolbar({
             </span>
           )}
         </div>
+
+        {/* STRAIGHTEN — fine tilt ±45° around the current 90° step.
+            Corner handles on the photo do the same by hand. */}
+        {(() => {
+          const total = adj.rotate ?? 0
+          const coarse = Math.round(total / 90) * 90
+          const fine = total - coarse
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={groupLabel}>Straighten</span>
+              <input
+                type="range"
+                min={-45}
+                max={45}
+                step={0.5}
+                value={Math.max(-45, Math.min(45, fine))}
+                onChange={(e) => onChange({ rotate: coarse + parseFloat(e.target.value) })}
+                style={{ width: 110, accentColor: GOLD }}
+                title="Tilt the photo · or drag a corner handle"
+              />
+              <span style={{ fontSize: 10, color: GOLD, minWidth: 34, textAlign: 'right' }}>
+                {Math.round(fine * 10) / 10}°
+              </span>
+              {fine !== 0 && (
+                <button type="button" style={btn} onClick={() => onChange({ rotate: coarse })} title="Straighten to 0°">
+                  0°
+                </button>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Primary actions */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -8768,17 +9053,6 @@ function PhotoToolbar({
               >
                 ↻
               </button>
-              <span style={{ fontSize: 9, color: 'var(--muted2)', marginLeft: 4 }}>fine</span>
-              <input
-                type="range"
-                min={-15}
-                max={15}
-                step={1}
-                value={Math.round(Math.max(-15, Math.min(15, fine)))}
-                onChange={(e) => onChange({ rotate: coarse + parseInt(e.target.value) })}
-                title="Fine tilt — ±15°"
-                style={{ width: 90, accentColor: GOLD }}
-              />
               <button
                 type="button"
                 style={btn}

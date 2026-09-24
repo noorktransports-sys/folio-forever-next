@@ -22,6 +22,8 @@
 // pass a higher `outputLongEdgePx` so the print files actually hit
 // 300 DPI for the album's physical size (24" → 7200 px, 30" → 9000 px).
 
+import { rotationCoverZoom } from '@/lib/smart-layout/rotate-cover'
+
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
 
@@ -409,8 +411,14 @@ export async function renderSpreadComposite({
       coverW = sw
       coverH = sw / ir
     }
-    coverW *= adj.zoom
-    coverH *= adj.zoom
+    // Rotated photos auto-zoom just enough to keep the frame full
+    // (mirrors the editor via rotationCoverZoom — proof === print).
+    const effZoom = Math.max(
+      adj.zoom || 1,
+      rotationCoverZoom(ir, sr, adj.rotate || 0),
+    )
+    coverW *= effZoom
+    coverH *= effZoom
 
     // Anchor at slot centre so rotate/flip pivot is intuitive.
     const cx = sx + sw / 2

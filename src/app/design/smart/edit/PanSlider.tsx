@@ -94,16 +94,21 @@ export function SlotImage({ src, alt = '', adjust, onAdjustChange, style, fit = 
     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
   }, [])
 
-  // Build the transform. Order matters: rotate, then scale, then flip.
-  const flipScale = `${adjust.flipH ? -1 : 1}, ${adjust.flipV ? -1 : 1}`
-  const transform = `rotate(${adjust.rotate}deg) scale(${adjust.zoom}) scale(${flipScale})`
-  // Anchor scaling to the pan point. At zoom=1 this has no effect (no
-  // scaling), so object-position alone handles the crop. At zoom > 1,
-  // shifting the pivot means panX=0 scales out from the LEFT edge
-  // (showing the left of the image), panX=100 from the right, etc.
-  // This is what makes "pan freely while zoomed" feel right — without
-  // it, scale always pivots on center and pan range never increases.
-  const transformOrigin = `${adjust.panX}% ${adjust.panY}%`
+  // Build the transform so the editor matches the PRINT renderer
+  // (render-spread.ts) exactly:
+  //   1. zoom scales about the pan point (so panning while zoomed feels
+  //      right — panX=0 grows out from the left edge, etc.)
+  //   2. then flip, then rotate — both about the FRAME CENTRE.
+  // Written with origin 50% 50%, "scale about the pan point" becomes
+  // translate(p-c) scale(z) translate(c-p). At rotate 0 / no flip this
+  // is identical to the old scale-about-pan-point transform.
+  const dx = adjust.panX - 50
+  const dy = adjust.panY - 50
+  const transform =
+    `rotate(${adjust.rotate}deg) ` +
+    `scale(${adjust.flipH ? -1 : 1}, ${adjust.flipV ? -1 : 1}) ` +
+    `translate(${dx}%, ${dy}%) scale(${adjust.zoom}) translate(${-dx}%, ${-dy}%)`
+  const transformOrigin = '50% 50%'
 
   return (
     <div
