@@ -44,6 +44,8 @@ type Slot = {
   /** Built-in frame drawn when the client hasn't set their own border.
    *  `pct` = frame thickness as % of the slot's WIDTH. */
   frame?: { color: string; pct: number }
+  /** 'bw' = show/print this photo in black & white (magazine layouts). */
+  filter?: 'bw'
 }
 
 /** A flat colour block baked into a layout (e.g. the rust bands on the

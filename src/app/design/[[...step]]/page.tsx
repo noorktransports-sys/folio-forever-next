@@ -231,7 +231,7 @@ export default function DesignerPage() {
    * album-builder.js's _folioReadAlbumsIndex; if the script hasn't
    * loaded yet we read straight from localStorage as a fallback.
    */
-  type AlbumIndexEntry = { id: string; name: string; createdAt: string; lastEditedAt: string; mode?: 'smart' | 'manual' };
+  type AlbumIndexEntry = { id: string; name: string; createdAt: string; lastEditedAt: string; mode?: 'smart' | 'manual' | 'magazine' };
   const [albums, setAlbums] = useState<AlbumIndexEntry[]>([]);
   const refreshAlbums = () => {
     if (typeof window === 'undefined') return;
@@ -601,7 +601,7 @@ export default function DesignerPage() {
                 return (
                   <div
                     key={album.id}
-                    onClick={() => router.push((album.mode === 'smart' ? '/design/smart?album=' : '/design/build?album=') + album.id)}
+                    onClick={() => router.push((album.mode === 'smart' ? '/design/smart?album=' : album.mode === 'magazine' ? '/design/magazine?album=' : '/design/build?album=') + album.id)}
                     style={{
                       position: 'relative',
                       background: 'var(--dark2)',
@@ -637,7 +637,7 @@ export default function DesignerPage() {
                       alignItems: 'center',
                     }}>
                       <span>{edited ? `Edited ${edited}` : 'Draft'}</span>
-                      {album.mode === 'smart' && (
+                      {(album.mode === 'smart' || album.mode === 'magazine') && (
                         <span style={{
                           fontSize: 8,
                           letterSpacing: 1.5,
@@ -646,7 +646,7 @@ export default function DesignerPage() {
                           padding: '2px 6px',
                           borderRadius: 30,
                         }}>
-                          Smart
+                          {album.mode === 'magazine' ? 'Magazine' : 'Smart'}
                         </span>
                       )}
                     </div>
@@ -739,6 +739,39 @@ export default function DesignerPage() {
             </span>
             <button type="button" className="btn-path btn-path-primary">
               Try Smart Auto-Layout
+            </button>
+          </div>
+
+          <div
+            className="path-card"
+            onClick={() => router.push('/design/magazine')}
+          >
+            <div className="path-badge">New</div>
+            <div className="path-icon">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <rect x="3" y="2" width="11" height="15" stroke="#b8965a" strokeWidth="0.8" />
+                <path d="M14 4h3v15H6v-2" stroke="#b8965a" strokeWidth="0.8" />
+                <circle cx="8.5" cy="7" r="2.2" stroke="#b8965a" strokeWidth="0.6" />
+                <path d="M5 11.5h7M5 13.5h7" stroke="#b8965a" strokeWidth="0.6" />
+              </svg>
+            </div>
+            <p className="path-name">Create Your Magazine</p>
+            <span className="path-tagline">20-page magazine · 8.5×11</span>
+            <p className="path-desc">
+              A designed 20-page magazine. Upload your photos and we
+              place them into editorial layouts — circles, frames and all.
+            </p>
+            <ul className="path-features">
+              <li>20 designed pages, ready to fill</li>
+              <li>Photos placed for you, in order</li>
+              <li>Swap, crop and zoom any photo</li>
+              <li>8.5 × 11 in portrait</li>
+            </ul>
+            <span className="path-price">
+              $70 <span>flat · 20 pages</span>
+            </span>
+            <button type="button" className="btn-path btn-path-secondary">
+              Create a Magazine
             </button>
           </div>
 

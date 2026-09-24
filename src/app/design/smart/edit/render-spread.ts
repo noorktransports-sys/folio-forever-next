@@ -34,6 +34,8 @@ interface Slot {
   shape?: 'rect' | 'circle'
   z?: number
   frame?: { color: string; pct: number }
+  /** 'bw' = print this photo in black & white (magazine layouts). */
+  filter?: 'bw'
 }
 
 interface LayoutTemplate {
@@ -156,6 +158,8 @@ export interface SpreadBgInput {
   zoom?: number
   panX?: number
   panY?: number
+  /** Optional colour wash over the bg photo (e.g. 'rgba(143,46,13,0.5)'). */
+  tint?: string
 }
 
 const BG_PHOTO_MAX_ZOOM = 2
@@ -324,6 +328,12 @@ export async function renderSpreadComposite({
         ctx.fillStyle = `rgba(0,0,0,${bg.dim ?? 0.25})`
         ctx.fillRect(0, 0, W, H)
         ctx.restore()
+        if (bg.tint) {
+          ctx.save()
+          ctx.fillStyle = bg.tint
+          ctx.fillRect(0, 0, W, H)
+          ctx.restore()
+        }
       } catch {
         // bg photo failed to load — fall back to the flat fill already drawn
       }
@@ -422,6 +432,7 @@ export async function renderSpreadComposite({
     const offsetX = ((50 - adj.panX) / 100) * overflowX
     const offsetY = ((50 - adj.panY) / 100) * overflowY
 
+    if (slot.filter === 'bw') ctx.filter = 'grayscale(1)'
     ctx.drawImage(
       img,
       -coverW / 2 + offsetX,
