@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * Folio & Forever brand palette mirrors the existing WP child theme so the
+ * Folio Forever brand palette mirrors the existing WP child theme so the
  * port preserves the dark-luxury aesthetic. Variables are duplicated in
  * globals.css as CSS custom properties for use outside Tailwind utility
  * classes (e.g. inline styles in client components).

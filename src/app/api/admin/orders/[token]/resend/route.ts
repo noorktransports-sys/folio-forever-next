@@ -41,7 +41,7 @@ interface Env {
   OWNER_EMAIL?: string;
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
 
 const PAID_OR_LATER = new Set([

@@ -440,7 +440,7 @@ export function customerPaidEmailHtml(
 
     <p style="font-size: 12px; color: #6b5e4e; margin-top: 20px; line-height: 1.7;">
       Questions? Reply to this email and we'll get back to you within a business day.<br>
-      <em>— Folio &amp; Forever</em>
+      <em>— Folio Forever</em>
     </p>
   </div>
 </body></html>`;

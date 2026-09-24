@@ -55,7 +55,7 @@ interface Env {
   OWNER_EMAIL?: string;
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
 const ORDERS_INDEX_KEY = '_orders_index_v1';
 const SUBMITTED_TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year

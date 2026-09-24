@@ -37,7 +37,7 @@ export default async function AdminAuditPage() {
     <div className="admin-shell">
       <header className="admin-top">
         <div>
-          <div className="admin-tag">Folio &amp; Forever · audit log</div>
+          <div className="admin-tag">Folio Forever · audit log</div>
           <h1>Legal audit</h1>
         </div>
         <div className="admin-top-actions">

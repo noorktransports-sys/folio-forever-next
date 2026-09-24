@@ -31,7 +31,7 @@ interface Env {
   CLIENT_FROM_EMAIL?: string;
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const CODE_TTL_SECONDS = 600; // 10 minutes
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -59,7 +59,7 @@ function esc(s: string): string {
 function codeEmailHtml(name: string, code: string): string {
   return `<!doctype html><html><body style="margin:0;background:#0e0c09;padding:40px 0;font-family:Georgia,serif;">
   <div style="max-width:480px;margin:0 auto;background:#1a1611;border:1px solid #b8965a33;border-radius:14px;padding:36px;">
-    <p style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin:0 0 18px;">Folio &amp; Forever</p>
+    <p style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin:0 0 18px;">Folio Forever</p>
     <h1 style="font-size:20px;color:#f3ece0;margin:0 0 12px;font-weight:500;">Verify your email</h1>
     <p style="font-size:13px;color:#c9bda9;line-height:1.7;margin:0 0 24px;">
       Hi ${esc(name) || 'there'}, here is your verification code to start designing your album:
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
   const sent = await sendResendEmail(env.RESEND_API_KEY, {
     from,
     to: [email],
-    subject: `Your Folio & Forever verification code: ${code}`,
+    subject: `Your Folio Forever verification code: ${code}`,
     html: codeEmailHtml(name, code),
   });
 

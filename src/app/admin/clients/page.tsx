@@ -34,7 +34,7 @@ export default async function AdminClientsPage() {
     <div className="admin-shell">
       <header className="admin-top">
         <div>
-          <div className="admin-tag">Folio &amp; Forever · clients</div>
+          <div className="admin-tag">Folio Forever · clients</div>
           <h1>Registered clients</h1>
         </div>
         <div className="admin-top-actions">

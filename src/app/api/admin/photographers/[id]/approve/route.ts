@@ -32,7 +32,7 @@ interface Env {
   ORDER_FROM_EMAIL?: string;
 }
 
-const DEFAULT_FROM = 'Folio & Forever <orders@folioforever.com>';
+const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 
 interface IndexEntry {
   email: string;
@@ -129,9 +129,9 @@ export async function POST(
     const html = `
 <!doctype html><html><body style="margin:0;padding:0;background:#f6f1e8;font-family:Georgia,serif;color:#2a2419">
   <div style="max-width:520px;margin:0 auto;padding:32px 24px">
-    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio &amp; Forever Pro</div>
+    <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#b8965a;margin-bottom:8px">Folio Forever Pro</div>
     <h1 style="font-size:24px;margin:0 0 14px;font-weight:400">You&rsquo;re in.</h1>
-    <p style="font-size:14px;line-height:1.7">Hi ${escapeHtml(record.name)}, your photographer account at Folio &amp; Forever has been approved. Click below to sign into your dashboard and start designing albums for your clients.</p>
+    <p style="font-size:14px;line-height:1.7">Hi ${escapeHtml(record.name)}, your photographer account at Folio Forever has been approved. Click below to sign into your dashboard and start designing albums for your clients.</p>
     <p style="margin:24px 0">
       <a href="${escapeHtml(verifyUrl)}" style="display:inline-block;background:#b8965a;color:#0e0c09;padding:14px 28px;text-decoration:none;border-radius:4px;font-size:11px;letter-spacing:2px;text-transform:uppercase">Open my dashboard</a>
     </p>
@@ -148,7 +148,7 @@ export async function POST(
         body: JSON.stringify({
           from: fromAddr,
           to: [record.email],
-          subject: 'Welcome to Folio & Forever Pro',
+          subject: 'Welcome to Folio Forever Pro',
           html,
         }),
       });

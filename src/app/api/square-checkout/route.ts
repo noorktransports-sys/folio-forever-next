@@ -146,7 +146,7 @@ export async function POST(request: Request) {
       name: 'Polish hand-off — design team finishing',
       quantity: 1,
       basePriceAmountCents: 9900,
-      note: 'Hand-finishing by Folio & Forever design team before printing',
+      note: 'Hand-finishing by Folio Forever design team before printing',
     });
   }
 

@@ -6141,7 +6141,7 @@ function SmartDesignerInner() {
     <div style={css.page}>
       <nav style={css.nav}>
         <Link href="/" style={css.logo}>
-          Folio &amp; Forever
+          Folio Forever
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           {albumName && (
@@ -9010,7 +9010,7 @@ function ClientRegister({ onVerified }: { onVerified: (name: string) => void }) 
     <div style={wrap}>
       <div style={card}>
         <p style={{ fontSize: 11, letterSpacing: 3, color: GOLD, textTransform: 'uppercase', margin: '0 0 14px' }}>
-          Folio &amp; Forever
+          Folio Forever
         </p>
         {phase === 'form' ? (
           <>

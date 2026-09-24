@@ -236,7 +236,7 @@ export default async function OrderDetail({
           <h1>{design.orderId || 'Order'}</h1>
 =======
           <div className="admin-tag">
-            Folio &amp; Forever — {isSmart ? 'smart order' : 'manual order'}
+            Folio Forever — {isSmart ? 'smart order' : 'manual order'}
           </div>
           <h1 style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             {design.orderId || 'Order'}
@@ -495,7 +495,7 @@ export default async function OrderDetail({
         const fileList = printFiles.map((f) => '  • ' + f.name).join('\n')
         const manifestText =
           [
-            'FOLIO & FOREVER · PRINT PACKAGE',
+            'FOLIO FOREVER · PRINT PACKAGE',
             '=================================',
             '',
             `Order ID:        ${design.orderId || token}`,

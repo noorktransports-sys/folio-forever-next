@@ -24,7 +24,7 @@ import {
 
 const PREVIEW_MAX_DIM = 1200     // long edge for client preview
 const PREVIEW_QUALITY = 0.65     // JPEG quality 0..1
-const WATERMARK_TEXT = 'FOLIO & FOREVER · PREVIEW'
+const WATERMARK_TEXT = 'FOLIO FOREVER · PREVIEW'
 
 /**
  * Generate a small, watermarked JPEG from a source File/Blob using Canvas.
