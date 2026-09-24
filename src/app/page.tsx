@@ -47,24 +47,20 @@ export default function HomePage() {
       {/* HERO */}
       <section className="hero">
         <div className="hero-video-wrap">
-          {/* TODO: replace placeholder with real hero video */}
-          <div className="hero-video-placeholder">
-            <div className="play-btn">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M6 4L16 10L6 16V4Z" fill="#b8965a" />
-              </svg>
-            </div>
-            <span
-              style={{
-                fontSize: '10px',
-                letterSpacing: '2px',
-                color: '#4a3f30',
-                textTransform: 'uppercase',
-              }}
-            >
-              Your hero video goes here
-            </span>
-          </div>
+          {/* Hero film — muted + playsInline so it autoplays on every
+              browser (incl. iOS). The file has cinema letterbox bars
+              baked in; CSS scales it 1.25× so they sit off-screen. */}
+          <video
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            poster="/video/hero-poster.jpg"
+            aria-hidden
+          >
+            <source src="/video/hero.mp4" type="video/mp4" />
+          </video>
         </div>
         <div className="hero-overlay" />
         <div className="hero-content">

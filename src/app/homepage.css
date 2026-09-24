@@ -80,7 +80,22 @@ nav {
 }
 
 .hero-video-wrap { position: absolute; inset: 0; z-index: 0; }
-.hero-video-wrap video { width: 100%; height: 100%; object-fit: cover; opacity: 0.4; }
+/* The hero film is dark and has letterbox bars baked in (content is the
+   middle 80% of the frame). scale(1.25) pushes the bars off-screen; full
+   opacity because the footage is already low-key. */
+.hero-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+  transform: scale(1.25);
+  transform-origin: 50% 50%;
+}
+/* Phones: the frame is tall, so only a slice of the film shows — keep
+   the bride's face (left of centre) in view rather than dead centre. */
+@media (max-width: 700px) {
+  .hero-video-wrap video { object-position: 28% 50%; }
+}
 
 .hero-video-placeholder {
   width: 100%;
@@ -111,7 +126,7 @@ nav {
 .hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(14,12,9,1) 0%, rgba(14,12,9,0.3) 50%, rgba(14,12,9,0.5) 100%);
+  background: linear-gradient(to top, rgba(14,12,9,1) 0%, rgba(14,12,9,0.15) 45%, rgba(14,12,9,0.35) 100%);
   z-index: 1;
 }
 
