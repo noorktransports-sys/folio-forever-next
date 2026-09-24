@@ -28,13 +28,37 @@ type EventId =
   | 'portraits'
   | 'other'
 
-type Slot = { x: number; y: number; w: number; h: number; isHero?: boolean }
+type Slot = {
+  x: number
+  y: number
+  w: number
+  h: number
+  isHero?: boolean
+  /** Frame shape. 'circle' = round photo frame. A circle is sized from
+   *  its WIDTH only: `h` is ignored and derived via slotBox() so the
+   *  frame stays a true circle on any page/spread aspect ratio. */
+  shape?: 'rect' | 'circle'
+  /** Stacking order for layouts whose photos overlap (higher = on top).
+   *  Default 0; ties keep array order. */
+  z?: number
+  /** Built-in frame drawn when the client hasn't set their own border.
+   *  `pct` = frame thickness as % of the slot's WIDTH. */
+  frame?: { color: string; pct: number }
+}
+
+/** A flat colour block baked into a layout (e.g. the rust bands on the
+ *  magazine pages). Drawn above the background, below every photo.
+ *  `fill: 'accent'` resolves to the template's accent colour. */
+type Decor = { x: number; y: number; w: number; h: number; fill: string }
 
 type LayoutTemplate = {
   id: string
   name: string
   slots: Slot[]
   compat: AlbumType[]
+  decor?: Decor[]
+  /** Colour used for decor with fill 'accent'. */
+  accent?: string
 }
 
 type Spread = {
@@ -148,9 +172,38 @@ function bleedFillSlots(slots: Slot[]): Slot[] {
   })
 }
 
-/** Slots to actually RENDER: bleed → snapped edge-to-edge; mat → as-is. */
+/** Designed fixed-layout templates (magazine pages). Their geometry is
+ *  hand-measured and may overlap on purpose, so it is NEVER gap-snapped. */
+function isDesignedTemplate(t: { id: string }): boolean {
+  return t.id.startsWith('mag-')
+}
+
+/** Slots to actually RENDER: bleed → snapped edge-to-edge; mat and
+ *  designed (mag-*) templates → as authored. */
 function renderSlots(t: LayoutTemplate): Slot[] {
+  if (isDesignedTemplate(t)) return t.slots
   return templateFamily(t) === 'bleed' ? bleedFillSlots(t.slots) : t.slots
+}
+
+/** Resolve a slot's drawn box for a given spread/page aspect (W/H).
+ *  Rect slots are returned unchanged. Circle slots get h = w × aspect so
+ *  the pixel width equals the pixel height (a true circle, never an oval). */
+function slotBox(s: Slot, aspect: number): Slot {
+  if (s.shape !== 'circle') return s
+  return { ...s, h: s.w * aspect }
+}
+
+/** Slot indexes in paint order (low z first; ties keep array order). */
+function slotPaintOrder(slots: Slot[]): number[] {
+  return slots
+    .map((s, i) => ({ i, z: s.z ?? 0 }))
+    .sort((a, b) => a.z - b.z || a.i - b.i)
+    .map((x) => x.i)
+}
+
+/** Resolve a decor block's fill ('accent' → template accent). */
+function decorFill(t: LayoutTemplate, d: Decor): string {
+  return d.fill === 'accent' ? t.accent || '#8f2e0d' : d.fill
 }
 
 /* ─── Orientation-aware scoring (Part B) ────────────────────────────────
@@ -1369,6 +1422,7 @@ export type {
   AlbumType,
   EventId,
   Slot,
+  Decor,
   LayoutTemplate,
   Spread,
   AlbumStyle,
@@ -1379,6 +1433,10 @@ export {
   templateFamily,
   bleedFillSlots,
   renderSlots,
+  isDesignedTemplate,
+  slotBox,
+  slotPaintOrder,
+  decorFill,
   classifyAspect,
   photoAspectClass,
   slotAspectClass,

@@ -79,6 +79,9 @@ import {
   templateFamily,
   renderSlots,
   scoreTemplateForPhotos,
+  slotBox,
+  slotPaintOrder,
+  decorFill,
 } from '@/lib/smart-layout/templates'
 import type {
   AlbumType,
@@ -5801,7 +5804,26 @@ function SmartDesignerInner() {
                       </>
                     )
                   })()}
-                  {renderSlots(tpl).map((slot, i) => {
+                  {(tpl.decor ?? []).map((d, di) => (
+                    <div
+                      key={`decor-${di}`}
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        left: `${d.x}%`,
+                        top: `${d.y}%`,
+                        width: `${d.w}%`,
+                        height: `${d.h}%`,
+                        background: decorFill(tpl, d),
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ))}
+                  {(() => {
+                    const pslots = renderSlots(tpl).map((sl) => slotBox(sl, aspect))
+                    return slotPaintOrder(pslots).map((i) => {
+                    const slot = pslots[i]
+                    const isCircle = slot.shape === 'circle'
                     const photoId = s.photoIds[i]
                     const photo = photoId ? photoMap.get(photoId) : undefined
                     const adj = adjusts[adjustKey(s.id, i)] ?? DEFAULT_ADJUST
@@ -5820,8 +5842,10 @@ function SmartDesignerInner() {
                           position: 'absolute',
                           left: `${slot.x}%`,
                           top: `${slot.y}%`,
-                          width: `calc(${slot.w}% + 1px)`,
-                          height: `calc(${slot.h}% + 1px)`,
+                          width: isCircle ? `${slot.w}%` : `calc(${slot.w}% + 1px)`,
+                          height: isCircle ? `${slot.h}%` : `calc(${slot.h}% + 1px)`,
+                          borderRadius: isCircle ? '50%' : undefined,
+                          containerType: slot.frame ? 'inline-size' : undefined,
                           overflow: 'hidden',
                           background: photo ? 'transparent' : '#f5f0e8',
                         }}
@@ -5845,6 +5869,19 @@ function SmartDesignerInner() {
                               position: 'absolute',
                               inset: 0,
                               border: `${(adj.borderWidth / 10) * 6}px solid ${adj.borderColor}`,
+                              borderRadius: 'inherit',
+                              boxSizing: 'border-box',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        ) : photo && slot.frame ? (
+                          <div
+                            aria-hidden
+                            style={{
+                              position: 'absolute',
+                              inset: 0,
+                              border: `max(1px, ${slot.frame.pct}cqw) solid ${slot.frame.color}`,
+                              borderRadius: 'inherit',
                               boxSizing: 'border-box',
                               pointerEvents: 'none',
                             }}
@@ -5856,6 +5893,7 @@ function SmartDesignerInner() {
                               position: 'absolute',
                               inset: 0,
                               border: `1px solid ${frameColorForBg(spreadBgs[s.id])}`,
+                              borderRadius: 'inherit',
                               boxSizing: 'border-box',
                               pointerEvents: 'none',
                             }}
@@ -5863,7 +5901,8 @@ function SmartDesignerInner() {
                         ) : null}
                       </div>
                     )
-                  })}
+                  })
+                  })()}
                   {/* Gutter line for standard hardcover */}
                   {showGutter && (
                     <div
@@ -6372,21 +6411,42 @@ function LayoutThumb({
         e.currentTarget.style.boxShadow = 'none'
       }}
     >
-      {renderSlots(tpl).map((s, i) => (
+      {(tpl.decor ?? []).map((d, di) => (
         <span
-          key={i}
+          key={`d${di}`}
           style={{
             position: 'absolute',
-            left: `${s.x}%`,
-            top: `${s.y}%`,
-            width: `${s.w}%`,
-            height: `${s.h}%`,
-            background: s.isHero ? 'rgba(184,150,90,0.6)' : 'rgba(184,150,90,0.28)',
-            border: '0.5px solid rgba(184,150,90,0.55)',
-            boxSizing: 'border-box',
+            left: `${d.x}%`,
+            top: `${d.y}%`,
+            width: `${d.w}%`,
+            height: `${d.h}%`,
+            background: decorFill(tpl, d),
+            opacity: 0.55,
           }}
         />
       ))}
+      {(() => {
+        const ts = renderSlots(tpl).map((s) => slotBox(s, aspect))
+        return slotPaintOrder(ts).map((i) => {
+          const s = ts[i]
+          return (
+            <span
+              key={i}
+              style={{
+                position: 'absolute',
+                left: `${s.x}%`,
+                top: `${s.y}%`,
+                width: `${s.w}%`,
+                height: `${s.h}%`,
+                background: s.isHero ? 'rgba(184,150,90,0.6)' : 'rgba(184,150,90,0.28)',
+                border: '0.5px solid rgba(184,150,90,0.55)',
+                borderRadius: s.shape === 'circle' ? '50%' : undefined,
+                boxSizing: 'border-box',
+              }}
+            />
+          )
+        })
+      })()}
     </button>
   )
 }
@@ -6509,7 +6569,7 @@ function SpreadNavRail({
         </div>
         {spreads.map((s, i) => {
           const tpl = TEMPLATE_BY_ID.get(s.templateId)
-          const miniSlots = tpl ? renderSlots(tpl) : []
+          const miniSlots = tpl ? renderSlots(tpl).map((sl) => slotBox(sl, aspect)) : []
           const isMat = tpl ? templateFamily(tpl) === 'mat' : false
           return (
             <button
@@ -6555,7 +6615,21 @@ function SpreadNavRail({
                   background: isMat ? '#1f1813' : '#1a1410',
                 }}
               >
-                {miniSlots.map((slot, si) => {
+                {tpl && (tpl.decor ?? []).map((d, di) => (
+                  <div
+                    key={`d${di}`}
+                    style={{
+                      position: 'absolute',
+                      left: `${d.x}%`,
+                      top: `${d.y}%`,
+                      width: `${d.w}%`,
+                      height: `${d.h}%`,
+                      background: decorFill(tpl, d),
+                    }}
+                  />
+                ))}
+                {slotPaintOrder(miniSlots).map((si) => {
+                  const slot = miniSlots[si]
                   const pid = s.photoIds[si]
                   const src = pid ? previewFor(pid) : undefined
                   return (
@@ -6567,6 +6641,7 @@ function SpreadNavRail({
                         top: `${slot.y}%`,
                         width: `calc(${slot.w}% + 0.5px)`,
                         height: `calc(${slot.h}% + 0.5px)`,
+                        borderRadius: slot.shape === 'circle' ? '50%' : undefined,
                         overflow: 'hidden',
                         background: '#2a211a',
                       }}
@@ -7811,8 +7886,10 @@ function SpreadView({
   )
   const tpl = TEMPLATE_BY_ID.get(spread.templateId)
   if (!tpl) return null
+  const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
   // Edge-to-edge slots for bleed layouts (no white gaps); mat unchanged.
-  const rslots = renderSlots(tpl)
+  // slotBox() gives circle slots their true (aspect-corrected) height.
+  const rslots = renderSlots(tpl).map((s) => slotBox(s, aspect))
   // Matted photos get an automatic thin frame (contrast-aware) so the
   // edge always looks intentional — never a stray cream/white seam.
   const matFrame = templateFamily(tpl) === 'mat' ? frameColorForBg(bg) : null
@@ -7820,7 +7897,6 @@ function SpreadView({
   const eventName = spread.eventId === 'unassigned'
     ? 'Untagged'
     : EVENTS.find((e) => e.id === spread.eventId)?.name ?? ''
-  const aspect = ALBUM_SPECS[albumSize].spreadAspectRatio
   const showGutter = albumType === 'standard'
 
   return (
@@ -8110,7 +8186,26 @@ function SpreadView({
             </>
           )
         })()}
-        {rslots.map((slot, i) => {
+        {/* Designed colour blocks (e.g. magazine rust bands). Above the
+            background, below every photo. None on regular templates. */}
+        {(tpl.decor ?? []).map((d, di) => (
+          <div
+            key={`decor-${di}`}
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: `${d.x}%`,
+              top: `${d.y}%`,
+              width: `${d.w}%`,
+              height: `${d.h}%`,
+              background: decorFill(tpl, d),
+              pointerEvents: 'none',
+            }}
+          />
+        ))}
+        {slotPaintOrder(rslots).map((i) => {
+          const slot = rslots[i]
+          const isCircle = slot.shape === 'circle'
           const id = spread.photoIds[i]
           const photo = id ? photoMap.get(id) : undefined
           const editing = editingSlot === i
@@ -8155,8 +8250,12 @@ function SpreadView({
                 // by a hairline instead of leaving a sub-pixel seam that
                 // reveals the white page between photos. Invisible in
                 // matted layouts (it just grows 1px into the mat gap).
-                width: `calc(${slot.w}% + 1px)`,
-                height: `calc(${slot.h}% + 1px)`,
+                // Circles use their exact box so they stay perfectly round.
+                width: isCircle ? `${slot.w}%` : `calc(${slot.w}% + 1px)`,
+                height: isCircle ? `${slot.h}%` : `calc(${slot.h}% + 1px)`,
+                borderRadius: isCircle ? '50%' : undefined,
+                // Lets the built-in frame size itself in cqw (% of slot width).
+                containerType: slot.frame ? 'inline-size' : undefined,
                 cursor: photo ? 'grab' : 'pointer',
                 outline: editing ? `2px solid ${GOLD}` : 'none',
                 outlineOffset: -2,
@@ -8192,6 +8291,19 @@ function SpreadView({
                         position: 'absolute',
                         inset: 0,
                         border: `${(adj.borderWidth / 10) * 16}px solid ${adj.borderColor}`,
+                        borderRadius: 'inherit',
+                        boxSizing: 'border-box',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ) : slot.frame ? (
+                    <div
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: `max(1px, ${slot.frame.pct}cqw) solid ${slot.frame.color}`,
+                        borderRadius: 'inherit',
                         boxSizing: 'border-box',
                         pointerEvents: 'none',
                       }}
@@ -8203,6 +8315,7 @@ function SpreadView({
                         position: 'absolute',
                         inset: 0,
                         border: `1.5px solid ${matFrame}`,
+                        borderRadius: 'inherit',
                         boxSizing: 'border-box',
                         pointerEvents: 'none',
                       }}
@@ -8236,6 +8349,7 @@ function SpreadView({
                     inset: 0,
                     background: '#f5f0e8',
                     border: `1.5px dashed rgba(184,150,90,0.5)`,
+                    borderRadius: 'inherit',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',

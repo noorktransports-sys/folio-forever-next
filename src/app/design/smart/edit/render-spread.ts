@@ -31,12 +31,17 @@ interface Slot {
   w: number
   h: number
   isHero?: boolean
+  shape?: 'rect' | 'circle'
+  z?: number
+  frame?: { color: string; pct: number }
 }
 
 interface LayoutTemplate {
   id: string
   name: string
   slots: Slot[]
+  decor?: { x: number; y: number; w: number; h: number; fill: string }[]
+  accent?: string
 }
 
 // MUST mirror page.tsx's bleedFillSlots/renderSlots exactly so the
@@ -80,8 +85,23 @@ function bleedFillSlots(slots: Slot[]): Slot[] {
   })
 }
 
+// MUST mirror lib/smart-layout/templates.ts renderSlots / slotBox /
+// slotPaintOrder so print === proof (clause 2.3).
 function renderSlots(t: LayoutTemplate): Slot[] {
+  if (t.id.startsWith('mag-')) return t.slots // designed: never snapped
   return t.id.startsWith('mat-') ? t.slots : bleedFillSlots(t.slots)
+}
+
+function slotBox(s: Slot, aspect: number): Slot {
+  if (s.shape !== 'circle') return s
+  return { ...s, h: s.w * aspect }
+}
+
+function slotPaintOrder(slots: Slot[]): number[] {
+  return slots
+    .map((s, i) => ({ i, z: s.z ?? 0 }))
+    .sort((a, b) => a.z - b.z || a.i - b.i)
+    .map((x) => x.i)
 }
 
 // Mirrors page.tsx frameColorForBg so the printed auto-frame matches
@@ -310,9 +330,18 @@ export async function renderSpreadComposite({
     }
   }
 
-  const drawSlots = renderSlots(template)
-  for (let i = 0; i < drawSlots.length; i++) {
+  // Designed colour blocks (magazine bands) — above bg, below photos.
+  for (const d of template.decor ?? []) {
+    ctx.save()
+    ctx.fillStyle = d.fill === 'accent' ? template.accent || '#8f2e0d' : d.fill
+    ctx.fillRect((d.x / 100) * W, (d.y / 100) * H, (d.w / 100) * W, (d.h / 100) * H)
+    ctx.restore()
+  }
+
+  const drawSlots = renderSlots(template).map((s) => slotBox(s, spreadAspectRatio))
+  for (const i of slotPaintOrder(drawSlots)) {
     const slot = drawSlots[i]
+    const isCircle = slot.shape === 'circle'
     const photoId = spread.photoIds[i]
     if (!photoId) continue
     const photo = photos.get(photoId)
@@ -332,7 +361,13 @@ export async function renderSpreadComposite({
       // The slot will appear as the slot-background grey instead.
       ctx.save()
       ctx.fillStyle = '#f5f0e8'
-      ctx.fillRect(sx, sy, sw, sh)
+      if (isCircle) {
+        ctx.beginPath()
+        ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2, sh / 2, 0, 0, Math.PI * 2)
+        ctx.fill()
+      } else {
+        ctx.fillRect(sx, sy, sw, sh)
+      }
       ctx.restore()
       continue
     }
@@ -344,7 +379,12 @@ export async function renderSpreadComposite({
     // overlap a hairline instead of leaving an anti-aliased seam that
     // reveals the white page between photos (matches the editor's +1px).
     ctx.beginPath()
-    ctx.rect(sx - 1, sy - 1, sw + 2, sh + 2)
+    if (isCircle) {
+      // Round frame: exact circle, no hairline inflation.
+      ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2, sh / 2, 0, 0, Math.PI * 2)
+    } else {
+      ctx.rect(sx - 1, sy - 1, sw + 2, sh + 2)
+    }
     ctx.clip()
 
     // Cover dims at zoom=1: scale image so smaller dimension fills slot.
@@ -394,7 +434,32 @@ export async function renderSpreadComposite({
     // Photo frame (border) — drawn INSIDE the slot rect as 4 bars so it
     // matches the editor's inset border. Width = 2.2% of slot width at
     // level 10, the same relative weight the editor uses.
-    if (adj.borderWidth && adj.borderWidth > 0) {
+    // Frame colour/width: client border wins, else the layout's built-in
+    // frame. Circles get a ring (stroke inside the circle edge).
+    const userBw =
+      adj.borderWidth && adj.borderWidth > 0
+        ? Math.max(1, (adj.borderWidth / 10) * 0.022 * sw)
+        : 0
+    const builtInBw = !userBw && slot.frame ? Math.max(1, (slot.frame.pct / 100) * sw) : 0
+    if (isCircle && (userBw || builtInBw)) {
+      const bw = userBw || builtInBw
+      ctx.save()
+      ctx.strokeStyle = userBw ? adj.borderColor || '#ffffff' : slot.frame!.color
+      ctx.lineWidth = bw
+      ctx.beginPath()
+      ctx.ellipse(sx + sw / 2, sy + sh / 2, sw / 2 - bw / 2, sh / 2 - bw / 2, 0, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.restore()
+    } else if (builtInBw) {
+      const bw = builtInBw
+      ctx.save()
+      ctx.fillStyle = slot.frame!.color
+      ctx.fillRect(sx, sy, sw, bw)
+      ctx.fillRect(sx, sy + sh - bw, sw, bw)
+      ctx.fillRect(sx, sy, bw, sh)
+      ctx.fillRect(sx + sw - bw, sy, bw, sh)
+      ctx.restore()
+    } else if (adj.borderWidth && adj.borderWidth > 0) {
       const bw = Math.max(1, (adj.borderWidth / 10) * 0.022 * sw)
       ctx.save()
       ctx.fillStyle = adj.borderColor || '#ffffff'
