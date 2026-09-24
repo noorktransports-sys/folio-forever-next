@@ -23,6 +23,7 @@
 // 300 DPI for the album's physical size (24" → 7200 px, 30" → 9000 px).
 
 import { rotationCoverZoom } from '@/lib/smart-layout/rotate-cover'
+import { encodePrintJpeg } from './jpeg-print'
 
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
@@ -587,6 +588,9 @@ export async function renderSpreadComposite({
     }
   }
 
+  // Print files (submit-time, outputLongEdgePx set): 0.95 quality +
+  // 300-DPI header. On-screen previews keep the lighter 0.85.
+  if (outputLongEdgePx) return encodePrintJpeg(canvas, 300)
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => {

@@ -9,6 +9,8 @@
 // Default long edge for on-screen previews. Submit-time callers
 // pass a higher `outputLongEdgePx` so the print files hit 300 DPI
 // for the cover's physical height (17" → 5100 px, 20" → 6000 px).
+import { encodePrintJpeg } from './jpeg-print'
+
 const LONG_EDGE = 1600
 const JPEG_QUALITY = 0.86
 // Must match cover-builder.tsx COVER_REF_PX — the crop reference width
@@ -211,6 +213,8 @@ export async function renderCoverComposite(
     }
   }
 
+  // Print files: 0.95 quality + 300-DPI header (see jpeg-print.ts).
+  if (input.outputLongEdgePx) return encodePrintJpeg(canvas, 300)
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error('cover toBlob null'))),
