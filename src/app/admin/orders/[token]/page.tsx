@@ -231,10 +231,6 @@ export default async function OrderDetail({
     <main className="admin-shell">
       <header className="admin-top">
         <div>
-<<<<<<< HEAD
-          <div className="admin-tag">Folio Forever — order</div>
-          <h1>{design.orderId || 'Order'}</h1>
-=======
           <div className="admin-tag">
             Folio Forever — {isSmart ? 'smart order' : 'manual order'}
           </div>
@@ -244,7 +240,6 @@ export default async function OrderDetail({
               {statusLabel(design.status)}
             </span>
           </h1>
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
         </div>
         <div className="admin-top-actions">
           <Link href="/admin" className="admin-logout">← All orders</Link>

@@ -27,10 +27,6 @@ import { PhotoCountDropdown } from './edit/PhotoCountDropdown'
 import { buildPhotoCountOp, buildAddOp } from './edit/photo-count'
 import { renderCoverComposite } from './edit/render-cover'
 
-<<<<<<< HEAD
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { getTemplate, pickTemplate, type Category, type TemplateDef } from './templates';
-=======
 // Lazy: pulls the two composite renderers + render math only when the
 // client actually opens the album preview modal.
 const AlbumPreviewModal = dynamic(() => import('./edit/AlbumPreviewModal'), {
@@ -45,7 +41,6 @@ import {
 import { detectFaces, type FaceBox } from '@/lib/face-detect'
 import dynamic from 'next/dynamic'
 import { type CoverState } from '../cover-builder'
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 
 // Lazy: pulls Three.js (Album3D). Only load when the client actually
 // reaches the Cover step — keeps the main designer bundle lean.
@@ -77,12 +72,6 @@ const COVER_PRICE: Record<CoverState['type'], number> = {
   acrylic: 39,
 }
 
-<<<<<<< HEAD
-interface Spread {
-  templateId: string;
-  photos: Photo[];
-  event: EventKey | undefined;
-=======
 import {
   TEMPLATES,
   TEMPLATE_BY_ID,
@@ -248,7 +237,6 @@ type Photo = {
    *  for every panorama-tagged photo so they don't get squeezed into
    *  a multi-photo grid. */
   isPanorama?: boolean
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 type Step =
@@ -338,19 +326,6 @@ const DEFAULT_ADJUST: PhotoAdjust = {
   borderColor: '#ffffff',
 }
 
-<<<<<<< HEAD
-// ---------- layout rules engine ----------
-// Heroes get a 'hero' template (big single statement). Favorites pair up
-// into balanced or asymmetric pair layouts. Everything else fills via
-// varying photoCount + category so the album has visual rhythm instead
-// of a wall of identical grids.
-function generateLayout(photos: Photo[], numSpreads: number): Spread[] {
-  const visible = photos.filter((p) => !p.hidden);
-  const byTime = (a: Photo, b: Photo) => a.timestamp - b.timestamp;
-  const heroes = visible.filter((p) => p.tag === 'hero').sort(byTime);
-  const favorites = visible.filter((p) => p.tag === 'favorite').sort(byTime);
-  const others = visible.filter((p) => p.tag === null).sort(byTime);
-=======
 /** Curated frame colours. */
 const BORDER_PALETTE: { id: string; label: string; hex: string }[] = [
   { id: 'white', label: 'White', hex: '#ffffff' },
@@ -359,7 +334,6 @@ const BORDER_PALETTE: { id: string; label: string; hex: string }[] = [
   { id: 'charcoal', label: 'Charcoal', hex: '#3a342c' },
   { id: 'gold', label: 'Gold', hex: '#b8965a' },
 ]
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 
 /** Frame thickness in px for a given level + the element's rendered
  *  width, so the frame is the SAME relative weight everywhere
@@ -370,59 +344,6 @@ function borderPx(level: number | undefined, renderedWidthPx: number): number {
 }
 const adjustKey = (spreadId: string, slotIdx: number) => `${spreadId}::${slotIdx}`
 
-<<<<<<< HEAD
-  for (const h of heroes) {
-    const tmpl = pickTemplate(1, 'hero');
-    spreads.push({ templateId: tmpl.id, photos: [h], event: h.event });
-  }
-
-  for (let i = 0; i < favorites.length; i += 2) {
-    const a = favorites[i];
-    const b = favorites[i + 1];
-    const pair = b ? [a, b] : [a];
-    const category: Category | null =
-      pair.length === 2 ? (Math.random() < 0.4 ? 'asymmetric' : 'pair') : 'hero';
-    const tmpl = pickTemplate(pair.length, category);
-    spreads.push({ templateId: tmpl.id, photos: pair, event: pair[0].event });
-  }
-
-  // Fill remaining budget with varying photoCount for visual rhythm.
-  // 1=hero rest spread, 2=pair, 3=trio/asymmetric, 4+=quad/storyboard.
-  const pool = [...others];
-  while (spreads.length < numSpreads && pool.length > 0) {
-    const remainingSpreads = numSpreads - spreads.length;
-    const avg = Math.ceil(pool.length / remainingSpreads);
-    const take = Math.min(Math.max(2, avg), 5, pool.length);
-    const picked = pool.splice(0, take);
-    let category: Category | null;
-    if (take === 1) category = 'hero';
-    else if (take === 2) category = Math.random() < 0.5 ? 'pair' : 'asymmetric';
-    else if (take === 3) category = Math.random() < 0.5 ? 'trio' : 'asymmetric';
-    else if (take === 4) category = Math.random() < 0.5 ? 'quad' : 'asymmetric';
-    else category = 'storyboard';
-    const tmpl = pickTemplate(take, category);
-    spreads.push({
-      templateId: tmpl.id,
-      photos: picked,
-      event: picked[0]?.event,
-    });
-  }
-
-  const order: Record<EventKey, number> = {
-    prep: 0,
-    ceremony: 1,
-    portraits: 2,
-    reception: 3,
-  };
-  spreads.sort((a, b) => {
-    const ea = a.event ? order[a.event] : 99;
-    const eb = b.event ? order[b.event] : 99;
-    if (ea !== eb) return ea - eb;
-    return (a.photos[0]?.timestamp ?? 0) - (b.photos[0]?.timestamp ?? 0);
-  });
-
-  return spreads.slice(0, numSpreads);
-=======
 // ============== SPREAD BACKGROUNDS ==============
 // Per-spread background. Stored in its OWN state map keyed by spread id
 // (NOT on the Spread object) so it never touches the undo/op system —
@@ -442,7 +363,6 @@ type SpreadBg = {
   zoom?: number
   panX?: number
   panY?: number
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 /** A free-positioned text block on a spread (titles, names, dates,
@@ -752,16 +672,6 @@ function ColorPicker({
   }
 
   return (
-<<<<<<< HEAD
-    <div className="min-h-screen bg-stone-50 text-stone-900">
-      <header className="border-b border-stone-200 bg-stone-50/80 backdrop-blur sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <a href="/" className="font-serif tracking-[0.3em] text-xs text-stone-700">
-            FOLIO FOREVER
-          </a>
-          <span className="bg-amber-400 text-stone-900 text-[10px] tracking-widest px-2 py-0.5 font-semibold">
-            BETA
-=======
     <div style={{ userSelect: 'none' }}>
       <div style={{ display: 'flex', gap: 8 }}>
         {/* Saturation / Brightness square */}
@@ -4246,7 +4156,6 @@ function SmartDesignerInner() {
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--cream)', letterSpacing: 1 }}>
             <IconHeart width={14} height={14} /> {favCount} / {FAV_CAP} Favorites
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
           </span>
         </div>
 
@@ -8799,91 +8708,6 @@ function PhotoToolbar({
   )
 }
 
-<<<<<<< HEAD
-interface SpreadRendererProps {
-  spread: Spread | undefined;
-  onSwap?: (photoIdx: number) => void;
-  mini?: boolean;
-}
-function SpreadRenderer({ spread, onSwap, mini }: SpreadRendererProps) {
-  if (!spread) return null;
-  const { templateId, photos } = spread;
-  const tmpl: TemplateDef | undefined = getTemplate(templateId);
-  const cls = mini
-    ? 'cursor-pointer'
-    : 'cursor-pointer hover:opacity-90 transition-opacity';
-
-  // Legacy single-photo full-bleed fallback when the lookup misses — keeps
-  // the renderer crash-free for unknown / removed template ids.
-  if (!tmpl) {
-    return photos[0] ? (
-      <img
-        src={photos[0].src}
-        alt=""
-        className={`w-full h-full object-cover ${cls}`}
-        onClick={() => onSwap?.(0)}
-      />
-    ) : null;
-  }
-
-  // For hardcover 1-photo templates with a slotArea pinning one half, the
-  // opposite half stays blank — mimics the "Hero Left · Quiet Right" feel.
-  const gap = mini ? '2px' : '4px';
-
-  return (
-    <div
-      className="w-full h-full grid"
-      style={{
-        gridTemplateColumns: tmpl.cols,
-        gridTemplateRows: tmpl.rows,
-        gap,
-      }}
-    >
-      {photos.slice(0, tmpl.slots).map((p, i) => {
-        const area = tmpl.slotAreas?.[i];
-        return (
-          <div
-            key={p.id}
-            style={area ? { gridArea: area, overflow: 'hidden' } : { overflow: 'hidden' }}
-          >
-            <img
-              src={p.src}
-              alt=""
-              className={`w-full h-full object-cover ${cls}`}
-              onClick={() => onSwap?.(i)}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-interface SubmitStepProps {
-  spreads: Spread[];
-  extraCost: number;
-}
-function SubmitStep({ spreads, extraCost }: SubmitStepProps) {
-  return (
-    <div className="max-w-2xl mx-auto pt-16 text-center">
-      <div className="inline-flex p-4 bg-stone-900 text-stone-50 rounded-full mb-8">
-        <Icon name="check" size={28} />
-      </div>
-      <p className="text-[11px] tracking-[0.3em] text-stone-500 uppercase mb-3">Order Received</p>
-      <h1 className="font-serif text-5xl leading-tight mb-6">
-        Your <em className="italic text-stone-700">monument</em><br />is being made.
-      </h1>
-      <p className="text-stone-600 mb-10 max-w-md mx-auto">
-        Confirmation and invoice on the way to your inbox. Hand-bound and shipped within 12–16 days.
-      </p>
-      <div className="bg-white border border-stone-200 p-6 inline-block text-left text-sm">
-        <div className="grid grid-cols-2 gap-x-12 gap-y-2">
-          <span className="text-stone-500">Album size</span><span>17 × 24" closed</span>
-          <span className="text-stone-500">Spreads</span><span>{spreads.length}</span>
-          <span className="text-stone-500">Extra pages</span><span>${extraCost}</span>
-          <span className="text-stone-500">Delivery</span><span>12–16 days</span>
-        </div>
-=======
 /* ─────────────────────────────────────────────────────────────────────
  * NEW-CLIENT EMAIL GATE
  *
@@ -9101,7 +8925,6 @@ function ClientRegister({ onVerified }: { onVerified: (name: string) => void }) 
             </div>
           </>
         )}
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
       </div>
     </div>
   )

@@ -15,15 +15,12 @@ export interface Spread {
   id: string
   templateId: string
   photoIds: (string | null)[]
-<<<<<<< HEAD
-=======
   /**
    * Smart wizard tags each spread with the event it belongs to (prep,
    * ceremony, portraits, reception, other). Optional here so the ops
    * library stays generic. Preserved across applyOp via spread-rest.
    */
   eventId?: string
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 /** A snapshot of one spread's mutable state. */
@@ -54,8 +51,6 @@ export interface Op {
   ts: number                 // Date.now(), for debugging
   spreads: SpreadDelta[]     // can be 1 (in-spread swap) or 2 (cross-spread swap)
   unused?: UnusedDelta       // present when unused pool changed
-<<<<<<< HEAD
-=======
   /**
    * Reorder ops (kind 'reorder-spread') store the full spread-id order
    * before and after. applyOp reorders state.spreads to match.
@@ -67,7 +62,6 @@ export interface Op {
    * delta carries the photo movement so undo also restores them.
    */
   deletedSpread?: DeletedSpreadInfo
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 }
 
 export type OpKind =
@@ -77,8 +71,6 @@ export type OpKind =
   | 'add'               // photo dragged from unused → spread (template grows by 1)
   | 'photo-count'       // user changed dropdown 2→3, etc.
   | 'layout-variant'    // user picked alternate template at same count
-<<<<<<< HEAD
-=======
   | 'reorder-spread'    // user dragged a spread to a new position
   | 'delete-spread'     // user deleted a whole spread (its photos → unused pool)
 
@@ -94,7 +86,6 @@ export interface DeletedSpreadInfo {
   photoIds: (string | null)[]
   eventId?: string
 }
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
 
 // ─── Apply / Undo ─────────────────────────────────────────────────────────
 
@@ -110,19 +101,13 @@ export function applyOp(
   const target = direction === 'forward' ? 'after' : 'before'
 
   // Apply spread deltas
-<<<<<<< HEAD
-  const nextSpreads = state.spreads.map(s => {
-=======
   let nextSpreads = state.spreads.map(s => {
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
     const delta = op.spreads.find(d => d.spreadId === s.id)
     if (!delta) return s
     const snap = delta[target]
     return { ...s, templateId: snap.templateId, photoIds: [...snap.photoIds] }
   })
 
-<<<<<<< HEAD
-=======
   // Apply spread order (reorder ops)
   if (op.spreadOrder) {
     const orderTarget = op.spreadOrder[target]
@@ -164,7 +149,6 @@ export function applyOp(
     }
   }
 
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
   // Apply unused delta (if any)
   const nextUnused = op.unused
     ? [...op.unused[target]]
@@ -368,8 +352,6 @@ export function makeLayoutVariantOp(
     spreads: [{ spreadId, before, after }],
   }
 }
-<<<<<<< HEAD
-=======
 
 /**
  * User dragged a spread from one position to another.
@@ -454,4 +436,3 @@ export function makeDeleteSpreadOp(
     },
   }
 }
->>>>>>> 66c50e9a06c796b6ef688b591a405476634a68d5
