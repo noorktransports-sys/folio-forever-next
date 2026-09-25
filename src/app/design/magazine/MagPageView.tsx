@@ -334,6 +334,24 @@ export default function MagPageView({
           </div>
         )
       })}
+      {(page.overlay ?? []).map((o, oi) => (
+        <div
+          key={`o${oi}`}
+          aria-hidden
+          style={{
+            position: 'absolute',
+            left: `${o.x}%`,
+            top: `${o.y}%`,
+            width: `${o.w}%`,
+            height: `${o.h}%`,
+            background: o.grad
+              ? `linear-gradient(${o.dir === 'right' ? 'to right' : 'to bottom'}, ${o.grad[0]}, ${o.grad[1]})`
+              : o.fill,
+            pointerEvents: 'none',
+            zIndex: 12,
+          }}
+        />
+      ))}
       {(() => {
         const i = selectedSlot
         const s = i >= 0 ? slots[i] : undefined

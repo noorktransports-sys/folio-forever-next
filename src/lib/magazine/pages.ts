@@ -18,13 +18,30 @@
 //   • texts  = editorial text (see ./text.ts) — sizes are % of page
 //              height; {bride} {groom} {names} {date} {year} auto-fill.
 
-import type { LayoutTemplate, Slot } from '@/lib/smart-layout/templates'
-import type { MagFont, MagTextDef } from './text'
+import type { LayoutTemplate } from '@/lib/smart-layout/templates'
+import type { MagTextDef } from './text'
+import {
+  MAG_ASPECT,
+  MAG_PAGE_H_IN,
+  QUOTE,
+  STORY,
+  block,
+  col,
+  cover,
+  frame,
+  styledPage,
+  t,
+  wash,
+  FULL,
+  type MagOverlay,
+  type MagPage,
+  type MagPageBg,
+  type MagSlot,
+} from './kit'
+import { MORE_STYLES } from './styles-more'
 
-export const MAG_PAGE_W_IN = 8.5
-export const MAG_PAGE_H_IN = 11
-/** Page aspect (width / height). */
-export const MAG_ASPECT = MAG_PAGE_W_IN / MAG_PAGE_H_IN
+export { MAG_ASPECT, MAG_PAGE_H_IN, MAG_PAGE_W_IN } from './kit'
+export type { MagOverlay, MagPage, MagPageBg, MagSlot } from './kit'
 export const MAG_PAGE_COUNT = 20
 export const MAG_PRICE = 70
 /** Print target: 300 DPI on the page's long edge (11 in → 3300 px). */
@@ -34,65 +51,6 @@ export const RUST = '#8f2e0d'
 const CREAM = '#f4ede8'
 const KEYLINE = '#cfcac4'
 const INK = '#2a1a12'
-
-/** How a page's background is filled.
- *  - color:  flat colour (paper white, rust …)
- *  - blur:   a blurred copy of one of the page's own photos (slot index),
- *            optionally darkened (dim) and washed with a colour tint. */
-export type MagPageBg =
-  | { kind: 'color'; color: string }
-  | { kind: 'blur'; slot: number; blur: number; dim: number; tint?: string }
-
-export type MagSlot = Slot & { filter?: 'bw' }
-
-export type MagPage = LayoutTemplate & {
-  slots: MagSlot[]
-  bg: MagPageBg
-  texts?: MagTextDef[]
-}
-
-const frame = (color: string, pct: number) => ({ color, pct })
-const col = (color: string): MagPageBg => ({ kind: 'color', color })
-const wash = (slot: number, dim: number, tint?: string, blur = 2): MagPageBg => ({ kind: 'blur', slot, blur, dim, tint })
-const FULL: MagSlot = { x: 0, y: 0, w: 100, h: 100 }
-const block = (x: number, y: number, w: number, h: number, fill = 'accent') => ({ x, y, w, h, fill })
-
-/** Text helper: t(text, x, y, w, size, font, color, extras). */
-function t(
-  text: string,
-  x: number,
-  y: number,
-  w: number,
-  size: number,
-  font: MagFont,
-  color: string,
-  extra: Partial<MagTextDef> = {},
-): MagTextDef {
-  return { text, x, y, w, size, font, color, ...extra }
-}
-
-/* ─────────────────────────── the story ───────────────────────────
- * Editorial + romantic copy shared by all styles (each style sets it in
- * its own fonts). Clients can rewrite or delete every line. */
-const STORY = {
-  beginning:
-    'Some stories begin with a glance. Ours began with a feeling that we had known each other all along — and a promise to spend every day after proving it right.',
-  morning:
-    'The morning arrived in soft light and quiet laughter. Hands painted, hearts racing, every moment felt like the first page of something we would read forever.',
-  bride:
-    'She wore her grandmother’s gold and her mother’s smile. He wore the nervous grin of a man who knew exactly how lucky he was.',
-  vows:
-    'In front of everyone we love, we made the simplest promise there is: to choose each other, again and again, for the rest of our lives.',
-  party:
-    'The music started, two families became one, and the dance floor never stood still. This is the night we will tell our grandchildren about.',
-  thanks:
-    'To everyone who laughed, cried, danced and prayed with us — this day was ours, but the love in it was yours.',
-}
-const QUOTE = {
-  lifetime: '“I would find you in any lifetime.”',
-  souls: '“Two souls, one heart.”',
-  favourite: '“Of all the places I’ve been, you are my favourite.”',
-}
 
 /* ════════════════════════════ TERRACOTTA ════════════════════════════
  * Warm rust + cream, from the owner's reference pages. Bodoni headlines,
@@ -105,6 +63,7 @@ function page(
   slots: MagSlot[],
   decor: LayoutTemplate['decor'] = [],
   texts: MagTextDef[] = [],
+  overlay: MagOverlay[] = [],
 ): MagPage {
   return {
     id: `mag-p${String(n).padStart(2, '0')}`,
@@ -115,6 +74,7 @@ function page(
     decor,
     slots,
     texts,
+    overlay,
   }
 }
 
@@ -124,15 +84,11 @@ const fullRust = [block(0, 0, 100, 100)]
 const CAP = { upper: true, spacing: 0.32, weight: 500 as const }
 
 export const MAG_PAGES: MagPage[] = [
-  // 1 — cover: framed portrait on a blurred copy of itself + masthead
-  page(1, 'Cover', { kind: 'blur', slot: 0, blur: 1.2, dim: 0.12 }, [
-    { x: 9.4, y: 5.4, w: 81, h: 89.2, frame: frame(CREAM, 0.85) },
-  ], [], [
-    t('FOREVER', 50, 14, 76, 9, 'bodoni', '#ffffff', { spacing: 0.14, weight: 600, shadow: true }),
-    t('THE WEDDING ISSUE · {year}', 50, 21.5, 70, 1.25, 'montserrat', '#ffffff', { ...CAP, shadow: true }),
-    t('{bride} & {groom}', 50, 83, 76, 5.4, 'pinyon', '#ffffff', { shadow: true }),
-    t('{date}', 50, 89.5, 60, 1.2, 'montserrat', '#ffffff', { ...CAP, shadow: true }),
-  ]),
+  // 1 — magazine cover
+  (() => {
+    const c = cover({ masthead: 'FOREVER', mastFont: 'bodoni', mastSpacing: 0.12, lineFont: 'playfair', lineItalic: true, accent: '#f3c9b4' })
+    return page(1, 'Cover', WHITE, c.slots, [], c.texts, c.overlay)
+  })(),
   // 2 — full-height photo between rust side bars
   page(2, 'Side bars', WHITE, [{ x: 4.3, y: 0, w: 91.4, h: 100 }], sideBars(4.3, 95.7)),
   // 3 — rust bands, wide photo, portrait frame over the top band, box below
@@ -245,26 +201,6 @@ export const MAG_PAGES: MagPage[] = [
 /* ══════════════════════════ other styles ══════════════════════════
  * Page ids are `mag-<style>-pNN` (still `mag-` prefixed). */
 
-function styledPage(style: string, accent: string) {
-  return (
-    n: number,
-    name: string,
-    bg: MagPageBg,
-    slots: MagSlot[],
-    decor: LayoutTemplate['decor'] = [],
-    texts: MagTextDef[] = [],
-  ): MagPage => ({
-    id: `mag-${style}-p${String(n).padStart(2, '0')}`,
-    name,
-    compat: ['standard', 'layflat'],
-    accent,
-    bg,
-    decor,
-    slots,
-    texts,
-  })
-}
-
 // ── NOIR — cinematic black, white keylines, black & white moments ──
 const NOIR_BG = '#111111'
 const NOIR_GREY = '#a9a9a9'
@@ -273,12 +209,10 @@ const NB = col(NOIR_BG)
 const WL = frame('#ffffff', 0.35)
 const NCAP = { upper: true, spacing: 0.35, weight: 500 as const }
 export const NOIR_PAGES: MagPage[] = [
-  nP(1, 'Cover', NB, [{ ...FULL, filter: 'bw' }], [], [
-    t('FOREVER', 50, 12.5, 90, 11, 'bodoni', '#ffffff', { spacing: 0.08, weight: 600, shadow: true }),
-    t('The Wedding Issue · {year}', 50, 20.5, 70, 1.2, 'montserrat', '#ffffff', { ...NCAP, shadow: true }),
-    t('{bride} & {groom}', 50, 83, 86, 3.4, 'italiana', '#ffffff', { spacing: 0.06, shadow: true }),
-    t('{date}', 50, 88.8, 60, 1.15, 'montserrat', '#ffffff', { ...NCAP, shadow: true }),
-  ]),
+  (() => {
+    const c = cover({ masthead: 'NOIR', mastFont: 'bodoni', mastSize: 14, mastSpacing: 0.22, lineFont: 'bodoni', lineItalic: true, bw: true, accent: '#d6d6d6', shade: 0.6 })
+    return nP(1, 'Cover', NB, c.slots, [], c.texts, c.overlay)
+  })(),
   nP(2, 'Chapter One', NB, [{ x: 14, y: 8, w: 72, h: 72, frame: WL }], [], [
     t('Chapter One', 50, 86.5, 80, 3.4, 'italiana', '#ffffff', { spacing: 0.08 }),
     t('The Beginning', 50, 92.2, 60, 1.15, 'montserrat', NOIR_GREY, NCAP),
@@ -378,11 +312,10 @@ const IB = col(IVORY_BG)
 const FINE = frame('#d9d3ca', 0.3)
 const ICAP = { upper: true, spacing: 0.3 }
 export const IVORY_PAGES: MagPage[] = [
-  iP(1, 'The wedding of', IB, [{ x: 16, y: 12, w: 68, h: 64, frame: FINE }], [], [
-    t('The Wedding of', 50, 6, 70, 2.6, 'cormorant', IVORY_INK, { italic: true }),
-    t('{bride} & {groom}', 50, 84, 90, 5, 'italiana', IVORY_INK, { spacing: 0.04 }),
-    t('{date}', 50, 91.5, 60, 1.3, 'cinzel', TAUPE_DARK, ICAP),
-  ]),
+  (() => {
+    const c = cover({ masthead: 'IVORY', mastFont: 'italiana', mastSize: 13, mastSpacing: 0.2, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, shade: 0.42 })
+    return iP(1, 'Cover', IB, c.slots, [], c.texts, c.overlay)
+  })(),
   iP(2, 'Full bleed', IB, [FULL]),
   iP(3, 'Diptych', IB, [
     { x: 8, y: 20, w: 40, h: 50, frame: FINE },
@@ -474,11 +407,10 @@ const SC = col(SAGE_CREAM)
 const CF = frame(SAGE_CREAM, 0.9)
 const SCAP = { upper: true, spacing: 0.3 }
 export const SAGE_PAGES: MagPage[] = [
-  sP(1, 'Cover', SG, [{ x: 10, y: 17, w: 80, h: 64, frame: CF }], [], [
-    t('{bride} & {groom}', 50, 8.5, 92, 6, 'vibes', SAGE_CREAM),
-    t('The Wedding Issue', 50, 88.5, 70, 1.4, 'cinzel', SAGE_CREAM, SCAP),
-    t('{date}', 50, 93.8, 60, 2, 'cormorant', SAGE_CREAM, { italic: true }),
-  ]),
+  (() => {
+    const c = cover({ masthead: 'Bloom', mastFont: 'vibes', mastSize: 13, mastSpacing: 0, mastWeight: 400, lineFont: 'playfair', lineItalic: true, accent: '#dfe8d4', shade: 0.45 })
+    return sP(1, 'Cover', SG, c.slots, [], c.texts, c.overlay)
+  })(),
   sP(2, 'Full bleed', SC, [FULL]),
   sP(3, 'Over the band', SC, [{ x: 18, y: 10, w: 74, h: 80, z: 1 }], [block(0, 0, 34, 100)]),
   sP(4, 'Chapter one', SC, [
@@ -601,6 +533,7 @@ export const MAG_STYLES: MagStyle[] = [
     swatches: [SAGE, SAGE_CREAM, SAGE_DARK],
     pages: SAGE_PAGES,
   },
+  ...MORE_STYLES,
 ]
 
 export const DEFAULT_MAG_STYLE = 'terracotta'
