@@ -43,7 +43,7 @@ interface OrderEntry {
   totalPrice?: number;
   paidAt?: string;
   refundedAt?: string;
-  mode?: 'smart' | 'manual';
+  mode?: 'smart' | 'manual' | 'magazine';
   albumName?: string;
   proofApprovedAt?: string | null;
   rightsAcceptedAt?: string | null;
@@ -422,7 +422,7 @@ export default async function AdminPage({
                       {o.customerEmail || '—'}
                     </a>
                   </td>
-                  <td>{o.size || '—'} · {totalSpreadsOf(o)} sp · {o.photoCount} ph</td>
+                  <td>{o.mode === 'magazine' ? `${o.size || 'Magazine'} · 20 pages · ${o.photoCount} ph` : `${o.size || '—'} · ${totalSpreadsOf(o)} sp · ${o.photoCount} ph`}</td>
                   <td>
                     <span className={'admin-status admin-status-' + (o.status || 'submitted')}>
                       {statusLabel(o.status)}

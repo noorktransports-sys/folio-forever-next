@@ -93,7 +93,8 @@ interface SavedDesign {
   orderId?: string;
   submittedAt?: string;
   savedAt?: string;
-  mode?: 'smart' | 'manual';
+  mode?: 'smart' | 'manual' | 'magazine';
+  magazine?: { styleName?: string; names?: string; date?: string; price?: number; shippingUsd?: number; photoCount?: number; emptyFrames?: number };
   customer?: { name?: string; email?: string } | null;
   shipping?: ShippingBlock | null;
   adminNotes?: string;
@@ -467,7 +468,7 @@ export default async function OrderDetail({
         composites.forEach((c, i) => {
           if (c.url) {
             const num = String(i + 1).padStart(2, '0')
-            printFiles.push({ url: c.url, name: `spread-${num}.jpg` })
+            printFiles.push({ url: c.url, name: design.mode === 'magazine' ? `page-${num}.jpg` : `spread-${num}.jpg` })
           }
         })
 
@@ -506,6 +507,19 @@ export default async function OrderDetail({
             shipLines || '  —',
             ship.notes ? `\n  Delivery notes: ${ship.notes}` : '',
             '',
+            ...(design.mode === 'magazine'
+              ? [
+                  'MAGAZINE',
+                  `  Style:         ${design.magazine?.styleName || '—'}`,
+                  `  Couple:        ${design.magazine?.names || '—'}`,
+                  `  Wedding date:  ${design.magazine?.date || '—'}`,
+                  `  Pages:         20 (8.5 × 11 in portrait) — page-01.jpg is the COVER`,
+                  `  Print files:   2550 × 3300 px, 300 DPI`,
+                  `  Photos used:   ${design.magazine?.photoCount ?? '—'}  ·  Empty frames: ${design.magazine?.emptyFrames ?? 0}`,
+                  `  Price:         $${design.magazine?.price ?? 70}  ·  Shipping: ${design.magazine?.shippingUsd ? '$' + design.magazine.shippingUsd : 'arranged separately'}`,
+                  '',
+                ]
+              : []),
             'ALBUM',
             `  Size:          ${albumSize}`,
             `  Binding:       ${albumBinding === 'standard' ? 'Standard (with gutter)' : albumBinding === 'layflat' ? 'Layflat (flush)' : '—'}`,

@@ -22,6 +22,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { createSquareCheckoutLink } from '@/lib/square';
+import { magazineTotal } from '@/lib/magazine/pricing';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -41,10 +42,12 @@ interface Env {
   SQUARE_LOCATION_ID?: string;
   SQUARE_ENV?: string;
   SITE_URL?: string;
+  MAGAZINE_SHIPPING_USD?: string;
 }
 
 interface StoredOrder {
-  mode: 'smart' | 'manual';
+  mode: 'smart' | 'manual' | 'magazine';
+  magazine?: { styleName: string; names?: string; price: number; shippingUsd: number };
   orderId: string;
   token: string;
   status: string;
@@ -102,7 +105,24 @@ export async function POST(request: Request) {
   const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
   // The token is the secret order key; including it in the success URL is
   // equivalent to handing the customer their receipt URL.
-  const successUrl = `${siteUrl}/design/smart/success?token=${encodeURIComponent(order.token)}&order=${encodeURIComponent(order.orderId)}`;
+  const successUrl = `${siteUrl}/design/${order.mode === 'magazine' ? 'magazine' : 'smart'}/success?token=${encodeURIComponent(order.token)}&order=${encodeURIComponent(order.orderId)}`;
+
+  // ── Magazine: price comes from the SERVER (pricing.ts), never the client.
+  let magazineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] | null = null;
+  if (order.mode === 'magazine') {
+    const { price, shippingUsd } = magazineTotal(env);
+    magazineItems = [
+      {
+        name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)`,
+        quantity: 1,
+        basePriceAmountCents: Math.round(price * 100),
+        note: order.magazine?.names || order.albumName,
+      },
+    ];
+    if (shippingUsd > 0) {
+      magazineItems.push({ name: 'Shipping', quantity: 1, basePriceAmountCents: Math.round(shippingUsd * 100), note: 'Magazine delivery' });
+    }
+  }
 
   // album.totalPrice INCLUDES polish hand-off + cover add-on. Split
   // them out so the customer sees itemised line items at checkout.
@@ -113,13 +133,13 @@ export async function POST(request: Request) {
       : 0;
   const baseDollars =
     order.album.totalPrice - (polishHandoff ? 99 : 0) - coverAdd;
-  if (baseDollars <= 0 || !Number.isFinite(baseDollars)) {
+  if (!magazineItems && (baseDollars <= 0 || !Number.isFinite(baseDollars))) {
     return err(500, 'Invalid album price');
   }
   const sizeLabel = order.album.size.replace('x', '×');
   const bindingLabel = order.album.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)';
 
-  const lineItems = [
+  const lineItems = magazineItems ?? [
     {
       name: `${sizeLabel} ${bindingLabel} · ${order.album.pageCount} spreads`,
       quantity: 1,
@@ -127,7 +147,7 @@ export async function POST(request: Request) {
       note: order.albumName,
     },
   ];
-  if (coverAdd > 0 && order.cover) {
+  if (!magazineItems && coverAdd > 0 && order.cover) {
     const cl =
       order.cover.type === 'leather'
         ? 'Leather cover — premium hide + foil stamp'
@@ -141,7 +161,7 @@ export async function POST(request: Request) {
       note: 'Album cover upgrade',
     });
   }
-  if (polishHandoff) {
+  if (!magazineItems && polishHandoff) {
     lineItems.push({
       name: 'Polish hand-off — design team finishing',
       quantity: 1,
@@ -186,7 +206,7 @@ export async function POST(request: Request) {
       squareCheckoutUrl: result.url,
       squareCheckoutCreatedAt: new Date().toISOString(),
     };
-    await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
+    await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated), { expirationTtl: 365 * 24 * 60 * 60 });
   } catch {
     // Non-fatal — the link works regardless.
   }

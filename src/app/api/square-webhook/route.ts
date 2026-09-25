@@ -23,6 +23,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { verifySquareWebhookSignature } from '@/lib/square';
+import { customerMagazineEmailHtml, ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails';
 import {
   customerPaidEmailHtml,
   ownerPaidEmailHtml,
@@ -258,7 +259,37 @@ export async function POST(request: Request) {
   let ownerEmailSent = false;
   let customerEmailSent = false;
 
-  if (env.RESEND_API_KEY && order.customer && order.album && order.photos && order.spreads) {
+  // ── Magazine orders have their own (simpler) emails ──
+  if (env.RESEND_API_KEY && order.mode === 'magazine' && order.customer) {
+    const mag = (order.magazine ?? {}) as { styleName?: string; names?: string; date?: string; price?: number; shippingUsd?: number };
+    const data: MagazineOrderEmail = {
+      orderId: order.orderId ?? token,
+      styleName: mag.styleName ?? 'Magazine',
+      names: mag.names ?? '',
+      date: mag.date ?? '',
+      customer: order.customer,
+      shipping: order.shipping as MagazineOrderEmail['shipping'],
+      price: mag.price ?? 70,
+      shippingUsd: mag.shippingUsd ?? 0,
+      pages: (order.spreadComposites ?? []).map((c) => ({ url: c.url })),
+    };
+    const o = await sendResendEmail(env.RESEND_API_KEY, {
+      from: fromEmail,
+      to: [ownerEmail],
+      subject: `[PAID] ${data.orderId} — ${data.customer.name} · Magazine ${data.styleName}`,
+      html: ownerMagazineEmailHtml(data, siteUrl, 'paid'),
+    });
+    ownerEmailSent = o.ok;
+    const c = await sendResendEmail(env.RESEND_API_KEY, {
+      from: fromEmail,
+      to: [data.customer.email],
+      subject: `Your wedding magazine order ${data.orderId} is confirmed`,
+      html: customerMagazineEmailHtml(data, siteUrl),
+    });
+    customerEmailSent = c.ok;
+  }
+
+  if (env.RESEND_API_KEY && order.mode !== 'magazine' && order.customer && order.album && order.photos && order.spreads) {
     const emailData: SmartOrderEmailData = {
       orderId: order.orderId ?? token,
       albumName: order.albumName ?? 'Album',

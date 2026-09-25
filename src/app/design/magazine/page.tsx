@@ -34,6 +34,9 @@ import {
   type MagStyle,
 } from '@/lib/magazine/pages'
 import HelpSearch from '../help/HelpSearch'
+import { renderMagPage } from '@/lib/magazine/render'
+import { uploadToR2 } from '../smart/edit/submit-helpers'
+import { LEGAL_VERSION, CLAUSE_PROOF_APPROVAL, CLAUSE_CONTENT_RIGHTS, CLAUSE_CONTENT_POLICY } from '@/lib/legal-clauses'
 import {
   MAG_FONTS,
   MAG_FONTS_HREF,
@@ -182,6 +185,18 @@ function MagazineDesigner() {
   const [meta, setMeta] = useState<MagMeta>(EMPTY_META)
   const [textEdits, setTextEdits] = useState<Record<string, MagText[]>>({})
   const [selText, setSelText] = useState<{ page: number; id: string } | null>(null)
+  // ── order + email preview ──
+  const [orderStep, setOrderStep] = useState<null | 'review' | 'ship' | 'working'>(null)
+  const [approved, setApproved] = useState(false)
+  const [rightsOk, setRightsOk] = useState(false)
+  const [form, setForm] = useState({ name: '', email: '', phone: '', line1: '', line2: '', city: '', region: '', postalCode: '', country: 'United States', notes: '' })
+  const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null)
+  const [orderErr, setOrderErr] = useState<string | null>(null)
+  const [priceInfo, setPriceInfo] = useState<{ price: number; shippingUsd: number } | null>(null)
+  const [emailOpen, setEmailOpen] = useState(false)
+  const [emailAddr, setEmailAddr] = useState('')
+  const [emailState, setEmailState] = useState<'idle' | 'working' | 'sent'>('idle')
+  const [emailErr, setEmailErr] = useState<string | null>(null)
   const style = getMagStyle(styleId)
   const SP: MagPage[] = style.pages
   const [sel, setSel] = useState<{ page: number; slot: number } | null>(null)
@@ -307,6 +322,120 @@ function MagazineDesigner() {
   const placed = useMemo(() => new Set((pages ?? []).flat().filter(Boolean) as string[]), [pages])
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
+
+  /* ── print / preview rendering ── */
+  const renderPage = useCallback(
+    (pi: number, opts: { heightPx?: number; watermark?: boolean } = {}) => {
+      if (!pages) throw new Error('Not built')
+      const pg = SP[pi]
+      return renderMagPage({
+        page: pg,
+        photoIds: pages[pi],
+        photos: photoMap,
+        adjusts,
+        texts: textEdits[pg.id] ?? defaultTexts(pg.id, pg.texts),
+        meta,
+        heightPx: opts.heightPx,
+        watermark: opts.watermark,
+      })
+    },
+    [pages, SP, photoMap, adjusts, textEdits, meta],
+  )
+
+  const openOrder = useCallback(() => {
+    setOrderErr(null)
+    setApproved(false)
+    setOrderStep('review')
+    setSel(null)
+    setSelText(null)
+    fetch('/api/submit-magazine-order')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j && setPriceInfo({ price: j.price, shippingUsd: j.shippingUsd }))
+      .catch(() => undefined)
+  }, [])
+
+  const runOrder = useCallback(async () => {
+    if (!pages || !albumId) return
+    const f = form
+    if (!f.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return setOrderErr('Please enter your name and a valid email.')
+    if (!f.line1.trim() || !f.city.trim() || !f.postalCode.trim()) return setOrderErr('Please complete your shipping address.')
+    setOrderErr(null)
+    setOrderStep('working')
+    try {
+      const uploaded: { n: number; key: string; url: string }[] = []
+      for (let pi = 0; pi < SP.length; pi++) {
+        setProgress({ done: pi, total: SP.length, label: `Preparing page ${pi + 1} of ${SP.length} for print…` })
+        const blob = await renderPage(pi)
+        const up = await uploadToR2(blob, albumId, `page-${String(pi + 1).padStart(2, '0')}.jpg`)
+        uploaded.push({ n: pi + 1, key: up.key, url: up.url })
+      }
+      setProgress({ done: SP.length, total: SP.length, label: 'Saving your order…' })
+      const now = new Date().toISOString()
+      const res = await fetch('/api/submit-magazine-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumId,
+          styleId: style.id,
+          meta,
+          customer: { name: f.name.trim(), email: f.email.trim() },
+          shipping: { recipientName: f.name.trim(), phone: f.phone, line1: f.line1, line2: f.line2, city: f.city, region: f.region, postalCode: f.postalCode, country: f.country, notes: f.notes },
+          pages: uploaded,
+          photoCount: filledSlots,
+          emptyFrames: pages.flat().filter((x) => x === null).length,
+          proofApproval: { acceptedAt: now, clauseVersion: LEGAL_VERSION, clauseText: CLAUSE_PROOF_APPROVAL },
+          contentRights: { acceptedAt: now, clauseVersion: LEGAL_VERSION, copyrightClause: CLAUSE_CONTENT_RIGHTS, policyClause: CLAUSE_CONTENT_POLICY },
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.token) throw new Error(j.error || 'Could not save your order')
+      setProgress({ done: SP.length, total: SP.length, label: 'Opening secure payment…' })
+      const pay = await fetch('/api/square-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: j.token }),
+      })
+      const pj = await pay.json().catch(() => ({}))
+      if (!pay.ok || !pj.url) throw new Error(pj.error || 'Payment could not start — please try again')
+      window.location.href = pj.url
+    } catch (e) {
+      setOrderErr(e instanceof Error ? e.message : 'Something went wrong — please try again')
+      setOrderStep('ship')
+      setProgress(null)
+    }
+  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots])
+
+  const sendPreview = useCallback(async () => {
+    if (!pages || !albumId) return
+    const email = emailAddr.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setEmailErr('Please enter a valid email address.')
+    setEmailErr(null)
+    setEmailState('working')
+    try {
+      const urls: string[] = []
+      for (let pi = 0; pi < SP.length; pi++) {
+        setProgress({ done: pi, total: SP.length, label: `Making preview page ${pi + 1} of ${SP.length}…` })
+        const blob = await renderPage(pi, { heightPx: 1400, watermark: true })
+        const up = await uploadToR2(blob, albumId, `preview-${String(pi + 1).padStart(2, '0')}.jpg`)
+        urls.push(up.url)
+      }
+      setProgress({ done: SP.length, total: SP.length, label: 'Sending…' })
+      const res = await fetch('/api/email-magazine-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, albumId, styleName: style.name, names: resolveText('{bride} & {groom}', meta), pageUrls: urls }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || 'Email could not be sent')
+      setEmailState('sent')
+    } catch (e) {
+      setEmailErr(e instanceof Error ? e.message : 'Email could not be sent')
+      setEmailState('idle')
+    } finally {
+      setProgress(null)
+    }
+  }, [pages, albumId, emailAddr, SP, renderPage, style, meta])
+
 
   /* ── build / rebuild ── */
   const build = useCallback((pagesDef?: MagPage[], list?: Photo[]) => {
@@ -978,27 +1107,196 @@ function MagazineDesigner() {
             </div>
           </div>
 
-          {/* order — next change set */}
+          {/* ── order + email preview ── */}
           <div
+            data-help="mag-order"
             style={{
               marginTop: 40,
               padding: '22px',
               textAlign: 'center',
-              border: '0.5px solid rgba(184,150,90,0.25)',
+              border: '0.5px solid rgba(184,150,90,0.35)',
               borderRadius: 10,
+              background: 'var(--dark2)',
             }}
           >
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--cream)' }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--cream)' }}>
               20 pages · ${MAG_PRICE}
             </div>
             <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 6, letterSpacing: 0.5 }}>
-              Your design saves automatically on this device. Cover selection and checkout are coming next.
+              Printed at 300 DPI · 8.5 × 11 in · page 1 is your cover · shipping arranged separately
             </p>
-            <button type="button" disabled style={{ ...btn(true), marginTop: 14, opacity: 0.45, cursor: 'not-allowed' }}>
-              Choose cover & order — coming soon
-            </button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+              <button type="button" data-help="mag-email" onClick={() => { setEmailOpen(true); setEmailState('idle'); setEmailErr(null) }} style={btn(false)}>
+                ✉ Email me a preview
+              </button>
+              <button type="button" onClick={openOrder} style={btn(true)}>
+                Review &amp; order · ${MAG_PRICE} →
+              </button>
+            </div>
           </div>
         </section>
+      )}
+
+      {/* ── order modal: review → shipping → working ── */}
+      {orderStep && pages && (
+        <div style={modalBackdrop} onMouseDown={(e) => e.target === e.currentTarget && orderStep !== 'working' && setOrderStep(null)}>
+          <div style={{ ...modalPanel, maxWidth: orderStep === 'review' ? 980 : 620 }} role="dialog" aria-modal="true" aria-label="Order your magazine">
+            {orderStep === 'review' && (
+              <>
+                <div style={modalHead}>
+                  <span>Step 1 of 2 · Review your pages</span>
+                  <button type="button" onClick={() => setOrderStep(null)} style={xBtn} aria-label="Close">✕</button>
+                </div>
+                <p style={{ fontSize: 12.5, color: 'var(--muted2)', margin: '0 0 12px', lineHeight: 1.6 }}>
+                  This is exactly what will print. Check names, dates, spelling and crops on every page.
+                </p>
+                {(() => {
+                  const empty = pages.flat().filter((x) => x === null).length
+                  return empty > 0 ? (
+                    <div style={warnBox}>⚠ {empty} empty frame{empty === 1 ? '' : 's'} — they will print blank. Close this and add photos, or order as is.</div>
+                  ) : null
+                })()}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))', gap: 10, marginBottom: 16 }}>
+                  {SP.map((pg, pi) => (
+                    <div key={pg.id}>
+                      <MagPageView
+                        page={pg}
+                        photoIds={pages[pi]}
+                        photoMap={photoMap}
+                        adjusts={adjusts}
+                        pageKey={pg.id}
+                        selectedSlot={-1}
+                        interactive={false}
+                        texts={pageTexts(pg, textEdits, meta)}
+                      />
+                      <div style={{ fontSize: 9, color: 'var(--muted2)', textAlign: 'center', marginTop: 3, letterSpacing: 1 }}>{pi === 0 ? 'COVER' : pi + 1}</div>
+                    </div>
+                  ))}
+                </div>
+                <label style={checkRow}>
+                  <input type="checkbox" checked={approved} onChange={(e) => setApproved(e.target.checked)} />
+                  <span>
+                    I have checked all 20 pages and <strong>approve them for printing</strong>. I understand that after approval the magazine cannot be changed or cancelled.{' '}
+                    <details style={{ display: 'inline' }}><summary style={{ cursor: 'pointer', color: GOLD, display: 'inline' }}>Read clause 2.3</summary><pre style={clausePre}>{CLAUSE_PROOF_APPROVAL}</pre></details>
+                  </span>
+                </label>
+                <label style={checkRow}>
+                  <input type="checkbox" checked={rightsOk} onChange={(e) => setRightsOk(e.target.checked)} />
+                  <span>
+                    I own these photos or have permission to print them, and they meet the content policy.{' '}
+                    <details style={{ display: 'inline' }}><summary style={{ cursor: 'pointer', color: GOLD, display: 'inline' }}>Read clauses 2.2 &amp; 2.4</summary><pre style={clausePre}>{CLAUSE_CONTENT_RIGHTS + '\n\n' + CLAUSE_CONTENT_POLICY}</pre></details>
+                  </span>
+                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+                  <button type="button" style={btn(false)} onClick={() => setOrderStep(null)}>← Keep editing</button>
+                  <button type="button" style={{ ...btn(true), opacity: approved && rightsOk ? 1 : 0.45, cursor: approved && rightsOk ? 'pointer' : 'not-allowed' }} disabled={!approved || !rightsOk} onClick={() => setOrderStep('ship')}>
+                    Approve &amp; continue →
+                  </button>
+                </div>
+              </>
+            )}
+            {orderStep === 'ship' && (
+              <>
+                <div style={modalHead}>
+                  <span>Step 2 of 2 · Shipping details</span>
+                  <button type="button" onClick={() => setOrderStep(null)} style={xBtn} aria-label="Close">✕</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {(
+                    [
+                      ['name', 'Full name *', 2],
+                      ['email', 'Email *', 1],
+                      ['phone', 'Phone', 1],
+                      ['line1', 'Address line 1 *', 2],
+                      ['line2', 'Address line 2', 2],
+                      ['city', 'City *', 1],
+                      ['region', 'State / region', 1],
+                      ['postalCode', 'Postal code *', 1],
+                      ['country', 'Country', 1],
+                      ['notes', 'Delivery notes', 2],
+                    ] as const
+                  ).map(([k, label, span]) => (
+                    <label key={k} style={{ gridColumn: span === 2 ? '1 / -1' : undefined, display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9.5, letterSpacing: 1.4, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+                      {label}
+                      <input
+                        value={form[k]}
+                        type={k === 'email' ? 'email' : 'text'}
+                        onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                        style={fieldStyle}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <div style={{ marginTop: 14, padding: '12px 14px', border: '0.5px solid rgba(184,150,90,0.3)', borderRadius: 8, fontSize: 12.5, lineHeight: 1.8, color: 'var(--cream)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Wedding magazine · {style.name} · 20 pages</span><span>${priceInfo?.price ?? MAG_PRICE}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted2)' }}>
+                    <span>Shipping</span>
+                    <span>{priceInfo && priceInfo.shippingUsd > 0 ? `$${priceInfo.shippingUsd.toFixed(2)}` : 'arranged separately'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '0.5px solid rgba(184,150,90,0.25)', marginTop: 4, paddingTop: 4 }}>
+                    <span>Total today</span>
+                    <span>${((priceInfo?.price ?? MAG_PRICE) + (priceInfo?.shippingUsd ?? 0)).toFixed(2)}</span>
+                  </div>
+                </div>
+                {orderErr && <div style={{ ...warnBox, marginTop: 12 }}>{orderErr}</div>}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+                  <button type="button" style={btn(false)} onClick={() => setOrderStep('review')}>← Back to review</button>
+                  <button type="button" style={btn(true)} onClick={runOrder}>
+                    Continue to secure payment · ${((priceInfo?.price ?? MAG_PRICE) + (priceInfo?.shippingUsd ?? 0)).toFixed(0)} →
+                  </button>
+                </div>
+              </>
+            )}
+            {orderStep === 'working' && (
+              <div style={{ padding: '30px 10px', textAlign: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--cream)' }}>Preparing your print files</div>
+                <p style={{ fontSize: 12, color: 'var(--muted2)', margin: '8px 0 18px' }}>Please keep this page open — about a minute.</p>
+                <div style={{ height: 4, background: 'rgba(184,150,90,0.18)', borderRadius: 2 }}>
+                  <div style={{ height: 4, borderRadius: 2, background: GOLD, width: `${progress ? Math.round((progress.done / Math.max(1, progress.total)) * 100) : 5}%`, transition: 'width .3s' }} />
+                </div>
+                <div style={{ fontSize: 11, color: GOLD, marginTop: 10, letterSpacing: 0.5 }}>{progress?.label ?? 'Starting…'}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── email preview modal ── */}
+      {emailOpen && pages && (
+        <div style={modalBackdrop} onMouseDown={(e) => e.target === e.currentTarget && emailState !== 'working' && setEmailOpen(false)}>
+          <div style={{ ...modalPanel, maxWidth: 480 }} role="dialog" aria-modal="true" aria-label="Email me a preview">
+            <div style={modalHead}>
+              <span>Email me a preview</span>
+              <button type="button" onClick={() => emailState !== 'working' && setEmailOpen(false)} style={xBtn} aria-label="Close">✕</button>
+            </div>
+            {emailState === 'sent' ? (
+              <div style={{ textAlign: 'center', padding: '10px 0 6px' }}>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--cream)' }}>Sent ✓</div>
+                <p style={{ fontSize: 12.5, color: 'var(--muted2)', lineHeight: 1.6 }}>Check {emailAddr} for your watermarked preview. Come back on this device to order.</p>
+                <button type="button" style={{ ...btn(true), marginTop: 10 }} onClick={() => setEmailOpen(false)}>Done</button>
+              </div>
+            ) : (
+              <>
+                <p style={{ fontSize: 12.5, color: 'var(--muted2)', lineHeight: 1.6, marginTop: 0 }}>
+                  We&apos;ll email all 20 pages as small preview images with a <strong style={{ color: 'var(--cream)' }}>FOLIO FOREVER · PREVIEW</strong> watermark — perfect for sharing with family. Your printed magazine has no watermark.
+                </p>
+                <input value={emailAddr} onChange={(e) => setEmailAddr(e.target.value)} type="email" placeholder="you@example.com" style={{ ...fieldStyle, width: '100%' }} aria-label="Email address" />
+                {emailErr && <div style={{ ...warnBox, marginTop: 10 }}>{emailErr}</div>}
+                {emailState === 'working' && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ height: 3, background: 'rgba(184,150,90,0.18)', borderRadius: 2 }}>
+                      <div style={{ height: 3, background: GOLD, borderRadius: 2, width: `${progress ? Math.round((progress.done / Math.max(1, progress.total)) * 100) : 5}%` }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>{progress?.label ?? 'Starting…'}</div>
+                  </div>
+                )}
+                <button type="button" style={{ ...btn(true), marginTop: 14, width: '100%', opacity: emailState === 'working' ? 0.5 : 1 }} disabled={emailState === 'working'} onClick={sendPreview}>
+                  {emailState === 'working' ? 'Preparing…' : 'Send my preview ✉'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── text toolbar ── */}
@@ -1234,6 +1532,70 @@ function MagazineDesigner() {
       )}
     </div>
   )
+}
+
+const modalBackdrop: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 9000,
+  background: 'rgba(8,6,4,0.72)',
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'center',
+  padding: '40px 12px',
+  overflowY: 'auto',
+}
+const modalPanel: CSSProperties = {
+  width: '100%',
+  background: '#17120e',
+  border: '0.5px solid rgba(184,150,90,0.45)',
+  borderRadius: 14,
+  padding: '18px 20px 20px',
+  boxShadow: '0 24px 70px rgba(0,0,0,0.7)',
+  color: 'var(--cream)',
+}
+const modalHead: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  fontSize: 10.5,
+  letterSpacing: 2,
+  textTransform: 'uppercase',
+  color: GOLD,
+  fontWeight: 600,
+  marginBottom: 12,
+}
+const xBtn: CSSProperties = { background: 'transparent', border: 'none', color: 'var(--muted2)', fontSize: 16, cursor: 'pointer' }
+const warnBox: CSSProperties = {
+  background: 'rgba(229,115,115,0.1)',
+  border: '0.5px solid rgba(229,115,115,0.5)',
+  color: '#f3c3c3',
+  borderRadius: 8,
+  padding: '9px 12px',
+  fontSize: 12,
+  marginBottom: 12,
+}
+const checkRow: CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.6, color: 'var(--cream)', marginTop: 10 }
+const clausePre: CSSProperties = {
+  whiteSpace: 'pre-wrap',
+  fontFamily: 'var(--font-body)',
+  fontSize: 11,
+  color: 'var(--muted2)',
+  background: 'rgba(0,0,0,0.25)',
+  padding: 10,
+  borderRadius: 6,
+  marginTop: 6,
+}
+const fieldStyle: CSSProperties = {
+  background: 'rgba(0,0,0,0.3)',
+  border: '0.5px solid rgba(184,150,90,0.4)',
+  borderRadius: 6,
+  padding: '9px 10px',
+  color: 'var(--cream)',
+  fontSize: 13.5,
+  fontFamily: 'var(--font-body)',
+  letterSpacing: 0.2,
+  textTransform: 'none',
 }
 
 const miniBtn: CSSProperties = {
