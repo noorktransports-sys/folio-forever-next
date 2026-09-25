@@ -642,6 +642,7 @@ function MagazineDesigner() {
 
   const trayClick = useCallback(
     (id: string) => {
+      if (!pages) return
       const at = placedAt.get(id)
       if (at) return jumpTo(at)
       if (sel && pages && pages[sel.page][sel.slot] !== undefined) {
@@ -746,9 +747,9 @@ function MagazineDesigner() {
       </header>
 
       <style>{RAIL_CSS}</style>
-      <div className={`mag-shell${pages ? ' has-rails' : ''}`}>
-      {/* ── left rail: styles (wide screens, after design) ── */}
-      {pages && (
+      <div className="mag-shell has-rails">
+      {/* ── left rail: styles (wide screens) ── */}
+      {(
         <aside className="mag-rail" aria-label="Magazine styles">
           <div style={railHead}>Style</div>
           {MAG_STYLES.map((st, idx) => {
@@ -779,9 +780,9 @@ function MagazineDesigner() {
                 <div style={{ width: 56, flex: 'none', pointerEvents: 'none' }}>
                   <MagPageView
                     page={st.pages[0]}
-                    photoIds={on ? pages[0] : pv.pages[0]}
-                    photoMap={on ? photoMap : pv.map}
-                    adjusts={on ? adjusts : {}}
+                    photoIds={on && pages ? pages[0] : pv.pages[0]}
+                    photoMap={on && pages ? photoMap : pv.map}
+                    adjusts={on && pages ? adjusts : {}}
                     pageKey={st.pages[0].id}
                     selectedSlot={-1}
                     interactive={false}
@@ -1015,7 +1016,7 @@ function MagazineDesigner() {
 
       {/* ── before build: uploaded thumbnails ── */}
       {!pages && photos.length > 0 && (
-        <section style={{ maxWidth: 980, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px' }}>
+        <section className="mag-tray-inline" style={{ maxWidth: 980, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 16px' }}>
           {photos.map((p) => (
             <div key={p.id} style={{ position: 'relative', width: 78, height: 78 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1047,13 +1048,13 @@ function MagazineDesigner() {
       )}
 
       {/* ── preview of the design before any photos ── */}
-      {!pages && photos.length === 0 && (
-        <section style={{ maxWidth: 980, margin: '0 auto', padding: '0 16px' }}>
+      {!pages && (
+        <section style={{ maxWidth: 980, margin: '18px auto 0', padding: '0 16px' }}>
           <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 4 }}>
             The 20 pages · <strong style={{ color: 'var(--cream)', letterSpacing: 3, fontWeight: 800 }}>{style.name}</strong>
           </p>
           <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted2)', marginBottom: 14, fontStyle: 'italic' }}>
-            Shown with sample photos — yours go here.
+            {style.tagline} Shown with sample photos — yours go here.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
             {SP.map((pg, i) => (
@@ -1240,28 +1241,32 @@ function MagazineDesigner() {
       )}
 
       </div>
-      {/* ── right rail: photos (wide screens, after design) ── */}
-      {pages && (
+      {/* ── right rail: photos (wide screens) ── */}
+      {(
         <aside className="mag-rail" aria-label="Your photos">
           <div style={railHead}>Your photos · {photos.length}</div>
           <button type="button" data-help="mag-upload" onClick={() => fileRef.current?.click()} style={{ ...btn(false), width: '100%' }}>
             + Add photos
           </button>
-          <div style={{ display: 'flex', gap: 6, margin: '12px 0 8px' }}>
+          {pages && <div style={{ display: 'flex', gap: 6, margin: '12px 0 8px' }}>
             {(['unused', 'all'] as const).map((t) => (
               <button key={t} type="button" onClick={() => setTrayTab(t)} style={{ ...toggleBtn(trayTab === t), flex: 1, fontSize: 10, letterSpacing: 0.5, padding: '0 6px' }}>
                 {t === 'unused' ? `Not placed · ${unused.length}` : `All · ${photos.length}`}
               </button>
             ))}
-          </div>
-          <p style={{ fontSize: 10.5, color: 'var(--muted2)', lineHeight: 1.5, margin: '0 0 10px' }}>
-            {trayTab === 'unused' ? 'Tap a photo, then tap a frame to place it.' : 'Tap a placed photo to jump to its page. × deletes a photo.'}
+          </div>}
+          <p style={{ fontSize: 10.5, color: 'var(--muted2)', lineHeight: 1.5, margin: pages ? '0 0 10px' : '12px 0 10px' }}>
+            {!pages
+              ? `Upload about ${needed} photos, then press ✨ Auto-design. × removes a photo.`
+              : trayTab === 'unused'
+                ? 'Tap a photo, then tap a frame to place it.'
+                : 'Tap a placed photo to jump to its page. × deletes a photo.'}
           </p>
-          {(trayTab === 'unused' ? unused : photos).length === 0 && (
+          {(pages && trayTab === 'unused' ? unused : photos).length === 0 && (
             <span style={{ fontSize: 11, color: 'var(--muted2)' }}>{photos.length ? 'Every photo is placed.' : 'No photos yet.'}</span>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-            {(trayTab === 'unused' ? unused : photos).map((p) => {
+            {(pages && trayTab === 'unused' ? unused : photos).map((p) => {
               const at = placedAt.get(p.id)
               return (
                 <div key={p.id} style={{ position: 'relative', aspectRatio: '1 / 1' }}>
@@ -1780,7 +1785,7 @@ const tbLabel: CSSProperties = {
   textTransform: 'uppercase',
 }
 
-/* Side rails: only on wide screens once the magazine is designed. The
+/* Side rails: only on wide screens (before and after design). The
    rails are sticky, so only the magazine scrolls. Narrow screens keep the
    single-column layout (big style cards + inline photo tray). */
 const RAIL_CSS = `
