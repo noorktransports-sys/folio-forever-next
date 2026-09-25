@@ -308,6 +308,20 @@ function MagazineDesigner() {
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
 
+  /* ── build / rebuild ── */
+  const build = useCallback((pagesDef?: MagPage[], list?: Photo[]) => {
+    const ordered = [...(list ?? photos)].sort((a, b) => {
+      if (a.capturedAt && b.capturedAt) return a.capturedAt - b.capturedAt
+      return a.order - b.order
+    })
+    setPages(fillMagazine(ordered, pagesDef ?? SP))
+    setAdjusts({})
+    setSel(null)
+    setSwapFrom(null)
+    setArmed(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [photos, SP])
+
   /* ── upload ── */
   const addFiles = useCallback(
     async (files: FileList | null, target?: { page: number; slot: number } | null) => {
@@ -335,33 +349,45 @@ function MagazineDesigner() {
         await saveBlob(albumId, id, f)
         added.push({ id, preview, ...dims, capturedAt, order: base + k })
       }
-      setPhotos((prev) => [...prev, ...added])
-      if (target && pages && added[0]) {
+      // Real uploads replace the demo photos entirely.
+      const isSample = (p: Photo) => p.id.startsWith('sample-')
+      const hadSamples = photos.some(isSample)
+      const all = [...(hadSamples ? photos.filter((p) => !isSample(p)) : photos), ...added]
+      setPhotos(all)
+      setBusy(null)
+
+      if (target && pages && !hadSamples && added[0]) {
+        // Uploading straight into one empty frame.
         setPages((prev) => {
           if (!prev) return prev
           const next = prev.map((pg) => [...pg])
           next[target.page][target.slot] = added[0].id
           return next
         })
+        return
       }
-      setBusy(null)
+      if (!pages || hadSamples) {
+        // One click: upload → designed magazine.
+        build(undefined, all)
+        flash(`Your magazine is designed with ${Math.min(all.length, magSlotCount(style))} photos ✨`)
+        return
+      }
+      // Already designed with real photos: fill any empty frames first,
+      // the rest wait in the tray (✨ Auto-design uses them all).
+      let k = 0
+      setPages((prev) => {
+        if (!prev) return prev
+        return prev.map((pg) => pg.map((x) => (x === null && k < added.length ? added[k++].id : x)))
+      })
+      const placedNow = Math.min(k, added.length)
+      flash(
+        placedNow
+          ? `${placedNow} photo${placedNow === 1 ? '' : 's'} placed in empty frames — press ✨ Auto-design to use them all`
+          : `${added.length} photos added — press ✨ Auto-design to redesign with every photo`,
+      )
     },
-    [albumId, photos, pages, flash],
+    [albumId, photos, pages, flash, build, style],
   )
-
-  /* ── build / rebuild ── */
-  const build = useCallback((pagesDef?: MagPage[]) => {
-    const ordered = [...photos].sort((a, b) => {
-      if (a.capturedAt && b.capturedAt) return a.capturedAt - b.capturedAt
-      return a.order - b.order
-    })
-    setPages(fillMagazine(ordered, pagesDef ?? SP))
-    setAdjusts({})
-    setSel(null)
-    setSwapFrom(null)
-    setArmed(null)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [photos, SP])
 
   /* ── style switch ── */
   const chooseStyle = useCallback(
@@ -727,7 +753,11 @@ function MagazineDesigner() {
             + Upload photos
           </button>
           {photos.length === 0 && (
-            <button type="button" onClick={() => setPhotos(samplePhotos(needed))} style={btn(false)}>
+            <button type="button" onClick={() => {
+                const s = samplePhotos(needed)
+                setPhotos(s)
+                build(undefined, s)
+              }} style={btn(false)}>
               Try with sample photos
             </button>
           )}
@@ -735,12 +765,12 @@ function MagazineDesigner() {
             <button data-help="mag-build"
               type="button"
               onClick={() => {
-                if (pages && !window.confirm('Rebuild the magazine? Your swaps and crops will be reset.')) return
+                if (pages && !window.confirm(`Auto-design the magazine with all ${photos.length} photos? Your swaps and crops will be reset (your text stays).`)) return
                 build()
               }}
               style={btn(true)}
             >
-              {pages ? 'Rebuild layout' : 'Build my magazine →'}
+              {pages ? (unused.length ? `✨ Auto-design with all ${photos.length} photos` : '✨ Re-design') : '✨ Auto-design my magazine'}
             </button>
           )}
         </div>
