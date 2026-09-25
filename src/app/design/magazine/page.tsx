@@ -112,6 +112,17 @@ function samplePhotos(): Photo[] {
   })
 }
 
+/** The empty-state preview: the 20 pages filled with sample photos so
+ *  clients see the finished look before uploading. Small image sizes —
+ *  these are thumbnails only (never used for print). */
+function previewFill(): { map: Map<string, Photo>; pages: (string | null)[][] } {
+  const ph = samplePhotos().map((p) => {
+    const land = p.width > p.height
+    return { ...p, preview: `https://picsum.photos/seed/folio-mag-${p.order}/${land ? 480 : 320}/${land ? 320 : 480}` }
+  })
+  return { map: new Map(ph.map((p) => [p.id, p] as const)), pages: fillMagazine(ph) }
+}
+
 /* ───────────────────────────── page ───────────────────────────── */
 
 function MagazineDesigner() {
@@ -182,6 +193,7 @@ function MagazineDesigner() {
   }, [hydrated, albumId, photos, pages, adjusts])
 
   const photoMap = useMemo(() => new Map(photos.map((p) => [p.id, p] as const)), [photos])
+  const preview = useMemo(() => previewFill(), [])
   const placed = useMemo(() => new Set((pages ?? []).flat().filter(Boolean) as string[]), [pages])
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
@@ -508,16 +520,19 @@ function MagazineDesigner() {
       {/* ── preview of the design before any photos ── */}
       {!pages && photos.length === 0 && (
         <section style={{ maxWidth: 980, margin: '0 auto', padding: '0 16px' }}>
-          <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 14 }}>
+          <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 4 }}>
             The 20 pages
+          </p>
+          <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted2)', marginBottom: 14, fontStyle: 'italic' }}>
+            Shown with sample photos — yours go here.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
             {MAG_PAGES.map((pg, i) => (
               <div key={pg.id}>
                 <MagPageView
                   page={pg}
-                  photoIds={pg.slots.map(() => null)}
-                  photoMap={photoMap}
+                  photoIds={preview.pages[i] ?? pg.slots.map(() => null)}
+                  photoMap={preview.map}
                   adjusts={{}}
                   pageKey={pg.id}
                   selectedSlot={-1}
