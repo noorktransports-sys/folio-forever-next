@@ -5,7 +5,9 @@
 // sees is what prints: background (colour / blurred photo + tint) →
 // rust decor → photos in z-order (circles, frames, B&W) .
 
+import { useRef } from 'react'
 import { SlotImage, type SlotAdjust } from '../smart/edit/PanSlider'
+import { magTextStyle, type MagText } from '@/lib/magazine/text'
 import {
   MAG_ASPECT,
   magSlotBox,
@@ -46,6 +48,10 @@ export default function MagPageView({
   onSlotClick,
   onAdjust,
   interactive = true,
+  texts,
+  selectedTextId,
+  onTextSelect,
+  onTextMove,
 }: {
   page: MagPage
   photoIds: (string | null)[]
@@ -57,7 +63,14 @@ export default function MagPageView({
   onSlotClick?: (slotIdx: number) => void
   onAdjust?: (slotIdx: number, next: MagAdjust) => void
   interactive?: boolean
+  /** Text blocks with names/date already filled in. */
+  texts?: MagText[]
+  selectedTextId?: string | null
+  onTextSelect?: (id: string) => void
+  onTextMove?: (id: string, x: number, y: number) => void
 }) {
+  const drag = useRef<{ id: string; sx: number; sy: number; x0: number; y0: number; w: number; h: number; moved: boolean } | null>(null)
+  const textEditable = interactive && !!onTextSelect
   const slots = page.slots.map(magSlotBox)
   const order = slots
     .map((s, i) => ({ i, z: s.z ?? 0 }))
@@ -229,6 +242,66 @@ export default function MagPageView({
           </div>
         )
       })}
+      {(texts ?? []).map((tx) => {
+        const selected = selectedTextId === tx.id
+        return (
+          <div
+            key={tx.id}
+            data-magtext={tx.id}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={
+              textEditable
+                ? (e) => {
+                    e.stopPropagation()
+                    const r = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
+                    drag.current = { id: tx.id, sx: e.clientX, sy: e.clientY, x0: tx.x, y0: tx.y, w: r.width, h: r.height, moved: false }
+                    onTextSelect?.(tx.id)
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                  }
+                : undefined
+            }
+            onPointerMove={
+              textEditable
+                ? (e) => {
+                    const d = drag.current
+                    if (!d || d.id !== tx.id) return
+                    const dx = e.clientX - d.sx
+                    const dy = e.clientY - d.sy
+                    if (!d.moved && Math.hypot(dx, dy) < 3) return
+                    d.moved = true
+                    const nx = Math.max(0, Math.min(100, d.x0 + (dx / d.w) * 100))
+                    const ny = Math.max(0, Math.min(100, d.y0 + (dy / d.h) * 100))
+                    onTextMove?.(tx.id, +nx.toFixed(2), +ny.toFixed(2))
+                  }
+                : undefined
+            }
+            onPointerUp={
+              textEditable
+                ? (e) => {
+                    drag.current = null
+                    try {
+                      e.currentTarget.releasePointerCapture(e.pointerId)
+                    } catch {}
+                  }
+                : undefined
+            }
+            style={{
+              ...magTextStyle(tx, MAG_ASPECT),
+              zIndex: 20,
+              pointerEvents: textEditable ? 'auto' : 'none',
+              cursor: textEditable ? 'move' : 'default',
+              touchAction: textEditable ? 'none' : undefined,
+              userSelect: 'none',
+              outline: selected ? `1.5px dashed ${GOLD}` : textEditable ? '1px dashed rgba(184,150,90,0)' : undefined,
+              outlineOffset: 4,
+            }}
+            className={textEditable ? 'mag-text-edit' : undefined}
+          >
+            {tx.text}
+          </div>
+        )
+      })}
+      {textEditable && <style>{`.mag-text-edit:hover{outline-color:rgba(184,150,90,0.7)!important}`}</style>}
     </div>
   )
 }

@@ -34,6 +34,16 @@ import {
   type MagStyle,
 } from '@/lib/magazine/pages'
 import HelpSearch from '../help/HelpSearch'
+import {
+  MAG_FONTS,
+  MAG_FONTS_HREF,
+  MAG_FONT_FAMILY,
+  SAMPLE_META,
+  defaultTexts,
+  resolveText,
+  type MagMeta,
+  type MagText,
+} from '@/lib/magazine/text'
 import MagPageView, {
   MAG_DEFAULT_ADJUST,
   slotDpi,
@@ -59,7 +69,29 @@ type SavedState = {
   adjusts: Record<string, MagAdjust>
   /** Chosen design (added with multiple styles; missing = terracotta). */
   styleId?: string
+  /** Couple's names + date — auto-fill every page's text. */
+  meta?: MagMeta
+  /** Edited text per page id (pages not listed use the design's text). */
+  textEdits?: Record<string, MagText[]>
 }
+
+const EMPTY_META: MagMeta = { bride: '', groom: '', date: '' }
+
+/** Text blocks for a page with names/date filled in. */
+function pageTexts(pg: MagPage, edits: Record<string, MagText[]>, meta: MagMeta): MagText[] {
+  const list = edits[pg.id] ?? defaultTexts(pg.id, pg.texts)
+  return list.map((t) => ({ ...t, text: resolveText(t.text, meta) }))
+}
+
+/** Is a colour light? (for picking readable default text colour). */
+function isLight(hex: string): boolean {
+  const m = hex.replace('#', '').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i)
+  if (!m) return false
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16))
+  return 0.299 * r + 0.587 * g + 0.114 * b > 160
+}
+
+const TEXT_COLOURS = ['#ffffff', '#f4ede8', '#2a1a12', '#111111', '#8f2e0d', '#b8965a', '#3f4a36', '#8a7d6b']
 
 type IndexEntry = {
   id: string
@@ -103,17 +135,24 @@ function imageSize(src: string): Promise<{ width: number; height: number }> {
   })
 }
 
-/** Demo photos (stable URLs, no upload) so the layout can be tried fast. */
-function samplePhotos(count: number = MAG_SLOT_COUNT): Photo[] {
+/** Sample photos — served from /public/magazine-samples (cut from the
+ *  owner's own magazine reference pages). Self-hosted so the preview
+ *  never depends on a third-party image service.
+ *  [width, height] of each file; reported ×3 so the demo doesn't show
+ *  LOW RES badges (these are only for trying the layout, never printed). */
+const SAMPLE_DIMS: [number, number][] = [[1163, 1400], [983, 1400], [1142, 1400], [1182, 1400], [905, 1400], [990, 1400], [981, 1400], [1400, 526], [1400, 616], [1400, 525], [931, 1400], [959, 1330], [1030, 1400], [1030, 1400], [1278, 1400], [1400, 1308], [1245, 1400], [1041, 1400], [916, 1400], [1378, 875], [1400, 875], [1400, 755], [1400, 1000], [971, 1400]]
+const SAMPLE_DIR = '/magazine-samples'
+
+function samplePhotos(count: number = MAG_SLOT_COUNT, thumbs = false): Photo[] {
   return Array.from({ length: count }, (_, i) => {
-    const land = i % 4 === 1
-    const w = land ? 6000 : 4000
-    const h = land ? 4000 : 6000
+    const k = i % SAMPLE_DIMS.length
+    const [w, h] = SAMPLE_DIMS[k]
+    const file = `${String(k).padStart(2, '0')}.jpg`
     return {
       id: `sample-${i}`,
-      preview: `https://picsum.photos/seed/folio-mag-${i}/${land ? 1500 : 1000}/${land ? 1000 : 1500}`,
-      width: w,
-      height: h,
+      preview: thumbs ? `${SAMPLE_DIR}/t/${file}` : `${SAMPLE_DIR}/${file}`,
+      width: w * 3,
+      height: h * 3,
       order: i,
     }
   })
@@ -123,10 +162,7 @@ function samplePhotos(count: number = MAG_SLOT_COUNT): Photo[] {
  *  clients see the finished look before uploading. Small image sizes —
  *  these are thumbnails only (never used for print). */
 function previewFill(style: MagStyle): { map: Map<string, Photo>; pages: (string | null)[][] } {
-  const ph = samplePhotos(magSlotCount(style)).map((p) => {
-    const land = p.width > p.height
-    return { ...p, preview: `https://picsum.photos/seed/folio-mag-${p.order}/${land ? 480 : 320}/${land ? 320 : 480}` }
-  })
+  const ph = samplePhotos(magSlotCount(style), true)
   return { map: new Map(ph.map((p) => [p.id, p] as const)), pages: fillMagazine(ph, style.pages) }
 }
 
@@ -143,6 +179,9 @@ function MagazineDesigner() {
   const [pages, setPages] = useState<(string | null)[][] | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, MagAdjust>>({})
   const [styleId, setStyleId] = useState<string>(DEFAULT_MAG_STYLE)
+  const [meta, setMeta] = useState<MagMeta>(EMPTY_META)
+  const [textEdits, setTextEdits] = useState<Record<string, MagText[]>>({})
+  const [selText, setSelText] = useState<{ page: number; id: string } | null>(null)
   const style = getMagStyle(styleId)
   const SP: MagPage[] = style.pages
   const [sel, setSel] = useState<{ page: number; slot: number } | null>(null)
@@ -182,6 +221,8 @@ function MagazineDesigner() {
           setPages(s.pages ? s.pages.map((pg) => pg.map((x) => (x && alive.has(x) ? x : null))) : null)
           setAdjusts(s.adjusts || {})
           setStyleId(getMagStyle(s.styleId).id)
+          setMeta({ ...EMPTY_META, ...(s.meta ?? {}) })
+          setTextEdits(s.textEdits ?? {})
         }
       } catch {
         /* corrupt state → start fresh */
@@ -194,14 +235,71 @@ function MagazineDesigner() {
   /* ── autosave ── */
   useEffect(() => {
     if (!hydrated || !albumId) return
-    const s: SavedState = { v: 1, photos, pages, adjusts, styleId }
+    const s: SavedState = { v: 1, photos, pages, adjusts, styleId, meta, textEdits }
     try {
       localStorage.setItem(`${STATE_PREFIX}:${albumId}`, JSON.stringify(s))
     } catch {
       /* quota */
     }
     upsertIndex(albumId, { mode: 'magazine' })
-  }, [hydrated, albumId, photos, pages, adjusts, styleId])
+  }, [hydrated, albumId, photos, pages, adjusts, styleId, meta, textEdits])
+
+  /* ── magazine fonts (loaded only on this page) ── */
+  useEffect(() => {
+    if (document.querySelector('link[data-mag-fonts]')) return
+    const l = document.createElement('link')
+    l.rel = 'stylesheet'
+    l.href = MAG_FONTS_HREF
+    l.setAttribute('data-mag-fonts', '1')
+    document.head.appendChild(l)
+  }, [])
+
+  /* ── text editing ── */
+  const editList = useCallback(
+    (pi: number, fn: (list: MagText[]) => MagText[]) => {
+      const pg = SP[pi]
+      setTextEdits((prev) => ({ ...prev, [pg.id]: fn(prev[pg.id] ?? defaultTexts(pg.id, pg.texts)) }))
+    },
+    [SP],
+  )
+  const updateText = useCallback(
+    (pi: number, id: string, patch: Partial<MagText>) => editList(pi, (l) => l.map((t) => (t.id === id ? { ...t, ...patch } : t))),
+    [editList],
+  )
+  const deleteText = useCallback(
+    (pi: number, id: string) => {
+      editList(pi, (l) => l.filter((t) => t.id !== id))
+      setSelText(null)
+    },
+    [editList],
+  )
+  const addText = useCallback(
+    (pi: number) => {
+      const pg = SP[pi]
+      const light = pg.bg.kind === 'color' ? isLight(pg.bg.color) : false
+      const id = `${pg.id}-u${Date.now().toString(36)}`
+      editList(pi, (l) => [
+        ...l,
+        { id, text: 'Your words here', x: 50, y: 50, w: 70, size: 3.4, font: 'playfair', color: light ? '#2a1a12' : '#ffffff', italic: true, shadow: !light },
+      ])
+      setSel(null)
+      setSelText({ page: pi, id })
+    },
+    [SP, editList],
+  )
+  const restoreTexts = useCallback(
+    (pi: number) => {
+      const pg = SP[pi]
+      setTextEdits((prev) => {
+        const n = { ...prev }
+        delete n[pg.id]
+        return n
+      })
+      setSelText(null)
+      flash(`Page ${pi + 1} text restored`)
+    },
+    [SP, flash],
+  )
 
   const photoMap = useMemo(() => new Map(photos.map((p) => [p.id, p] as const)), [photos])
   const previews = useMemo(() => new Map(MAG_STYLES.map((st) => [st.id, previewFill(st)] as const)), [])
@@ -273,6 +371,7 @@ function MagazineDesigner() {
       if (pages) {
         if (!window.confirm(`Switch to ${next.name}? Your photos will be re-placed into the new design (swaps and crops reset).`)) return
         setStyleId(next.id)
+        setSelText(null)
         build(next.pages)
         flash(`Now designing in ${next.name}`)
       } else {
@@ -302,6 +401,7 @@ function MagazineDesigner() {
   const onSlotClick = useCallback(
     (p: number, s: number) => {
       if (!pages) return
+      setSelText(null)
       const cur = pages[p][s]
       // 1) placing a picked-up tray photo
       if (armed) {
@@ -379,7 +479,7 @@ function MagazineDesigner() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--dark)', paddingBottom: sel ? 160 : 60 }}>
+    <div style={{ minHeight: '100vh', background: 'var(--dark)', paddingBottom: sel ? 160 : selText ? 300 : 60 }}>
       <nav
         style={{
           display: 'flex',
@@ -487,11 +587,28 @@ function MagazineDesigner() {
                       pageKey={st.pages[k].id}
                       selectedSlot={-1}
                       interactive={false}
+                      texts={pageTexts(st.pages[k], textEdits, meta)}
                     />
                   ))}
                 </div>
-                <div style={{ fontSize: 9, letterSpacing: 2.5, color: GOLD, fontWeight: 600 }}>
+                <div style={{ display: 'flex', alignItems: 'center', fontSize: 9, letterSpacing: 2.5, color: GOLD, fontWeight: 600 }}>
                   STYLE {String(idx + 1).padStart(2, '0')}
+                  {on && (
+                    <span
+                      style={{
+                        marginLeft: 'auto',
+                        background: GOLD,
+                        color: '#0e0c09',
+                        fontSize: 8.5,
+                        fontWeight: 700,
+                        letterSpacing: 1.5,
+                        padding: '3px 8px',
+                        borderRadius: 20,
+                      }}
+                    >
+                      ✓ SELECTED
+                    </span>
+                  )}
                 </div>
                 <div
                   style={{
@@ -515,28 +632,60 @@ function MagazineDesigner() {
                     ~{magSlotCount(st)} photos
                   </span>
                 </div>
-                {on && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: 18,
-                      right: 18,
-                      background: GOLD,
-                      color: '#0e0c09',
-                      fontSize: 9,
-                      fontWeight: 700,
-                      letterSpacing: 1.5,
-                      padding: '4px 9px',
-                      borderRadius: 20,
-                    }}
-                  >
-                    ✓ SELECTED
-                  </span>
-                )}
               </button>
             )
           })}
         </div>
+      </section>
+
+      {/* ── names & date (auto-fill all text) ── */}
+      <section
+        style={{
+          maxWidth: 980,
+          margin: '0 auto 18px',
+          padding: '14px 22px',
+          background: 'var(--dark2)',
+          border: '0.5px solid rgba(184,150,90,0.2)',
+          borderRadius: 10,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <div style={{ flex: '1 1 200px' }}>
+          <div style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', fontWeight: 600 }}>Your names & date</div>
+          <div style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 3 }}>Fills in every headline and caption. Click any text on a page to edit it.</div>
+        </div>
+        {(
+          [
+            ['bride', 'Bride', SAMPLE_META.bride],
+            ['groom', 'Groom', SAMPLE_META.groom],
+            ['date', 'Wedding date', SAMPLE_META.date],
+          ] as const
+        ).map(([k, label, ph]) => (
+          <label key={k} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 9, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+            {label}
+            <input
+              value={meta[k]}
+              placeholder={ph}
+              maxLength={40}
+              onChange={(e) => setMeta((m) => ({ ...m, [k]: e.target.value }))}
+              style={{
+                background: 'rgba(0,0,0,0.25)',
+                border: '0.5px solid rgba(184,150,90,0.4)',
+                borderRadius: 6,
+                padding: '8px 10px',
+                color: 'var(--cream)',
+                fontSize: 13,
+                width: k === 'date' ? 170 : 130,
+                fontFamily: 'var(--font-body)',
+                letterSpacing: 0.3,
+                textTransform: 'none',
+              }}
+            />
+          </label>
+        ))}
       </section>
 
       {/* ── upload / status bar ── */}
@@ -652,6 +801,7 @@ function MagazineDesigner() {
                   page={pg}
                   photoIds={preview.pages[i] ?? pg.slots.map(() => null)}
                   photoMap={preview.map}
+                  texts={pageTexts(pg, textEdits, meta)}
                   adjusts={{}}
                   pageKey={pg.id}
                   selectedSlot={-1}
@@ -718,18 +868,39 @@ function MagazineDesigner() {
                         selectedSlot={sel && sel.page === pi ? sel.slot : -1}
                         onSlotClick={(s) => onSlotClick(pi, s)}
                         onAdjust={(s, n) => onAdjust(pi, s, n)}
+                        texts={pageTexts(SP[pi], textEdits, meta)}
+                        selectedTextId={selText && selText.page === pi ? selText.id : null}
+                        onTextSelect={(id) => {
+                          setSel(null)
+                          setSwapFrom(null)
+                          setArmed(null)
+                          setSelText({ page: pi, id })
+                        }}
+                        onTextMove={(id, x, y) => updateText(pi, id, { x, y })}
                       />
                     ),
                   )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', marginTop: 6 }}>
                   {[l, r].map((pi, k) => (
-                    <span
+                    <div
                       key={k}
-                      style={{ fontSize: 9, letterSpacing: 2, color: 'var(--muted2)', textAlign: 'center', textTransform: 'uppercase' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 9, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}
                     >
-                      {pi === null ? '' : `Page ${pi + 1}`}
-                    </span>
+                      {pi !== null && (
+                        <>
+                          <span>Page {pi + 1}</span>
+                          <button type="button" data-help="mag-add-text" onClick={() => addText(pi)} style={miniBtn}>
+                            + Text
+                          </button>
+                          {textEdits[SP[pi].id] && (
+                            <button type="button" onClick={() => restoreTexts(pi)} style={miniBtn} title="Put back this page's original text">
+                              ↺ Restore text
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -799,6 +970,141 @@ function MagazineDesigner() {
           </div>
         </section>
       )}
+
+      {/* ── text toolbar ── */}
+      {selText && pages && (() => {
+        const list = textEdits[SP[selText.page].id] ?? defaultTexts(SP[selText.page].id, SP[selText.page].texts)
+        const tx = list.find((x) => x.id === selText.id)
+        if (!tx) return null
+        const up = (patch: Partial<MagText>) => updateText(selText.page, tx.id, patch)
+        const shown = resolveText(tx.text, meta)
+        return (
+          <div
+            data-help="mag-text-toolbar"
+            style={{
+              position: 'fixed',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 30,
+              background: 'rgba(14,12,9,0.97)',
+              borderTop: '0.5px solid rgba(184,150,90,0.35)',
+              padding: '12px 16px 14px',
+              maxHeight: '55vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>Text · Page {selText.page + 1}</span>
+                <span style={{ fontSize: 10, color: 'var(--muted2)' }}>Drag the text on the page to move it</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <button type="button" style={{ ...btn(false), color: '#ff8a8a', borderColor: 'rgba(255,138,138,0.45)' }} onClick={() => deleteText(selText.page, tx.id)}>
+                    Delete text
+                  </button>
+                  <button type="button" style={btn(true)} onClick={() => setSelText(null)}>
+                    Done
+                  </button>
+                </span>
+              </div>
+              <textarea
+                value={shown}
+                onChange={(e) => up({ text: e.target.value })}
+                rows={shown.length > 70 ? 3 : 2}
+                aria-label="Text"
+                style={{
+                  width: '100%',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '0.5px solid rgba(184,150,90,0.45)',
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  color: 'var(--cream)',
+                  fontSize: 14,
+                  fontFamily: MAG_FONT_FAMILY[tx.font],
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+                {MAG_FONTS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    title={f.note}
+                    onClick={() => up({ font: f.id })}
+                    style={{
+                      flexShrink: 0,
+                      minWidth: 92,
+                      background: tx.font === f.id ? 'rgba(184,150,90,0.2)' : 'transparent',
+                      border: tx.font === f.id ? `1px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.35)',
+                      borderRadius: 8,
+                      padding: '6px 10px',
+                      color: 'var(--cream)',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div style={{ fontFamily: MAG_FONT_FAMILY[f.id], fontSize: 18, lineHeight: 1.2 }}>{f.label}</div>
+                    <div style={{ fontSize: 8.5, letterSpacing: 1, color: 'var(--muted2)', textTransform: 'uppercase', marginTop: 2 }}>{f.note}</div>
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <label style={tbLabel}>
+                  Size
+                  <input type="range" min={0.8} max={14} step={0.1} value={tx.size} onChange={(e) => up({ size: Number(e.target.value) })} style={{ accentColor: GOLD, width: 110 }} />
+                </label>
+                <label style={tbLabel}>
+                  Width
+                  <input type="range" min={10} max={100} step={1} value={tx.w} onChange={(e) => up({ w: Number(e.target.value) })} style={{ accentColor: GOLD, width: 90 }} />
+                </label>
+                <label style={tbLabel}>
+                  Spacing
+                  <input type="range" min={0} max={0.5} step={0.01} value={tx.spacing ?? 0} onChange={(e) => up({ spacing: Number(e.target.value) })} style={{ accentColor: GOLD, width: 80 }} />
+                </label>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  {(['left', 'center', 'right'] as const).map((a) => (
+                    <button key={a} type="button" onClick={() => up({ align: a })} style={toggleBtn((tx.align ?? 'center') === a)} aria-label={`Align ${a}`}>
+                      {a === 'left' ? '⇤' : a === 'center' ? '↔' : '⇥'}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => up({ weight: (tx.weight ?? 400) >= 600 ? 400 : 700 })} style={{ ...toggleBtn((tx.weight ?? 400) >= 600), fontWeight: 800 }}>
+                    B
+                  </button>
+                  <button type="button" onClick={() => up({ italic: !tx.italic })} style={{ ...toggleBtn(!!tx.italic), fontStyle: 'italic' }}>
+                    I
+                  </button>
+                  <button type="button" onClick={() => up({ upper: !tx.upper })} style={toggleBtn(!!tx.upper)} title="Capital letters">
+                    AA
+                  </button>
+                  <button type="button" onClick={() => up({ shadow: !tx.shadow })} style={toggleBtn(!!tx.shadow)} title="Soft shadow (for text on photos)">
+                    ◐
+                  </button>
+                </span>
+                <span style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                  {TEXT_COLOURS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-label={`Colour ${c}`}
+                      onClick={() => up({ color: c })}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        background: c,
+                        border: tx.color.toLowerCase() === c ? `2px solid ${GOLD}` : '0.5px solid rgba(255,255,255,0.35)',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    />
+                  ))}
+                  <input type="color" value={/^#[0-9a-f]{6}$/i.test(tx.color) ? tx.color : '#ffffff'} onChange={(e) => up({ color: e.target.value })} aria-label="Custom colour" style={{ width: 26, height: 22, padding: 0, border: 'none', background: 'none' }} />
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── photo toolbar ── */}
       {sel && pages && (
@@ -885,6 +1191,41 @@ function MagazineDesigner() {
       )}
     </div>
   )
+}
+
+const miniBtn: CSSProperties = {
+  background: 'transparent',
+  border: '0.5px solid rgba(184,150,90,0.4)',
+  color: GOLD,
+  borderRadius: 20,
+  padding: '3px 9px',
+  fontSize: 8.5,
+  letterSpacing: 1.2,
+  cursor: 'pointer',
+  textTransform: 'uppercase',
+}
+
+const tbLabel: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 9.5,
+  letterSpacing: 1.5,
+  color: 'var(--cream)',
+  textTransform: 'uppercase',
+}
+
+function toggleBtn(on: boolean): CSSProperties {
+  return {
+    minWidth: 30,
+    height: 28,
+    borderRadius: 6,
+    border: on ? `1px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.4)',
+    background: on ? 'rgba(184,150,90,0.25)' : 'transparent',
+    color: 'var(--cream)',
+    cursor: 'pointer',
+    fontSize: 12,
+  }
 }
 
 function btn(primary: boolean): CSSProperties {
