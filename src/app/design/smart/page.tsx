@@ -4558,7 +4558,26 @@ function SmartDesignerInner() {
             sticky positioning so it scrolls with the user, and each
             mini-card enlarges 2× on hover so the client can clearly
             see what they edited without leaving their place. */}
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        {/* Phones / narrow tablets: stack the columns. The spread rail
+            becomes a horizontal strip, Used / Unused moves above the
+            spreads (so tap-to-place is one short scroll), nothing is
+            sticky. Inline styles above need !important to override. */}
+        <style>{`
+          @media (max-width: 900px) {
+            .ff-adj { flex-direction: column !important; gap: 14px !important; align-items: stretch !important; overflow-x: clip; }
+            .ff-adj-rail {
+              position: static !important; width: auto !important; max-height: none !important; align-self: stretch !important;
+              flex-direction: row !important; overflow-x: auto !important; overflow-y: hidden !important;
+              align-items: stretch !important; padding: 10px !important; gap: 8px !important;
+            }
+            .ff-adj-rail > div:first-child { display: none !important; }
+            .ff-adj-rail .ff-nav-tile { width: 104px !important; }
+            .ff-adj-rail .ff-nav-tile:hover { transform: none !important; }
+            .ff-adj-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 16px !important; width: 100%; }
+            .ff-adj-aside { position: static !important; order: -1; }
+          }
+        `}</style>
+        <div className="ff-adj" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
           <SpreadNavRail
             spreads={spreads}
             previewFor={(id) => photos.find((p) => p.id === id)?.preview}
@@ -4570,7 +4589,7 @@ function SmartDesignerInner() {
             draggingIdx={draggingSpreadIdx}
             dropTargetIdx={dropTargetIdx}
           />
-          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
+          <div className="ff-adj-grid" style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
           <div style={{ display: 'grid', gap: 10 }}>
             {spreads.map((s, i) => (
               <SpreadView
@@ -4768,7 +4787,7 @@ function SmartDesignerInner() {
             ))}
           </div>
 
-          <aside style={{ position: 'sticky', top: 20, alignSelf: 'start' }}>
+          <aside className="ff-adj-aside" style={{ position: 'sticky', top: 20, alignSelf: 'start' }}>
             <div style={{ ...css.card, marginBottom: 16 }}>
               <p style={{ fontSize: 10, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 8 }}>
                 Used in album
@@ -6513,6 +6532,7 @@ function SpreadNavRail({
       {/* A <div>, not <nav>: the site-wide `nav {}` rule (70px fixed
           top bar, centred items) would otherwise crush this rail. */}
       <div
+        className="ff-adj-rail"
         role="navigation"
         aria-label="Spread navigator"
         style={{
@@ -7915,6 +7935,9 @@ function SpreadView({
   // Corner-handle rotation (live angle shown while dragging).
   const rotDrag = useRef<{ cx: number; cy: number; a0: number; r0: number } | null>(null)
   const [rotLabel, setRotLabel] = useState<number | null>(null)
+  // Edge handles: drag outward = zoom in, inward = zoom out (from centre).
+  const zoomDrag = useRef<{ axis: 'x' | 'y'; c: number; d0: number; z0: number; cap: number } | null>(null)
+  const [zoomLabel, setZoomLabel] = useState<number | null>(null)
   // ctrl/⌘ + wheel (and trackpad pinch) zoom — needs a NON-passive
   // native listener so the browser doesn't zoom the whole page.
   const boxRef = useRef<HTMLDivElement>(null)
@@ -8598,6 +8621,15 @@ function SpreadView({
           [x1, y1],
           [x0, y1],
         ]
+        const mx = (x0 + x1) / 2
+        const my = (y0 + y1) / 2
+        const edges: { x: number; y: number; axis: 'x' | 'y' }[] = [
+          { x: mx, y: y0, axis: 'y' },
+          { x: x1, y: my, axis: 'x' },
+          { x: mx, y: y1, axis: 'y' },
+          { x: x0, y: my, axis: 'x' },
+        ]
+        const zoomCap = smartMaxZoom(gp, gs, albumSize)
         return (
           <>
             <div
@@ -8702,6 +8734,96 @@ function SpreadView({
                   ↻
                 </div>
               ))}
+              {edges.map((ed, k) => (
+                <div
+                  key={`e${k}`}
+                  title="Drag to zoom · out = bigger, in = smaller"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const layer = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect()
+                    const c =
+                      ed.axis === 'x'
+                        ? layer.left + (mx / 100) * layer.width
+                        : layer.top + (my / 100) * layer.height
+                    const p = ed.axis === 'x' ? e.clientX : e.clientY
+                    zoomDrag.current = {
+                      axis: ed.axis,
+                      c,
+                      d0: Math.max(8, Math.abs(p - c)),
+                      z0: ga.zoom,
+                      cap: zoomCap,
+                    }
+                    setZoomLabel(Math.round(ga.zoom * 100))
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                  }}
+                  onPointerMove={(e) => {
+                    const d = zoomDrag.current
+                    if (!d) return
+                    const p = d.axis === 'x' ? e.clientX : e.clientY
+                    const dist = Math.max(1, Math.abs(p - d.c))
+                    const zz = Math.max(1, Math.min(d.cap, d.z0 * (dist / d.d0)))
+                    setZoomLabel(Math.round(zz * 100))
+                    onAdjustChange(editingSlot, { zoom: +zz.toFixed(3) })
+                  }}
+                  onPointerUp={(e) => {
+                    zoomDrag.current = null
+                    setZoomLabel(null)
+                    try { e.currentTarget.releasePointerCapture(e.pointerId) } catch {}
+                  }}
+                  onPointerCancel={() => {
+                    zoomDrag.current = null
+                    setZoomLabel(null)
+                  }}
+                  style={{
+                    position: 'absolute',
+                    // Generous invisible hit area; the visible bar is the child.
+                    left: `calc(${ed.x}% - ${ed.axis === 'y' ? 20 : 11}px)`,
+                    top: `calc(${ed.y}% - ${ed.axis === 'y' ? 11 : 20}px)`,
+                    width: ed.axis === 'y' ? 40 : 22,
+                    height: ed.axis === 'y' ? 22 : 40,
+                    pointerEvents: 'auto',
+                    cursor: ed.axis === 'y' ? 'ns-resize' : 'ew-resize',
+                    touchAction: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: ed.axis === 'y' ? 30 : 8,
+                      height: ed.axis === 'y' ? 8 : 30,
+                      borderRadius: 4,
+                      background: '#ffffff',
+                      border: `2px solid ${GOLD}`,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
+                    }}
+                  />
+                </div>
+              ))}
+              {zoomLabel !== null && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${mx}%`,
+                    top: `${my}%`,
+                    transform: 'translate(-50%, -50%)',
+                    background: 'rgba(14,12,9,0.85)',
+                    color: GOLD,
+                    border: `1px solid ${GOLD}`,
+                    borderRadius: 30,
+                    padding: '6px 14px',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    letterSpacing: 1,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {zoomLabel}%{zoomLabel >= Math.round(zoomCap * 100) && zoomCap < 2 ? ' · max for sharp print' : ''}
+                </div>
+              )}
               {rotLabel !== null && (
                 <div
                   style={{
@@ -8874,7 +8996,7 @@ function PhotoToolbar({
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
         <span style={{ fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase' }}>
-          ✋ Drag to move · ↻ corners to rotate · pinch to zoom
+          ✋ Drag to move · ↻ corners to rotate · pull the edges or pinch to zoom
         </span>
 
         {/* ZOOM — smart-capped so it never pixelates at print */}
