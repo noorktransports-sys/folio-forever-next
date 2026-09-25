@@ -1012,6 +1012,21 @@ export const GUIDES: Guide[] = [
 
   // ────────────────────────────── Magazine ───────────────────────────────
   {
+    id: 'mag-style',
+    title: 'Choose a magazine style',
+    area: 'magazine',
+    keywords: 'magazine style design theme look terracotta noir ivory sage change style switch design different design',
+    steps: [
+      'At the top of the magazine page, click a style card: TERRACOTTA, NOIR, IVORY or SAGE.',
+      'The 20-page preview changes to show that design.',
+      'Already built? Pick another style and confirm — your photos are re-placed into the new design.',
+    ],
+    tips: ['Every style is 20 pages at the same price. Switching resets swaps and crops.'],
+    demo: 'layout',
+    target: ['[data-help="mag-styles"]'],
+    popular: true,
+  },
+  {
     id: 'mag-build',
     title: 'Build my magazine',
     area: 'magazine',

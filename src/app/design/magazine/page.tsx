@@ -21,12 +21,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { saveBlob, loadAlbumBlobs, deleteBlob } from '../smart/edit/photo-blob-store'
 import { readJpegCaptureTime } from '@/lib/exif'
 import {
-  MAG_PAGES,
+  DEFAULT_MAG_STYLE,
   MAG_PAGE_COUNT,
   MAG_PRICE,
   MAG_SLOT_COUNT,
+  MAG_STYLES,
   fillMagazine,
+  getMagStyle,
   magSlotBox,
+  magSlotCount,
+  type MagPage,
+  type MagStyle,
 } from '@/lib/magazine/pages'
 import HelpSearch from '../help/HelpSearch'
 import MagPageView, {
@@ -52,6 +57,8 @@ type SavedState = {
   photos: Photo[]
   pages: (string | null)[][] | null
   adjusts: Record<string, MagAdjust>
+  /** Chosen design (added with multiple styles; missing = terracotta). */
+  styleId?: string
 }
 
 type IndexEntry = {
@@ -97,8 +104,8 @@ function imageSize(src: string): Promise<{ width: number; height: number }> {
 }
 
 /** Demo photos (stable URLs, no upload) so the layout can be tried fast. */
-function samplePhotos(): Photo[] {
-  return Array.from({ length: MAG_SLOT_COUNT }, (_, i) => {
+function samplePhotos(count: number = MAG_SLOT_COUNT): Photo[] {
+  return Array.from({ length: count }, (_, i) => {
     const land = i % 4 === 1
     const w = land ? 6000 : 4000
     const h = land ? 4000 : 6000
@@ -115,12 +122,12 @@ function samplePhotos(): Photo[] {
 /** The empty-state preview: the 20 pages filled with sample photos so
  *  clients see the finished look before uploading. Small image sizes —
  *  these are thumbnails only (never used for print). */
-function previewFill(): { map: Map<string, Photo>; pages: (string | null)[][] } {
-  const ph = samplePhotos().map((p) => {
+function previewFill(style: MagStyle): { map: Map<string, Photo>; pages: (string | null)[][] } {
+  const ph = samplePhotos(magSlotCount(style)).map((p) => {
     const land = p.width > p.height
     return { ...p, preview: `https://picsum.photos/seed/folio-mag-${p.order}/${land ? 480 : 320}/${land ? 320 : 480}` }
   })
-  return { map: new Map(ph.map((p) => [p.id, p] as const)), pages: fillMagazine(ph) }
+  return { map: new Map(ph.map((p) => [p.id, p] as const)), pages: fillMagazine(ph, style.pages) }
 }
 
 /* ───────────────────────────── page ───────────────────────────── */
@@ -135,6 +142,9 @@ function MagazineDesigner() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [pages, setPages] = useState<(string | null)[][] | null>(null)
   const [adjusts, setAdjusts] = useState<Record<string, MagAdjust>>({})
+  const [styleId, setStyleId] = useState<string>(DEFAULT_MAG_STYLE)
+  const style = getMagStyle(styleId)
+  const SP: MagPage[] = style.pages
   const [sel, setSel] = useState<{ page: number; slot: number } | null>(null)
   const [swapFrom, setSwapFrom] = useState<{ page: number; slot: number } | null>(null)
   const [armed, setArmed] = useState<string | null>(null) // tray photo picked up
@@ -171,6 +181,7 @@ function MagazineDesigner() {
           setPhotos(ph)
           setPages(s.pages ? s.pages.map((pg) => pg.map((x) => (x && alive.has(x) ? x : null))) : null)
           setAdjusts(s.adjusts || {})
+          setStyleId(getMagStyle(s.styleId).id)
         }
       } catch {
         /* corrupt state → start fresh */
@@ -183,17 +194,18 @@ function MagazineDesigner() {
   /* ── autosave ── */
   useEffect(() => {
     if (!hydrated || !albumId) return
-    const s: SavedState = { v: 1, photos, pages, adjusts }
+    const s: SavedState = { v: 1, photos, pages, adjusts, styleId }
     try {
       localStorage.setItem(`${STATE_PREFIX}:${albumId}`, JSON.stringify(s))
     } catch {
       /* quota */
     }
     upsertIndex(albumId, { mode: 'magazine' })
-  }, [hydrated, albumId, photos, pages, adjusts])
+  }, [hydrated, albumId, photos, pages, adjusts, styleId])
 
   const photoMap = useMemo(() => new Map(photos.map((p) => [p.id, p] as const)), [photos])
-  const preview = useMemo(() => previewFill(), [])
+  const previews = useMemo(() => new Map(MAG_STYLES.map((st) => [st.id, previewFill(st)] as const)), [])
+  const preview = previews.get(style.id) ?? previewFill(style)
   const placed = useMemo(() => new Set((pages ?? []).flat().filter(Boolean) as string[]), [pages])
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
@@ -240,18 +252,35 @@ function MagazineDesigner() {
   )
 
   /* ── build / rebuild ── */
-  const build = useCallback(() => {
+  const build = useCallback((pagesDef?: MagPage[]) => {
     const ordered = [...photos].sort((a, b) => {
       if (a.capturedAt && b.capturedAt) return a.capturedAt - b.capturedAt
       return a.order - b.order
     })
-    setPages(fillMagazine(ordered))
+    setPages(fillMagazine(ordered, pagesDef ?? SP))
     setAdjusts({})
     setSel(null)
     setSwapFrom(null)
     setArmed(null)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [photos])
+  }, [photos, SP])
+
+  /* ── style switch ── */
+  const chooseStyle = useCallback(
+    (id: string) => {
+      if (id === styleId) return
+      const next = getMagStyle(id)
+      if (pages) {
+        if (!window.confirm(`Switch to ${next.name}? Your photos will be re-placed into the new design (swaps and crops reset).`)) return
+        setStyleId(next.id)
+        build(next.pages)
+        flash(`Now designing in ${next.name}`)
+      } else {
+        setStyleId(next.id)
+      }
+    },
+    [styleId, pages, build, flash],
+  )
 
   /* ── editing ops ── */
   const setSlot = useCallback((p: number, s: number, id: string | null) => {
@@ -262,13 +291,13 @@ function MagazineDesigner() {
       return next
     })
     setAdjusts((a) => {
-      const k = `${MAG_PAGES[p].id}::${s}`
+      const k = `${SP[p].id}::${s}`
       if (!(k in a)) return a
       const n = { ...a }
       delete n[k]
       return n
     })
-  }, [])
+  }, [SP])
 
   const onSlotClick = useCallback(
     (p: number, s: number) => {
@@ -294,8 +323,8 @@ function MagazineDesigner() {
           })
           setAdjusts((ad) => {
             const n = { ...ad }
-            delete n[`${MAG_PAGES[p].id}::${s}`]
-            delete n[`${MAG_PAGES[swapFrom.page].id}::${swapFrom.slot}`]
+            delete n[`${SP[p].id}::${s}`]
+            delete n[`${SP[swapFrom.page].id}::${swapFrom.slot}`]
             return n
           })
           flash('Swapped')
@@ -312,12 +341,12 @@ function MagazineDesigner() {
       }
       setSel((old) => (old && old.page === p && old.slot === s ? null : { page: p, slot: s }))
     },
-    [pages, armed, swapFrom, setSlot, flash],
+    [pages, armed, swapFrom, setSlot, flash, SP],
   )
 
   const onAdjust = useCallback((p: number, s: number, next: MagAdjust) => {
-    setAdjusts((a) => ({ ...a, [`${MAG_PAGES[p].id}::${s}`]: next }))
-  }, [])
+    setAdjusts((a) => ({ ...a, [`${SP[p].id}::${s}`]: next }))
+  }, [SP])
 
   const removePhotoEverywhere = useCallback(
     (id: string) => {
@@ -330,9 +359,9 @@ function MagazineDesigner() {
 
   const selPhotoId = sel && pages ? pages[sel.page][sel.slot] : null
   const selPhoto = selPhotoId ? photoMap.get(selPhotoId) : undefined
-  const selAdj = sel ? adjusts[`${MAG_PAGES[sel.page].id}::${sel.slot}`] ?? MAG_DEFAULT_ADJUST : MAG_DEFAULT_ADJUST
+  const selAdj = sel ? adjusts[`${SP[sel.page].id}::${sel.slot}`] ?? MAG_DEFAULT_ADJUST : MAG_DEFAULT_ADJUST
   const selDpi =
-    sel && selPhoto ? Math.round(slotDpi(selPhoto, magSlotBox(MAG_PAGES[sel.page].slots[sel.slot]), selAdj.zoom)) : 0
+    sel && selPhoto ? Math.round(slotDpi(selPhoto, magSlotBox(SP[sel.page].slots[sel.slot]), selAdj.zoom)) : 0
 
   // Spreads as they read in print: page 1 alone on the right, then pairs,
   // page 20 alone on the left.
@@ -343,7 +372,7 @@ function MagazineDesigner() {
     return out
   }, [])
 
-  const needed = MAG_SLOT_COUNT
+  const needed = magSlotCount(style)
 
   if (!hydrated) {
     return <div style={{ padding: 80, textAlign: 'center', color: GOLD, letterSpacing: 2, fontSize: 11 }}>LOADING…</div>
@@ -420,6 +449,96 @@ function MagazineDesigner() {
         </p>
       </header>
 
+      {/* ── style picker ── */}
+      <section data-help="mag-styles" style={{ maxWidth: 980, margin: '0 auto 28px', padding: '0 16px' }}>
+        <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 14 }}>
+          Choose your style
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+          {MAG_STYLES.map((st, idx) => {
+            const on = st.id === style.id
+            const pv = previews.get(st.id)!
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => chooseStyle(st.id)}
+                aria-pressed={on}
+                style={{
+                  textAlign: 'left',
+                  background: on ? 'rgba(184,150,90,0.1)' : 'var(--dark2)',
+                  border: on ? `1.5px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.25)',
+                  borderRadius: 12,
+                  padding: 12,
+                  cursor: 'pointer',
+                  color: 'var(--cream)',
+                  position: 'relative',
+                  transition: 'border-color .2s, background .2s',
+                }}
+              >
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 3, marginBottom: 12, pointerEvents: 'none' }}>
+                  {[0, 1, 2].map((k) => (
+                    <MagPageView
+                      key={k}
+                      page={st.pages[k]}
+                      photoIds={pv.pages[k]}
+                      photoMap={pv.map}
+                      adjusts={{}}
+                      pageKey={st.pages[k].id}
+                      selectedSlot={-1}
+                      interactive={false}
+                    />
+                  ))}
+                </div>
+                <div style={{ fontSize: 9, letterSpacing: 2.5, color: GOLD, fontWeight: 600 }}>
+                  STYLE {String(idx + 1).padStart(2, '0')}
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    fontWeight: 800,
+                    fontSize: 22,
+                    letterSpacing: 5,
+                    lineHeight: 1.2,
+                    margin: '4px 0 6px',
+                    color: 'var(--cream)',
+                  }}
+                >
+                  {st.name}
+                </div>
+                <div style={{ fontSize: 11.5, lineHeight: 1.5, color: 'var(--muted2)', minHeight: 34 }}>{st.tagline}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
+                  {st.swatches.map((c) => (
+                    <span key={c} style={{ width: 12, height: 12, borderRadius: 6, background: c, border: '0.5px solid rgba(255,255,255,0.3)' }} />
+                  ))}
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted2)', letterSpacing: 0.5 }}>
+                    ~{magSlotCount(st)} photos
+                  </span>
+                </div>
+                {on && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: 18,
+                      right: 18,
+                      background: GOLD,
+                      color: '#0e0c09',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: 1.5,
+                      padding: '4px 9px',
+                      borderRadius: 20,
+                    }}
+                  >
+                    ✓ SELECTED
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
       {/* ── upload / status bar ── */}
       <section
         style={{
@@ -459,7 +578,7 @@ function MagazineDesigner() {
             + Upload photos
           </button>
           {photos.length === 0 && (
-            <button type="button" onClick={() => setPhotos(samplePhotos())} style={btn(false)}>
+            <button type="button" onClick={() => setPhotos(samplePhotos(needed))} style={btn(false)}>
               Try with sample photos
             </button>
           )}
@@ -521,13 +640,13 @@ function MagazineDesigner() {
       {!pages && photos.length === 0 && (
         <section style={{ maxWidth: 980, margin: '0 auto', padding: '0 16px' }}>
           <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 4 }}>
-            The 20 pages
+            The 20 pages · <strong style={{ color: 'var(--cream)', letterSpacing: 3, fontWeight: 800 }}>{style.name}</strong>
           </p>
           <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted2)', marginBottom: 14, fontStyle: 'italic' }}>
             Shown with sample photos — yours go here.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
-            {MAG_PAGES.map((pg, i) => (
+            {SP.map((pg, i) => (
               <div key={pg.id}>
                 <MagPageView
                   page={pg}
@@ -591,11 +710,11 @@ function MagazineDesigner() {
                     ) : (
                       <MagPageView
                         key={k}
-                        page={MAG_PAGES[pi]}
+                        page={SP[pi]}
                         photoIds={pages[pi]}
                         photoMap={photoMap}
                         adjusts={adjusts}
-                        pageKey={MAG_PAGES[pi].id}
+                        pageKey={SP[pi].id}
                         selectedSlot={sel && sel.page === pi ? sel.slot : -1}
                         onSlotClick={(s) => onSlotClick(pi, s)}
                         onAdjust={(s, n) => onAdjust(pi, s, n)}
