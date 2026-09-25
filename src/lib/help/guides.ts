@@ -1104,10 +1104,15 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'mag-adjust',
-    title: 'Zoom or move a magazine photo',
+    title: 'Zoom, rotate or move a magazine photo',
     area: 'magazine',
-    keywords: 'magazine zoom move crop reposition pan photo',
-    steps: ['Tap the photo.', 'Drag it to reposition, and use the ZOOM slider.', 'Reset crop puts it back.'],
+    keywords: 'magazine zoom move crop reposition pan photo rotate straighten tilt pinch edge corner handle',
+    steps: [
+      'Tap the photo — white handles appear around it.',
+      'Drag the photo to move it. Pull an edge bar out to zoom in (in to zoom out), or pinch / Ctrl + scroll.',
+      'Drag a ↻ corner to rotate (Shift = 15° steps), or use the Straighten slider. Reset crop puts it back.',
+    ],
+    tips: ['Rotated photos zoom in automatically so the frame never shows gaps.'],
     demo: 'pan',
   },
   {

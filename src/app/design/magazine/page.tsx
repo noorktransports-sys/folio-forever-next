@@ -1173,7 +1173,20 @@ function MagazineDesigner() {
                 />
               </label>
               <span style={{ fontSize: 10, color: selDpi < 150 ? '#e57373' : 'var(--muted2)' }}>{selDpi} dpi</span>
-              <span style={{ fontSize: 10, color: 'var(--muted2)' }}>Drag the photo to reposition</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: 'var(--cream)', letterSpacing: 1 }}>
+                STRAIGHTEN
+                <input
+                  type="range"
+                  min={-45}
+                  max={45}
+                  step={0.5}
+                  value={Math.max(-45, Math.min(45, selAdj.rotate ?? 0))}
+                  onChange={(e) => onAdjust(sel.page, sel.slot, { ...selAdj, rotate: Number(e.target.value) })}
+                  style={{ accentColor: GOLD, width: 110 }}
+                />
+                <span style={{ minWidth: 30, color: 'var(--muted2)' }}>{Math.round(selAdj.rotate ?? 0)}°</span>
+              </label>
+              <span style={{ fontSize: 10, color: 'var(--muted2)' }}>Drag to move · ↻ corners rotate · pull edges or pinch to zoom</span>
               <button data-help="mag-swap" type="button" style={btn(false)} onClick={() => setSwapFrom(sel)}>
                 Swap
               </button>
