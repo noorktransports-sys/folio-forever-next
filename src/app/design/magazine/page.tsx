@@ -197,6 +197,7 @@ function MagazineDesigner() {
   const [emailAddr, setEmailAddr] = useState('')
   const [emailState, setEmailState] = useState<'idle' | 'working' | 'sent'>('idle')
   const [emailErr, setEmailErr] = useState<string | null>(null)
+  const [trayTab, setTrayTab] = useState<'unused' | 'all'>('unused')
   const style = getMagStyle(styleId)
   const SP: MagPage[] = style.pages
   const [sel, setSel] = useState<{ page: number; slot: number } | null>(null)
@@ -322,6 +323,12 @@ function MagazineDesigner() {
   const placed = useMemo(() => new Set((pages ?? []).flat().filter(Boolean) as string[]), [pages])
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
+  /** photo id → where it sits (first frame it appears in) */
+  const placedAt = useMemo(() => {
+    const m = new Map<string, { page: number; slot: number }>()
+    ;(pages ?? []).forEach((pg, pi) => pg.forEach((id, si) => { if (id && !m.has(id)) m.set(id, { page: pi, slot: si }) }))
+    return m
+  }, [pages])
 
   /* ── print / preview rendering ── */
   const renderPage = useCallback(
@@ -612,6 +619,40 @@ function MagazineDesigner() {
     [albumId],
   )
 
+  const deletePhoto = useCallback(
+    (id: string) => {
+      const at = placedAt.get(id)
+      if (at && !window.confirm(`Delete this photo? Its frame on page ${at.page + 1} will be left empty.`)) return
+      setArmed((a) => (a === id ? null : a))
+      setSel((cur) => (cur && pages && pages[cur.page][cur.slot] === id ? null : cur))
+      removePhotoEverywhere(id)
+    },
+    [placedAt, pages, removePhotoEverywhere],
+  )
+
+  /** Scroll the magazine to a page and select that frame. */
+  const jumpTo = useCallback((at: { page: number; slot: number }) => {
+    setSelText(null)
+    setSwapFrom(null)
+    setArmed(null)
+    setSel(at)
+    const si = at.page === 0 ? 0 : Math.floor((at.page + 1) / 2)
+    document.getElementById(`mag-spread-${si}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
+
+  const trayClick = useCallback(
+    (id: string) => {
+      const at = placedAt.get(id)
+      if (at) return jumpTo(at)
+      if (sel && pages && pages[sel.page][sel.slot] !== undefined) {
+        setSlot(sel.page, sel.slot, id)
+        return
+      }
+      setArmed((a) => (a === id ? null : id))
+    },
+    [placedAt, jumpTo, sel, pages, setSlot],
+  )
+
   const selPhotoId = sel && pages ? pages[sel.page][sel.slot] : null
   const selPhoto = selPhotoId ? photoMap.get(selPhotoId) : undefined
   const selAdj = sel ? adjusts[`${SP[sel.page].id}::${sel.slot}`] ?? MAG_DEFAULT_ADJUST : MAG_DEFAULT_ADJUST
@@ -704,8 +745,69 @@ function MagazineDesigner() {
         </p>
       </header>
 
+      <style>{RAIL_CSS}</style>
+      <div className={`mag-shell${pages ? ' has-rails' : ''}`}>
+      {/* ── left rail: styles (wide screens, after design) ── */}
+      {pages && (
+        <aside className="mag-rail" aria-label="Magazine styles">
+          <div style={railHead}>Style</div>
+          {MAG_STYLES.map((st, idx) => {
+            const on = st.id === style.id
+            const pv = previews.get(st.id)!
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => chooseStyle(st.id)}
+                aria-pressed={on}
+                title={st.tagline}
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'center',
+                  width: '100%',
+                  textAlign: 'left',
+                  background: on ? 'rgba(184,150,90,0.12)' : 'transparent',
+                  border: on ? `1.5px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.2)',
+                  borderRadius: 10,
+                  padding: 8,
+                  marginBottom: 8,
+                  cursor: 'pointer',
+                  color: 'var(--cream)',
+                }}
+              >
+                <div style={{ width: 56, flex: 'none', pointerEvents: 'none' }}>
+                  <MagPageView
+                    page={st.pages[0]}
+                    photoIds={on ? pages[0] : pv.pages[0]}
+                    photoMap={on ? photoMap : pv.map}
+                    adjusts={on ? adjusts : {}}
+                    pageKey={st.pages[0].id}
+                    selectedSlot={-1}
+                    interactive={false}
+                    texts={pageTexts(st.pages[0], textEdits, meta)}
+                  />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 8.5, letterSpacing: 2, color: GOLD, fontWeight: 600 }}>
+                    STYLE {String(idx + 1).padStart(2, '0')}{on ? ' · ✓' : ''}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-body)', fontWeight: 800, fontSize: 13, letterSpacing: 2.2, margin: '2px 0 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{st.name}</div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {st.swatches.map((c) => (
+                      <span key={c} style={{ width: 9, height: 9, borderRadius: 5, background: c, border: '0.5px solid rgba(255,255,255,0.3)' }} />
+                    ))}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </aside>
+      )}
+      <div className="mag-main">
+
       {/* ── style picker ── */}
-      <section data-help="mag-styles" style={{ maxWidth: 980, margin: '0 auto 28px', padding: '0 16px' }}>
+      <section className="mag-bigstyles" data-help="mag-styles" style={{ maxWidth: 980, margin: '0 auto 28px', padding: '0 16px' }}>
         <p style={{ textAlign: 'center', fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 14 }}>
           Choose your style
         </p>
@@ -1011,7 +1113,7 @@ function MagazineDesigner() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
             {spreads.map(([l, r], si) => (
-              <div key={si}>
+              <div key={si} id={`mag-spread-${si}`} style={{ scrollMarginTop: 20 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, boxShadow: '0 10px 30px rgba(0,0,0,0.45)' }}>
                   {[l, r].map((pi, k) =>
                     pi === null ? (
@@ -1066,8 +1168,8 @@ function MagazineDesigner() {
             ))}
           </div>
 
-          {/* unused tray */}
-          <div style={{ marginTop: 36 }}>
+          {/* unused tray (small screens; wide screens use the right rail) */}
+          <div className="mag-tray-inline" style={{ marginTop: 36 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
               <span style={{ fontSize: 10, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
                 Not in the magazine ({unused.length}) · tap one, then tap a frame
@@ -1136,6 +1238,64 @@ function MagazineDesigner() {
           </div>
         </section>
       )}
+
+      </div>
+      {/* ── right rail: photos (wide screens, after design) ── */}
+      {pages && (
+        <aside className="mag-rail" aria-label="Your photos">
+          <div style={railHead}>Your photos · {photos.length}</div>
+          <button type="button" data-help="mag-upload" onClick={() => fileRef.current?.click()} style={{ ...btn(false), width: '100%' }}>
+            + Add photos
+          </button>
+          <div style={{ display: 'flex', gap: 6, margin: '12px 0 8px' }}>
+            {(['unused', 'all'] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setTrayTab(t)} style={{ ...toggleBtn(trayTab === t), flex: 1, fontSize: 10, letterSpacing: 0.5, padding: '0 6px' }}>
+                {t === 'unused' ? `Not placed · ${unused.length}` : `All · ${photos.length}`}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 10.5, color: 'var(--muted2)', lineHeight: 1.5, margin: '0 0 10px' }}>
+            {trayTab === 'unused' ? 'Tap a photo, then tap a frame to place it.' : 'Tap a placed photo to jump to its page. × deletes a photo.'}
+          </p>
+          {(trayTab === 'unused' ? unused : photos).length === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--muted2)' }}>{photos.length ? 'Every photo is placed.' : 'No photos yet.'}</span>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {(trayTab === 'unused' ? unused : photos).map((p) => {
+              const at = placedAt.get(p.id)
+              return (
+                <div key={p.id} style={{ position: 'relative', aspectRatio: '1 / 1' }}>
+                  <button
+                    type="button"
+                    onClick={() => trayClick(p.id)}
+                    title={at ? `On page ${at.page + 1}` : 'Tap, then tap a frame'}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      height: '100%',
+                      padding: 0,
+                      border: armed === p.id ? `2px solid ${GOLD}` : '0.5px solid rgba(184,150,90,0.3)',
+                      borderRadius: 4,
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      background: 'none',
+                      opacity: at && trayTab === 'all' ? 0.75 : 1,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  </button>
+                  {at && trayTab === 'all' && <span style={pageBadge}>p{at.page + 1}</span>}
+                  <button type="button" aria-label="Delete photo" title="Delete photo" onClick={() => deletePhoto(p.id)} style={xDot}>
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </aside>
+      )}
+      </div>
 
       {/* ── order modal: review → shipping → working ── */}
       {orderStep && pages && (
@@ -1618,6 +1778,47 @@ const tbLabel: CSSProperties = {
   letterSpacing: 1.5,
   color: 'var(--cream)',
   textTransform: 'uppercase',
+}
+
+/* Side rails: only on wide screens once the magazine is designed. The
+   rails are sticky, so only the magazine scrolls. Narrow screens keep the
+   single-column layout (big style cards + inline photo tray). */
+const RAIL_CSS = `
+.mag-rail{display:none}
+@media (min-width:1200px){
+  .mag-shell.has-rails{display:grid;grid-template-columns:230px minmax(0,1fr) 270px;gap:22px;padding:0 18px;align-items:start}
+  .mag-shell.has-rails .mag-rail{display:block;position:sticky;top:14px;max-height:calc(100vh - 28px);overflow-y:auto;padding:14px;background:var(--dark2);border:0.5px solid rgba(184,150,90,0.2);border-radius:12px;scrollbar-width:thin}
+  .mag-shell.has-rails .mag-main{min-width:0}
+  .mag-shell.has-rails .mag-bigstyles,.mag-shell.has-rails .mag-tray-inline{display:none}
+}`
+
+const railHead: CSSProperties = { fontSize: 10, letterSpacing: 2.5, color: GOLD, textTransform: 'uppercase', fontWeight: 600, marginBottom: 12 }
+const xDot: CSSProperties = {
+  position: 'absolute',
+  top: 3,
+  right: 3,
+  width: 18,
+  height: 18,
+  borderRadius: 9,
+  border: 'none',
+  background: 'rgba(0,0,0,0.7)',
+  color: '#fff',
+  fontSize: 12,
+  lineHeight: '18px',
+  padding: 0,
+  cursor: 'pointer',
+}
+const pageBadge: CSSProperties = {
+  position: 'absolute',
+  left: 3,
+  bottom: 3,
+  background: 'rgba(0,0,0,0.7)',
+  color: GOLD,
+  fontSize: 8.5,
+  letterSpacing: 0.5,
+  padding: '1px 4px',
+  borderRadius: 3,
+  pointerEvents: 'none',
 }
 
 function toggleBtn(on: boolean): CSSProperties {
