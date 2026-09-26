@@ -5,8 +5,10 @@ const SITE = 'https://folioforever.com';
 export default function sitemap(): MetadataRoute.Sitemap {
   const pages: Array<[string, number]> = [
     ['/', 1],
-    ['/design/smart', 0.9],
-    ['/design/magazine', 0.9],
+    ['/wedding-albums', 0.95],
+    ['/wedding-magazine', 0.95],
+    ['/design/smart', 0.8],
+    ['/design/magazine', 0.8],
     ['/photographers', 0.6],
     ['/faq', 0.6],
     ['/shipping', 0.5],

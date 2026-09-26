@@ -22,8 +22,9 @@ export default function SiteFooter() {
           <div>
             <p className="site-footer-h">Create</p>
             <ul>
+              <li><Link href="/wedding-albums">Wedding albums</Link></li>
+              <li><Link href="/wedding-magazine">Wedding magazines</Link></li>
               <li><Link href="/design/smart">Design an album</Link></li>
-              <li><Link href="/design/magazine">Wedding magazine</Link></li>
               <li><Link href="/photographers">Photographers</Link></li>
             </ul>
           </div>

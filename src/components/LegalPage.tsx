@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import './legal-page.css';
 
@@ -19,15 +19,7 @@ export default function LegalPage({
 }) {
   return (
     <>
-      <header className="legal-top">
-        <Link href="/" className="legal-logo">FOLIO FOREVER</Link>
-        <div role="navigation" className="legal-nav" aria-label="Main">
-          <Link href="/design/smart">Albums</Link>
-          <Link href="/design/magazine">Magazine</Link>
-          <Link href="/faq">FAQ</Link>
-          <Link href="/contact">Contact</Link>
-        </div>
-      </header>
+      <SiteHeader />
       <main className="legal-main">
         <p className="legal-eyebrow">{eyebrow}</p>
         <h1 className="legal-title">{title}</h1>

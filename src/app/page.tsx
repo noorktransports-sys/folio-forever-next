@@ -3,6 +3,10 @@ import Link from 'next/link';
 import Album3D from './components/Album3D';
 import './homepage.css';
 import SiteFooter from '@/components/SiteFooter';
+import JsonLd from '@/components/JsonLd';
+import { organizationLd, websiteLd } from '@/lib/seo';
+import { ALBUM_PRICING } from '@/lib/pricing';
+import { MAG_PRICE } from '@/lib/magazine/pages';
 
 /**
  * Homepage — ported from `folio-forever-child/page-homepage.php`.
@@ -18,13 +22,22 @@ import SiteFooter from '@/components/SiteFooter';
 const ROUTE_DESIGN = '/design';
 const ROUTE_PHOTOG = '/photographers';
 const ROUTE_FAQ = '/faq';
+const ROUTE_ALBUMS_PAGE = '/wedding-albums';
+const ALBUM_FROM = Math.min(...Object.values(ALBUM_PRICING).map((t) => t.standard.base));
 const ROUTE_MAGAZINE = '/design/magazine';
 
-export const metadata: Metadata = { alternates: { canonical: '/' } };
+export const metadata: Metadata = {
+  title: { absolute: 'Custom Wedding Albums & Wedding Magazines | Folio Forever' },
+  description:
+    'Design a custom lay-flat wedding album (up to 20×30 in) or a 20-page wedding magazine online. Smart Auto-Layout, page-by-page proof approval, printed in 5–7 business days and shipped across the US.',
+  alternates: { canonical: '/' },
+};
 
 export default function HomePage() {
   return (
     <>
+      <JsonLd data={organizationLd()} />
+      <JsonLd data={websiteLd()} />
       {/* NAVBAR */}
       <nav>
         <Link href="/" className="nav-logo">
@@ -32,10 +45,10 @@ export default function HomePage() {
         </Link>
         <ul className="nav-links">
           <li>
-            <a href="#albums">Albums</a>
+            <Link href={ROUTE_ALBUMS_PAGE}>Albums</Link>
           </li>
           <li>
-            <Link href={ROUTE_DESIGN}>Design</Link>
+            <Link href="/wedding-magazine">Magazine</Link>
           </li>
           <li>
             <Link href={ROUTE_PHOTOG}>Photographers</Link>
@@ -69,7 +82,7 @@ export default function HomePage() {
         </div>
         <div className="hero-overlay" />
         <div className="hero-content">
-          <span className="hero-tag">Archival fine-art wedding albums</span>
+          <span className="hero-tag">Custom wedding albums &amp; magazines</span>
           <h1 className="hero-title">
             Not an album.<br />
             <em>
@@ -77,8 +90,9 @@ export default function HomePage() {
             </em>
           </h1>
           <p className="hero-subtitle">
-            Up to 20×30 inches open. 3D tactile printing you can feel.<br />
-            Designed by you, proofed page by page, printed to last.
+            Custom lay-flat wedding albums up to 20×30 inches open, with 3D
+            tactile printing you can feel.<br />
+            Plus 20-page wedding magazines. Designed online, printed to last.
           </p>
           <div className="hero-btns">
             <Link href={ROUTE_DESIGN} className="btn-primary">
@@ -117,6 +131,37 @@ export default function HomePage() {
           <span className="trust-label">Owner &amp; Support</span>
         </div>
       </div>
+
+      {/* WHAT WE MAKE — plain-language summary + links for search engines */}
+      <section className="make-section" aria-labelledby="what-we-make">
+        <div className="section-inner">
+          <span className="section-tag" style={{ textAlign: 'center' }}>What we make</span>
+          <h2 className="section-title make-title" id="what-we-make">
+            Wedding albums &amp; wedding magazines
+          </h2>
+          <div className="make-grid">
+            <Link href={ROUTE_ALBUMS_PAGE} className="make-card">
+              <span className="make-kicker">From ${ALBUM_FROM}</span>
+              <span className="make-name">Custom wedding albums</span>
+              <span className="make-desc">
+                Standard or lay-flat albums from 17×24 to 20×30 inches open, with
+                photo, leather or acrylic covers. Smart Auto-Layout designs every
+                spread; you approve each page.
+              </span>
+              <span className="make-link">Sizes &amp; prices →</span>
+            </Link>
+            <Link href="/wedding-magazine" className="make-card">
+              <span className="make-kicker">${MAG_PRICE}</span>
+              <span className="make-name">Wedding magazines</span>
+              <span className="make-desc">
+                A 20-page, 8.5×11 inch editorial magazine made from your photos,
+                in ten original styles. A perfect gift for parents and guests.
+              </span>
+              <span className="make-link">See the styles →</span>
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {/* SIZE SECTION */}
       <section className="size-section" id="albums">
