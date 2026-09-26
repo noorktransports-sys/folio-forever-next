@@ -297,7 +297,7 @@ export async function POST(request: Request) {
 
   // ── Magazine orders have their own (simpler) emails ──
   if (env.RESEND_API_KEY && order.mode === 'magazine' && order.customer) {
-    const mag = (order.magazine ?? {}) as { styleName?: string; names?: string; date?: string; price?: number; shippingUsd?: number };
+    const mag = (order.magazine ?? {}) as { styleName?: string; names?: string; date?: string; price?: number; shippingUsd?: number; shippingLabel?: string };
     const data: MagazineOrderEmail = {
       orderId: order.orderId ?? token,
       styleName: mag.styleName ?? 'Magazine',
@@ -307,6 +307,7 @@ export async function POST(request: Request) {
       shipping: order.shipping as MagazineOrderEmail['shipping'],
       price: mag.price ?? 70,
       shippingUsd: mag.shippingUsd ?? 0,
+      shippingLabel: mag.shippingLabel,
       pages: (order.spreadComposites ?? []).map((c) => ({ url: c.url })),
     };
     const o = await sendResendEmail(env.RESEND_API_KEY, {

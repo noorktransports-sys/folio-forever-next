@@ -30,6 +30,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { getShipping, shippingText } from '@/lib/shipping';
 import {
   ownerPendingPaymentEmailHtml,
   sendResendEmail,
@@ -99,6 +100,9 @@ interface ShippingInfo {
   postalCode: string;
   country: string;
   notes?: string;
+  method?: string;
+  methodLabel?: string;
+  shippingUsd?: number;
 }
 
 interface CustomerInfo {
@@ -142,6 +146,8 @@ interface SubmitPayload {
     pageCount: number;
     totalPrice: number;
   };
+  /** Delivery option id (lib/shipping.ts). Price is decided HERE. */
+  shippingMethod?: string;
   photos: SmartPhotoUpload[];
   spreads: SmartSpreadSnapshot[];
   /** Composite JPEGs of each spread, uploaded by the client at submit
@@ -253,6 +259,13 @@ export async function POST(request: Request) {
     null;
   const userAgent = request.headers.get('user-agent') || null;
 
+  // Delivery option: the amount comes from lib/shipping (server-side) and
+  // is folded into album.totalPrice so admin, emails and revenue all see
+  // the full amount the client pays.
+  const ship = getShipping(payload.shippingMethod);
+  payload.shipping = { ...payload.shipping, method: ship.id, methodLabel: shippingText(ship), shippingUsd: ship.usd };
+  payload.album = { ...payload.album, totalPrice: payload.album.totalPrice + ship.usd };
+
   // Mint identifiers
   const token = mintToken();
   const orderId = mintOrderId(token);
@@ -273,6 +286,8 @@ export async function POST(request: Request) {
       customer: payload.customer,
       shipping: payload.shipping,
       album: payload.album,
+      shippingMethod: ship.id,
+      shippingUsd: ship.usd,
       cover: payload.cover ?? null,
       polishHandoff: payload.polishHandoff ?? false,
       photos: payload.photos,
@@ -400,6 +415,7 @@ export async function POST(request: Request) {
           rows: [
             ['Album', `${payload.album.size.replace('x', '×')} · ${payload.album.type === 'standard' ? 'Standard' : 'Layflat'}`],
             ['Spreads', String(payload.album.pageCount)],
+            ['Shipping', `${shippingText(ship)} · $${ship.usd}`],
           ],
           totalDue: payload.album.totalPrice,
           payUrl: `${siteUrl}/api/square-checkout?token=${token}`,

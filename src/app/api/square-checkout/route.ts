@@ -23,6 +23,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { createSquareCheckoutLink } from '@/lib/square';
 import { magazineTotal } from '@/lib/magazine/pricing';
+import { getShipping, shippingText } from '@/lib/shipping';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,10 @@ interface Env {
 
 interface StoredOrder {
   mode: 'smart' | 'manual' | 'magazine';
-  magazine?: { styleName: string; names?: string; price: number; shippingUsd: number };
+  magazine?: { styleName: string; names?: string; price: number; shippingUsd: number; shippingLabel?: string };
+  /** Albums: delivery option chosen at checkout (price re-derived here). */
+  shippingMethod?: string;
+  shippingUsd?: number;
   orderId: string;
   token: string;
   status: string;
@@ -110,7 +114,11 @@ export async function POST(request: Request) {
   // ── Magazine: price comes from the SERVER (pricing.ts), never the client.
   let magazineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] | null = null;
   if (order.mode === 'magazine') {
-    const { price, shippingUsd } = magazineTotal(env);
+    // Stored at submit from the chosen delivery option (older orders fall
+    // back to the env-based amount).
+    const fallback = magazineTotal(env);
+    const price = order.magazine?.price ?? fallback.price;
+    const shippingUsd = order.magazine?.shippingUsd ?? fallback.shippingUsd;
     magazineItems = [
       {
         name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)`,
@@ -120,7 +128,7 @@ export async function POST(request: Request) {
       },
     ];
     if (shippingUsd > 0) {
-      magazineItems.push({ name: 'Shipping', quantity: 1, basePriceAmountCents: Math.round(shippingUsd * 100), note: 'Magazine delivery' });
+      magazineItems.push({ name: `Shipping · ${order.magazine?.shippingLabel ?? 'delivery'}`, quantity: 1, basePriceAmountCents: Math.round(shippingUsd * 100), note: 'Magazine delivery' });
     }
   }
 
@@ -131,8 +139,12 @@ export async function POST(request: Request) {
     order.cover && Number.isFinite(order.cover.priceAdd)
       ? Math.max(0, Math.round(order.cover.priceAdd))
       : 0;
+  // Albums: shipping is part of album.totalPrice; the amount is re-derived
+  // from the chosen option id so it can't be tampered with.
+  const albumShip = order.shippingMethod ? getShipping(order.shippingMethod) : null;
+  const albumShipUsd = albumShip ? albumShip.usd : 0;
   const baseDollars =
-    order.album.totalPrice - (polishHandoff ? 99 : 0) - coverAdd;
+    order.album.totalPrice - (polishHandoff ? 99 : 0) - coverAdd - albumShipUsd;
   if (!magazineItems && (baseDollars <= 0 || !Number.isFinite(baseDollars))) {
     return err(500, 'Invalid album price');
   }
@@ -159,6 +171,14 @@ export async function POST(request: Request) {
       quantity: 1,
       basePriceAmountCents: coverAdd * 100,
       note: 'Album cover upgrade',
+    });
+  }
+  if (!magazineItems && albumShip) {
+    lineItems.push({
+      name: `Shipping · ${shippingText(albumShip)}`,
+      quantity: 1,
+      basePriceAmountCents: albumShipUsd * 100,
+      note: 'Album delivery',
     });
   }
   if (!magazineItems && polishHandoff) {

@@ -44,6 +44,10 @@ export interface ShippingInfo {
   postalCode: string;
   country: string;
   notes?: string;
+  /** Delivery option id + label chosen at checkout (lib/shipping.ts). */
+  method?: string;
+  methodLabel?: string;
+  shippingUsd?: number;
 }
 
 export interface CustomerInfo {
@@ -223,6 +227,7 @@ export function ownerPendingPaymentEmailHtml(
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Name</td><td>${escapeHtml(c.name)}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Email</td><td><a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a></td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Phone</td><td>${escapeHtml(s.phone)}</td></tr>
+      ${s.methodLabel ? `<tr><td style="padding-right: 12px; color: #6b5e4e;">Delivery</td><td><strong>${escapeHtml(s.methodLabel)}</strong> · $${s.shippingUsd ?? ''}</td></tr>` : ''}
     </table>
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 14px 0 6px;">Album</h3>
@@ -314,6 +319,7 @@ export function ownerPaidEmailHtml(
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Name</td><td>${escapeHtml(c.name)}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Email</td><td><a href="mailto:${escapeHtml(c.email)}">${escapeHtml(c.email)}</a></td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Phone</td><td>${escapeHtml(s.phone)}</td></tr>
+      ${s.methodLabel ? `<tr><td style="padding-right: 12px; color: #6b5e4e;">Delivery</td><td><strong>${escapeHtml(s.methodLabel)}</strong> · $${s.shippingUsd ?? ''}</td></tr>` : ''}
     </table>
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 18px 0 6px;">Album</h3>

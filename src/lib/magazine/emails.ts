@@ -24,6 +24,8 @@ export type MagazineOrderEmail = {
   }
   price: number
   shippingUsd: number
+  /** e.g. "Standard · 7–10 days" */
+  shippingLabel?: string
   pages: { url: string }[]
 }
 
@@ -54,7 +56,7 @@ function shipBlock(o: MagazineOrderEmail): string {
 }
 
 function totals(o: MagazineOrderEmail, paid: boolean): string {
-  const ship = o.shippingUsd > 0 ? `$${o.shippingUsd.toFixed(2)}` : 'arranged separately'
+  const ship = o.shippingUsd > 0 ? `${o.shippingLabel ? escapeHtml(o.shippingLabel) + ' · ' : ''}$${o.shippingUsd.toFixed(2)}` : 'arranged separately'
   const total = `$${(o.price + o.shippingUsd).toFixed(2)}`
   const line = paid
     ? `<strong>Total paid: ${total}</strong>`

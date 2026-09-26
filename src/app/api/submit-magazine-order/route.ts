@@ -3,7 +3,7 @@
  *
  * Saves a PENDING_PAYMENT magazine order (the 20 print pages are already
  * uploaded to R2 by the browser). The PRICE IS DECIDED HERE, not by the
- * client: MAG_PRICE ($70) + optional shipping from env MAGAZINE_SHIPPING_USD
+ * client: MAG_PRICE ($70) + the chosen delivery option from lib/shipping.ts
  * (unset / 0 = shipping arranged separately).
  *
  * Body: {
@@ -22,7 +22,7 @@ import { getRequestContext } from '@cloudflare/next-on-pages'
 import { sendResendEmail, customerOrderReceivedEmailHtml } from '@/lib/smart-order-emails'
 import { MAG_PAGE_COUNT, MAG_PRICE, getMagStyle, MAG_STYLES } from '@/lib/magazine/pages'
 import { ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails'
-import { magazineShippingUsd } from '@/lib/magazine/pricing'
+import { getShipping, shippingText } from '@/lib/shipping'
 
 export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
@@ -52,6 +52,7 @@ type Payload = {
   customer?: { name?: string; email?: string }
   shipping?: Record<string, string | undefined>
   pages?: { n: number; key: string; url: string }[]
+  shippingMethod?: string
   photoCount?: number
   emptyFrames?: number
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; clauseText?: string }
@@ -92,6 +93,8 @@ export async function POST(request: Request) {
     postalCode: str(sh.postalCode, 20),
     country: str(sh.country, 60) || 'United States',
     notes: str(sh.notes, 500),
+    method: getShipping(p.shippingMethod).id as string,
+    methodLabel: shippingText(getShipping(p.shippingMethod)),
   }
   if (!shipping.line1 || !shipping.city || !shipping.postalCode) return err(400, 'Shipping address is incomplete')
   if (!p.proofApproval?.acceptedAt || !p.contentRights?.acceptedAt) return err(400, 'Proof approval and content rights are required')
@@ -108,7 +111,9 @@ export async function POST(request: Request) {
   pages.sort((a, b) => a.n - b.n)
 
   const price = MAG_PRICE
-  const shippingUsd = magazineShippingUsd(env)
+  // Delivery speed chosen by the client; the PRICE comes from lib/shipping.
+  const ship = getShipping(p.shippingMethod)
+  const shippingUsd = ship.usd
   const total = price + shippingUsd
   const token = mintToken()
   const orderId = `FF-M${token.slice(0, 5).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`
@@ -131,7 +136,7 @@ export async function POST(request: Request) {
     shipping,
     // `album` keeps admin + shared code happy (size/pageCount/total).
     album: { size: '8.5x11', type: 'magazine', pageCount: MAG_PAGE_COUNT, totalPrice: total },
-    magazine: { styleId: style.id, styleName: style.name, names, date, price, shippingUsd, photoCount: p.photoCount ?? 0, emptyFrames: p.emptyFrames ?? 0 },
+    magazine: { styleId: style.id, styleName: style.name, names, date, price, shippingUsd, shippingLabel: shippingText(ship), photoCount: p.photoCount ?? 0, emptyFrames: p.emptyFrames ?? 0 },
     photos: [],
     spreads: [],
     spreadComposites: pages.map((pg) => ({ spreadId: `page-${String(pg.n).padStart(2, '0')}`, key: pg.key, url: pg.url })),
@@ -189,6 +194,7 @@ export async function POST(request: Request) {
       shipping,
       price,
       shippingUsd,
+      shippingLabel: shippingText(ship),
       pages: record.spreadComposites,
     }
     await sendResendEmail(env.RESEND_API_KEY, {
@@ -210,7 +216,7 @@ export async function POST(request: Request) {
           rows: [
             ['Pages', '20 pages · 8.5 × 11 in'],
             ...(names ? ([['Names', names]] as Array<[string, string]>) : []),
-            ['Shipping', shippingUsd > 0 ? `$${shippingUsd.toFixed(2)}` : 'arranged separately'],
+            ['Shipping', `${shippingText(ship)} · $${shippingUsd.toFixed(2)}`],
           ],
           totalDue: total,
           payUrl: `${siteUrl}/api/square-checkout?token=${token}`,
@@ -225,9 +231,8 @@ export async function POST(request: Request) {
   return new Response(JSON.stringify({ ok: true, orderId, token, total }), { headers: { 'Content-Type': 'application/json' } })
 }
 
-/** GET → current price + shipping (for the checkout screen). */
+/** GET → current price + delivery options (for the checkout screen). */
 export async function GET() {
-  const { env } = getRequestContext() as { env: Env }
-  const shippingUsd = magazineShippingUsd(env)
-  return new Response(JSON.stringify({ price: MAG_PRICE, shippingUsd }), { headers: { 'Content-Type': 'application/json' } })
+  const { SHIPPING_OPTIONS } = await import('@/lib/shipping')
+  return new Response(JSON.stringify({ price: MAG_PRICE, shipping: SHIPPING_OPTIONS }), { headers: { 'Content-Type': 'application/json' } })
 }

@@ -97,6 +97,8 @@ import type {
   AlbumStyle,
   LayoutPhoto,
 } from '@/lib/smart-layout/templates'
+import ShippingPicker from '@/components/ShippingPicker'
+import { DEFAULT_SHIPPING, getShipping, shippingText, type ShippingId } from '@/lib/shipping'
 
 // Client-only view-model type (the engine doesn't need it).
 type EventDef = { id: EventId; name: string }
@@ -1551,6 +1553,10 @@ function SmartDesignerInner() {
   const coverPrice = coverState ? COVER_PRICE[coverState.type] : 0
   // Everything-in total shown at proof / submit / payment.
   const orderTotal = albumPrice + (polishHandoff ? 99 : 0) + coverPrice
+  // Delivery speed (chosen in the shipping step). Added on top of the
+  // album total only at payment; the server re-derives the amount.
+  const [shipId, setShipId] = useState<ShippingId>(DEFAULT_SHIPPING)
+  const payTotal = orderTotal + getShipping(shipId).usd
 
   // Phase 2: gate any path that adds photos behind the content-rights modal.
   // Returns true if photos may be added now; false if the modal was opened
@@ -2536,6 +2542,7 @@ function SmartDesignerInner() {
             pageCount,
             totalPrice: orderTotal,
           },
+          shippingMethod: shipId,
           cover: coverPayload,
           photos: photosPayload,
           spreads,
@@ -2621,6 +2628,8 @@ function SmartDesignerInner() {
     proofApproval,
     contentRights,
     adjusts,
+    orderTotal,
+    shipId,
   ])
 
   // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
@@ -5221,6 +5230,20 @@ function SmartDesignerInner() {
                 )
               })()}
 
+              <label style={{ display: 'block', fontSize: 9, letterSpacing: 2, color: GOLD, textTransform: 'uppercase', marginBottom: 6, marginTop: 16 }}>Delivery speed</label>
+              <ShippingPicker value={shipId} onChange={setShipId} disabled={submitting.stage === 'uploading' || submitting.stage === 'persisting'} />
+              <div style={{ marginTop: 12, padding: '10px 12px', border: '0.5px solid rgba(184,150,90,0.3)', borderRadius: 8, fontSize: 12, lineHeight: 1.8, color: 'var(--cream)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Album</span><span>${orderTotal}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted2)' }}>
+                  <span>Shipping · {shippingText(getShipping(shipId))}</span>
+                  <span>${getShipping(shipId).usd}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '0.5px solid rgba(184,150,90,0.25)', marginTop: 4, paddingTop: 4 }}>
+                  <span>Total today</span>
+                  <span>${payTotal}</span>
+                </div>
+              </div>
+
               {/* Progress / error / submit */}
               {submitting.stage === 'uploading' && (
                 <div style={{ marginTop: 20 }}>
@@ -5286,7 +5309,7 @@ function SmartDesignerInner() {
                 >
                   {submitting.stage === 'uploading' || submitting.stage === 'persisting'
                     ? 'Submitting…'
-                    : `Continue to secure payment · $${orderTotal} →`}
+                    : `Continue to secure payment · $${payTotal} →`}
                 </button>
               </div>
               <p style={{ fontSize: 10, color: 'var(--muted2)', lineHeight: 1.7, marginTop: 14 }}>

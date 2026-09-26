@@ -36,6 +36,8 @@ import {
 import HelpSearch from '../help/HelpSearch'
 import { renderMagPage } from '@/lib/magazine/render'
 import { withRetry } from '@/lib/print-image'
+import ShippingPicker from '@/components/ShippingPicker'
+import { DEFAULT_SHIPPING, getShipping, shippingText, SHIPPING_OPTIONS, type ShippingId } from '@/lib/shipping'
 import { uploadToR2 } from '../smart/edit/submit-helpers'
 import { LEGAL_VERSION, CLAUSE_PROOF_APPROVAL, CLAUSE_CONTENT_RIGHTS, CLAUSE_CONTENT_POLICY } from '@/lib/legal-clauses'
 import {
@@ -193,7 +195,8 @@ function MagazineDesigner() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', line1: '', line2: '', city: '', region: '', postalCode: '', country: 'United States', notes: '' })
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null)
   const [orderErr, setOrderErr] = useState<string | null>(null)
-  const [priceInfo, setPriceInfo] = useState<{ price: number; shippingUsd: number } | null>(null)
+  const [priceInfo, setPriceInfo] = useState<{ price: number } | null>(null)
+  const [shipId, setShipId] = useState<ShippingId>(DEFAULT_SHIPPING)
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailAddr, setEmailAddr] = useState('')
   const [emailState, setEmailState] = useState<'idle' | 'working' | 'sent'>('idle')
@@ -358,7 +361,7 @@ function MagazineDesigner() {
     setSelText(null)
     fetch('/api/submit-magazine-order')
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => j && setPriceInfo({ price: j.price, shippingUsd: j.shippingUsd }))
+      .then((j) => j && setPriceInfo({ price: j.price }))
       .catch(() => undefined)
   }, [])
 
@@ -396,6 +399,7 @@ function MagazineDesigner() {
           customer: { name: f.name.trim(), email: f.email.trim() },
           shipping: { recipientName: f.name.trim(), phone: f.phone, line1: f.line1, line2: f.line2, city: f.city, region: f.region, postalCode: f.postalCode, country: f.country, notes: f.notes },
           pages: uploaded,
+          shippingMethod: shipId,
           photoCount: filledSlots,
           emptyFrames: pages.flat().filter((x) => x === null).length,
           proofApproval: { acceptedAt: now, clauseVersion: LEGAL_VERSION, clauseText: CLAUSE_PROOF_APPROVAL },
@@ -423,7 +427,7 @@ function MagazineDesigner() {
       setOrderStep('ship')
       setProgress(null)
     }
-  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots])
+  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots, shipId])
 
   const sendPreview = useCallback(async () => {
     if (!pages || !albumId) return
@@ -1239,7 +1243,7 @@ function MagazineDesigner() {
               20 pages · ${MAG_PRICE}
             </div>
             <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 6, letterSpacing: 0.5 }}>
-              Printed at 300 DPI · 8.5 × 11 in · page 1 is your cover · shipping arranged separately
+              Printed at 300 DPI · 8.5 × 11 in · page 1 is your cover · shipping from ${Math.min(...SHIPPING_OPTIONS.map((o) => o.usd))}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginTop: 14 }}>
               <button type="button" data-help="mag-email" onClick={() => { setEmailOpen(true); setEmailState('idle'); setEmailErr(null) }} style={btn(false)}>
@@ -1405,22 +1409,24 @@ function MagazineDesigner() {
                     </label>
                   ))}
                 </div>
+                <div style={{ marginTop: 14, fontSize: 9.5, letterSpacing: 1.4, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 6 }}>Delivery speed</div>
+                <ShippingPicker value={shipId} onChange={setShipId} />
                 <div style={{ marginTop: 14, padding: '12px 14px', border: '0.5px solid rgba(184,150,90,0.3)', borderRadius: 8, fontSize: 12.5, lineHeight: 1.8, color: 'var(--cream)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Wedding magazine · {style.name} · 20 pages</span><span>${priceInfo?.price ?? MAG_PRICE}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Wedding magazine · {style.name} · 20 pages</span><span>${(priceInfo?.price ?? MAG_PRICE).toFixed(2)}</span></div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted2)' }}>
-                    <span>Shipping</span>
-                    <span>{priceInfo && priceInfo.shippingUsd > 0 ? `$${priceInfo.shippingUsd.toFixed(2)}` : 'arranged separately'}</span>
+                    <span>Shipping · {shippingText(getShipping(shipId))}</span>
+                    <span>${getShipping(shipId).usd.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '0.5px solid rgba(184,150,90,0.25)', marginTop: 4, paddingTop: 4 }}>
                     <span>Total today</span>
-                    <span>${((priceInfo?.price ?? MAG_PRICE) + (priceInfo?.shippingUsd ?? 0)).toFixed(2)}</span>
+                    <span>${((priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd).toFixed(2)}</span>
                   </div>
                 </div>
                 {orderErr && <div style={{ ...warnBox, marginTop: 12 }}>{orderErr}</div>}
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
                   <button type="button" style={btn(false)} onClick={() => setOrderStep('review')}>← Back to review</button>
                   <button type="button" style={btn(true)} onClick={runOrder}>
-                    Continue to secure payment · ${((priceInfo?.price ?? MAG_PRICE) + (priceInfo?.shippingUsd ?? 0)).toFixed(0)} →
+                    Continue to secure payment · ${((priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd).toFixed(0)} →
                   </button>
                 </div>
               </>
