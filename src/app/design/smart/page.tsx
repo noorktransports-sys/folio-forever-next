@@ -2393,6 +2393,18 @@ function SmartDesignerInner() {
       spreads.flatMap((s) => s.photoIds).filter((id): id is string => Boolean(id)),
     )
     const photosToUpload = photos.filter((p) => usedIds.has(p.id))
+    // Sample photos are for trying the builder only — never orderable.
+    const demoUsed = photosToUpload.filter((p) => p.id.startsWith('sample-')).length
+    if (demoUsed > 0) {
+      setSubmitting({
+        stage: 'error',
+        done: 0,
+        total: 0,
+        label: '',
+        error: `This album still uses ${demoUsed} sample photo${demoUsed === 1 ? '' : 's'}. Sample photos are for trying the designer only and can’t be ordered — please upload your own photos.`,
+      })
+      return
+    }
     if (photosToUpload.length === 0) {
       setSubmitting({ stage: 'error', done: 0, total: 0, label: '', error: 'Album has no photos placed' })
       return

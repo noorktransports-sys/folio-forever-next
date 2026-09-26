@@ -41,12 +41,13 @@ async function bump(kv: KVNamespace, key: string, limit: number, ttl: number): P
 }
 
 export async function POST(request: Request) {
-  let b: { email?: string; name?: string; albumId?: string; styleName?: string; names?: string; pageUrls?: string[] }
+  let b: { email?: string; name?: string; albumId?: string; styleName?: string; names?: string; pageUrls?: string[]; demoPhotos?: number }
   try {
     b = await request.json()
   } catch {
     return json(400, { error: 'Invalid JSON' })
   }
+  if (Number(b.demoPhotos ?? 0) > 0) return json(400, { error: 'Demo photos can’t be emailed — upload your own photos first' })
   const email = (b.email ?? '').trim().toLowerCase().slice(0, 200)
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(400, { error: 'Please enter a valid email address' })
   const pageUrls = (Array.isArray(b.pageUrls) ? b.pageUrls : []).filter(

@@ -53,6 +53,7 @@ type Payload = {
   shipping?: Record<string, string | undefined>
   pages?: { n: number; key: string; url: string }[]
   shippingMethod?: string
+  demoPhotos?: number
   photoCount?: number
   emptyFrames?: number
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; clauseText?: string }
@@ -98,6 +99,7 @@ export async function POST(request: Request) {
   }
   if (!shipping.line1 || !shipping.city || !shipping.postalCode) return err(400, 'Shipping address is incomplete')
   if (!p.proofApproval?.acceptedAt || !p.contentRights?.acceptedAt) return err(400, 'Proof approval and content rights are required')
+  if (Number(p.demoPhotos ?? 0) > 0) return err(400, 'Demo photos can’t be ordered — please upload your own photos')
   if (!p.styleId || !MAG_STYLES.some((s) => s.id === p.styleId)) return err(400, 'Unknown magazine style')
   const style = getMagStyle(p.styleId)
 

@@ -33,7 +33,7 @@ export const MAG_FONT_FAMILY: Record<MagFont, string> = {
 
 /** Menu order + friendly names for the font picker. */
 export const MAG_FONTS: { id: MagFont; label: string; note: string }[] = [
-  { id: 'bodoni', label: 'Bodoni', note: 'Vogue headline' },
+  { id: 'bodoni', label: 'Bodoni', note: 'Fashion headline' },
   { id: 'playfair', label: 'Playfair', note: 'Editorial serif' },
   { id: 'cormorant', label: 'Cormorant', note: 'Elegant book' },
   { id: 'italiana', label: 'Italiana', note: 'High fashion' },

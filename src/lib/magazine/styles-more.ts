@@ -10,7 +10,8 @@ import { QUOTE, STORY, block, col, cover, frame, grid, styledPage, t, wash, FULL
 const W = '#ffffff'
 const CAP = { upper: true, spacing: 0.3, weight: 500 as const }
 
-/* ══════════════════════════ 05 · VOGUE ══════════════════════════
+/* ══════════════════════════ 05 · COUTURE ══════════════════════════
+   (internal id stays 'vogue' so saved designs keep working)
  * High-fashion editorial: white pages, black type, a red accent,
  * chapter numbers, a contents page, full-bleed black & white. */
 const V_INK = '#111111'
@@ -447,7 +448,7 @@ const GILDED_PAGES: MagPage[] = [
 ]
 
 export const MORE_STYLES: MagStyle[] = [
-  { id: 'vogue', name: 'VOGUE', tagline: 'High-fashion editorial — black & white, a red accent, chapter numbers.', swatches: [W, V_INK, V_RED], pages: VOGUE_PAGES },
+  { id: 'vogue', name: 'COUTURE', tagline: 'High-fashion editorial — black & white, a red accent, chapter numbers.', swatches: [W, V_INK, V_RED], pages: VOGUE_PAGES },
   { id: 'maharani', name: 'MAHARANI', tagline: 'Royal maroon & emerald with gold double keylines.', swatches: [MAROON, EMERALD, GOLD], pages: MAHARANI_PAGES },
   { id: 'analog', name: 'ANALOG', tagline: 'Film prints, contact sheets and warm paper.', swatches: [PAPER, '#ffffff', SHEET], pages: ANALOG_PAGES },
   { id: 'blush', name: 'BLUSH', tagline: 'Soft blush and rose, white frames, flowing script.', swatches: [BL, ROSE, PLUM], pages: BLUSH_PAGES },

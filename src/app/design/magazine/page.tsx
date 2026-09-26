@@ -327,6 +327,9 @@ function MagazineDesigner() {
   const placed = useMemo(() => new Set((pages ?? []).flat().filter(Boolean) as string[]), [pages])
   const unused = useMemo(() => photos.filter((p) => !placed.has(p.id)), [photos, placed])
   const filledSlots = placed.size
+  /** Demo ("Try with sample photos") pictures are for trying the designer
+   *  only — they can never be ordered or emailed. */
+  const demoCount = useMemo(() => [...placed].filter((id) => id.startsWith('sample-')).length, [placed])
   /** photo id → where it sits (first frame it appears in) */
   const placedAt = useMemo(() => {
     const m = new Map<string, { page: number; slot: number }>()
@@ -354,6 +357,7 @@ function MagazineDesigner() {
   )
 
   const openOrder = useCallback(() => {
+    if (demoCount > 0) return
     setOrderErr(null)
     setApproved(false)
     setOrderStep('review')
@@ -363,10 +367,10 @@ function MagazineDesigner() {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j && setPriceInfo({ price: j.price }))
       .catch(() => undefined)
-  }, [])
+  }, [demoCount])
 
   const runOrder = useCallback(async () => {
-    if (!pages || !albumId) return
+    if (!pages || !albumId || demoCount > 0) return
     const f = form
     if (!f.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return setOrderErr('Please enter your name and a valid email.')
     if (!f.line1.trim() || !f.city.trim() || !f.postalCode.trim()) return setOrderErr('Please complete your shipping address.')
@@ -400,6 +404,7 @@ function MagazineDesigner() {
           shipping: { recipientName: f.name.trim(), phone: f.phone, line1: f.line1, line2: f.line2, city: f.city, region: f.region, postalCode: f.postalCode, country: f.country, notes: f.notes },
           pages: uploaded,
           shippingMethod: shipId,
+          demoPhotos: demoCount,
           photoCount: filledSlots,
           emptyFrames: pages.flat().filter((x) => x === null).length,
           proofApproval: { acceptedAt: now, clauseVersion: LEGAL_VERSION, clauseText: CLAUSE_PROOF_APPROVAL },
@@ -427,10 +432,10 @@ function MagazineDesigner() {
       setOrderStep('ship')
       setProgress(null)
     }
-  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots, shipId])
+  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots, shipId, demoCount])
 
   const sendPreview = useCallback(async () => {
-    if (!pages || !albumId) return
+    if (!pages || !albumId || demoCount > 0) return
     const email = emailAddr.trim()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setEmailErr('Please enter a valid email address.')
     setEmailErr(null)
@@ -447,7 +452,7 @@ function MagazineDesigner() {
       const res = await fetch('/api/email-magazine-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, albumId, styleName: style.name, names: resolveText('{bride} & {groom}', meta), pageUrls: urls }),
+        body: JSON.stringify({ email, albumId, styleName: style.name, names: resolveText('{bride} & {groom}', meta), pageUrls: urls, demoPhotos: demoCount }),
       })
       const j = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(j.error || 'Email could not be sent')
@@ -458,7 +463,7 @@ function MagazineDesigner() {
     } finally {
       setProgress(null)
     }
-  }, [pages, albumId, emailAddr, SP, renderPage, style, meta])
+  }, [pages, albumId, emailAddr, SP, renderPage, style, meta, demoCount])
 
 
   /* ── build / rebuild ── */
@@ -1245,6 +1250,17 @@ function MagazineDesigner() {
             <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 6, letterSpacing: 0.5 }}>
               Printed at 300 DPI · 8.5 × 11 in · page 1 is your cover · shipping from ${Math.min(...SHIPPING_OPTIONS.map((o) => o.usd))}
             </p>
+            {demoCount > 0 ? (
+              <div style={{ ...warnBox, marginTop: 14, textAlign: 'left' }}>
+                <strong>These are demo photos — for trying the designer only.</strong> They can&apos;t be ordered or emailed.
+                {' '}Upload your own photos ({demoCount} demo photo{demoCount === 1 ? '' : 's'} still in the magazine), then press ✨ Auto-design.
+                <div style={{ marginTop: 10 }}>
+                  <button type="button" data-help="mag-upload" onClick={() => fileRef.current?.click()} style={btn(true)}>
+                    + Upload my photos
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap', marginTop: 14 }}>
               <button type="button" data-help="mag-email" onClick={() => { setEmailOpen(true); setEmailState('idle'); setEmailErr(null) }} style={btn(false)}>
                 ✉ Email me a preview
@@ -1253,6 +1269,7 @@ function MagazineDesigner() {
                 Review &amp; order · ${MAG_PRICE} →
               </button>
             </div>
+            )}
           </div>
         </section>
       )}

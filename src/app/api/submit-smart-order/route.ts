@@ -227,6 +227,11 @@ export async function POST(request: Request) {
   if (!payload.customer?.email || !payload.customer?.name) {
     return err(400, 'Missing customer info');
   }
+  // Demo ("Use sample wedding photos") pictures are for trying the
+  // builder only — never orderable.
+  if ((payload.photos ?? []).some((ph) => String(ph.photoId ?? '').startsWith('sample-'))) {
+    return err(400, 'Sample photos can’t be ordered — please upload your own photos');
+  }
   if (!payload.shipping?.recipientName || !payload.shipping?.line1) {
     return err(400, 'Missing shipping info');
   }
