@@ -96,6 +96,23 @@ import type {
 import ShippingPicker from '@/components/ShippingPicker'
 import { ALBUM_PRICING, COVER_PRICE as COVER_PRICE_LIST, computeAlbumPrice, POLISH_PRICE } from '@/lib/pricing'
 import { DEFAULT_SHIPPING, getShipping, shippingText, type ShippingId } from '@/lib/shipping'
+import {
+  DEFAULT_BRIEF,
+  FEEL_INFO,
+  MIX_INFO,
+  PHOTO_GOALS,
+  defaultSessionEvents,
+  detectSessions,
+  photosOverflow,
+  recommendSpreads,
+  sessionLabel,
+  spreadsForUnused,
+  suggestedFeel,
+  type AlbumBrief,
+  type AlbumFeel,
+  type PhotoMix,
+  type SpreadOption,
+} from './brief'
 
 // Client-only view-model type (the engine doesn't need it).
 type EventDef = { id: EventId; name: string }
@@ -171,7 +188,9 @@ function generateAlbumId(): string {
 
 const GOLD = '#b8965a'
 const HERO_MIN_PX = 3000
-const PHOTO_CAP = 100
+// Enough for a 40-spread "full story" album; photos stay on the client's
+// device (IndexedDB) until they order.
+const PHOTO_CAP = 400
 const HERO_CAP = 8
 const FAV_CAP = 30
 
@@ -247,7 +266,9 @@ type Photo = {
 type Step =
   | 'setup'
   | 'guidance'
+  | 'brief'
   | 'upload'
+  | 'chapters'
   | 'group'
   | 'tag'
   | 'pages'
@@ -1198,6 +1219,18 @@ function SmartDesignerInner() {
   // session-only random one we generate at mount time).
   const [submittedOrderId, setSubmittedOrderId] = useState<string | null>(null)
   const [polishHandoff, setPolishHandoff] = useState(false)
+  // Album brief (events, photo mix, feel, rough photo count) — asked once
+  // before upload; drives chapters and the page recommendation.
+  const [brief, setBrief] = useState<AlbumBrief>(DEFAULT_BRIEF)
+  // Chapters step: event chosen for each detected session (keyed by session key).
+  const [chapterPick, setChapterPick] = useState<Record<string, EventId>>({})
+  // True once the client sorted photos by hand in the Group step — the
+  // chapters step then keeps their groups instead of overwriting them.
+  const [groupedByHand, setGroupedByHand] = useState(false)
+  // Which recommended length the client picked on the Pages step.
+  const [lengthChoice, setLengthChoice] = useState<SpreadOption['id'] | 'custom'>('recommended')
+  // Guard so the unused-photo upsell can't double-fire.
+  const [addingUnused, setAddingUnused] = useState(false)
   // Album cover (leather / acrylic / photo). null until the client
   // completes the required Cover step.
   const [coverState, setCoverState] = useState<CoverState | null>(null)
@@ -1389,6 +1422,9 @@ function SmartDesignerInner() {
             coverState: CoverState
             unusedPhotoIds: string[]
             customEventNames: Record<string, string>
+            brief: AlbumBrief
+            groupedByHand: boolean
+            lengthChoice: SpreadOption['id'] | 'custom'
           }>
           if (s.size) setSize(s.size)
           if (s.type) setType(s.type)
@@ -1416,6 +1452,9 @@ function SmartDesignerInner() {
           if (s.customEventNames && typeof s.customEventNames === 'object') {
             setCustomEventNames(s.customEventNames)
           }
+          if (s.brief && typeof s.brief === 'object') setBrief({ ...DEFAULT_BRIEF, ...s.brief })
+          if (typeof s.groupedByHand === 'boolean') setGroupedByHand(s.groupedByHand)
+          if (s.lengthChoice) setLengthChoice(s.lengthChoice)
         }
       } catch {
         /* ignore corrupt state */
@@ -1506,13 +1545,16 @@ function SmartDesignerInner() {
         coverState,
         unusedPhotoIds,
         customEventNames,
+        brief,
+        groupedByHand,
+        lengthChoice,
       }
       window.localStorage.setItem(`${SMART_STATE_PREFIX}:${albumId}`, JSON.stringify(payload))
       upsertAlbumIndex(albumId, {})
     } catch {
       /* quota exceeded or disabled — silently drop */
     }
-  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, savedColors, coverState, unusedPhotoIds, customEventNames])
+  }, [hydrated, albumId, size, type, pageCount, albumStyle, step, photos, spreads, adjusts, spreadBgs, spreadTexts, savedColors, coverState, unusedPhotoIds, customEventNames, brief, groupedByHand, lengthChoice])
 
   const renameAlbum = () => {
     if (!albumId) return
@@ -1528,9 +1570,28 @@ function SmartDesignerInner() {
   const favCount = photos.filter((p) => p.tagged === 'favorite').length
   const usefulPhotoCount = photos.filter((p) => !p.blurry).length
 
-  // Recommended spreads = photos ÷ 4 (breathable, ~4 photos per spread).
-  // Floor of 10, ceiling of 25 to fit album-spec range.
-  const recommendedSpreads = Math.max(10, Math.min(25, Math.ceil(usefulPhotoCount / 4)))
+  // Page recommendation (Essential / Recommended / Complete) from the
+  // number of usable photos, the brief's "feel" and how many chapters
+  // (events) the album has. Clamped to the size/binding's spread range.
+  const chapterCount = useMemo(
+    () => new Set(photos.filter((p) => !p.blurry).map((p) => p.eventId)).size,
+    [photos],
+  )
+  const spreadOptions = useMemo<SpreadOption[]>(() => {
+    if (!size || !type) return []
+    const spec = ALBUM_SPECS[size][type]
+    return recommendSpreads(usefulPhotoCount, brief.feel, chapterCount, spec.minSpreads, spec.maxSpreads)
+  }, [size, type, usefulPhotoCount, brief.feel, chapterCount])
+  const recommendedSpreads =
+    spreadOptions.find((o) => o.id === 'recommended')?.spreads ?? Math.max(10, Math.ceil(usefulPhotoCount / 4))
+  // While on the Pages step, keep the spread count in sync with the
+  // chosen recommendation (unless the client set a custom length).
+  useEffect(() => {
+    if (step !== 'pages' || lengthChoice === 'custom') return
+    const opt = spreadOptions.find((o) => o.id === lengthChoice) ?? spreadOptions.find((o) => o.id === 'recommended')
+    if (opt && opt.id !== lengthChoice) setLengthChoice(opt.id)
+    if (opt && opt.spreads !== pageCount) setPageCount(opt.spreads)
+  }, [step, lengthChoice, spreadOptions, pageCount])
 
   // BILLABLE spread count = the number actually in the album.
   // Before generation, `spreads` is empty so we charge against the
@@ -2161,6 +2222,67 @@ function SmartDesignerInner() {
       [key]: { ...(prev[key] ?? DEFAULT_ADJUST), ...patch },
     }))
   }
+
+  // ---------- Upsell: add spreads that hold the client's unused photos ----------
+  // Lays out ONLY the unused photos (same smart engine, on the server),
+  // appends those spreads to the end of the album and bills them.
+  const addSpreadsForUnused = useCallback(
+    async (count: number) => {
+      if (!size || !type || addingUnused || count <= 0) return
+      const aspect = ALBUM_SPECS[size].spreadAspectRatio
+      const pool = photos.filter((p) => !p.blurry && unusedPhotoIds.includes(p.id))
+      if (pool.length === 0) return
+      setAddingUnused(true)
+      try {
+        const res = await fetch('/api/smart-layout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            photos: pool.map((p) => ({
+              id: p.id,
+              width: p.width,
+              height: p.height,
+              tagged: p.tagged,
+              blurry: p.blurry,
+              eventId: p.eventId,
+              capturedAt: p.capturedAt,
+              seqNum: p.seqNum,
+              isPanorama: p.isPanorama,
+            })),
+            pageCount: count,
+            type,
+            spreadAspectRatio: aspect,
+            style: albumStyle,
+            shuffle: false,
+          }),
+        })
+        if (!res.ok) throw new Error(`Layout request failed (${res.status})`)
+        const json = (await res.json()) as { spreads: Spread[] }
+        const stamp = Date.now().toString(36)
+        const added = json.spreads.map((sp, k) => ({ ...sp, id: `s-add-${stamp}-${k}` }))
+        const placed = new Set(added.flatMap((sp) => sp.photoIds).filter((id): id is string => Boolean(id)))
+        setSpreads((prev) => [...prev, ...added])
+        setPageCount((spreads.length || pageCount) + added.length)
+        setUnusedPhotoIds((prev) => prev.filter((id) => !placed.has(id)))
+        // Matted spreads get the same soft "blurred mirror" background as a fresh layout.
+        setSpreadBgs((prev) => {
+          const next = { ...prev }
+          for (const sp of added) {
+            if (templateFamily({ id: sp.templateId }) !== 'mat') continue
+            const first = sp.photoIds.find((id): id is string => Boolean(id))
+            if (first) next[sp.id] = { mode: 'photo', photoId: first, blur: DEFAULT_BG_BLUR, dim: 0.18, zoom: 1, panX: 50, panY: 50 }
+          }
+          return next
+        })
+        showToast(`+${added.length} spreads added with ${placed.size} of your photos`)
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Could not add spreads — please try again')
+      } finally {
+        setAddingUnused(false)
+      }
+    },
+    [size, type, addingUnused, photos, unusedPhotoIds, albumStyle, spreads.length, pageCount, showToast],
+  )
 
   // ---------- Add a new (empty) spread to the album from the adjust step ----------
   // Inserts at the end. Uses the 'pair' template so the new spread has 2 empty
@@ -2958,8 +3080,10 @@ function SmartDesignerInner() {
   // ============== RENDERS ==============
 
   const renderStepIndicator = () => {
-    const stepOrder: Step[] = ['setup', 'guidance', 'upload', 'group', 'tag', 'pages', 'adjust', 'cover', 'proof', 'submit']
-    const stepForIdx = step === 'generate' ? 'adjust' : step
+    const stepOrder: Step[] = ['setup', 'brief', 'upload', 'chapters', 'pages', 'adjust', 'cover', 'proof', 'submit']
+    // Optional side-steps light up the same dot as the step they belong to.
+    const stepForIdx: Step =
+      step === 'generate' ? 'adjust' : step === 'guidance' ? 'brief' : step === 'group' || step === 'tag' ? 'chapters' : step
     const idx = Math.max(0, stepOrder.indexOf(stepForIdx))
     return (
       <div style={{ display: 'flex', gap: 6, marginBottom: 28, justifyContent: 'center' }}>
@@ -3058,7 +3182,7 @@ function SmartDesignerInner() {
           type="button"
           style={{ ...css.btnPrimary, opacity: size && type ? 1 : 0.4, cursor: size && type ? 'pointer' : 'not-allowed' }}
           disabled={!size || !type}
-          onClick={() => setStep('guidance')}
+          onClick={() => setStep('brief')}
         >
           Continue →
         </button>
@@ -3119,6 +3243,289 @@ function SmartDesignerInner() {
           </button>
           <button type="button" style={css.btnPrimary} onClick={() => setStep('upload')}>
             Got it — let&apos;s upload →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  /** Display name for an event id (honours the client's custom names). */
+  const eventName = (id: EventId): string =>
+    customEventNames[id] ?? EVENTS.find((e) => e.id === id)?.name ?? (id === 'unassigned' ? 'No chapter' : id)
+
+  const chipStyle = (on: boolean): React.CSSProperties => ({
+    padding: '10px 16px',
+    borderRadius: 30,
+    fontSize: 12,
+    letterSpacing: 0.5,
+    cursor: 'pointer',
+    border: `1px solid ${on ? GOLD : 'rgba(184,150,90,0.3)'}`,
+    background: on ? 'rgba(184,150,90,0.16)' : 'transparent',
+    color: on ? 'var(--cream)' : 'var(--muted2)',
+    fontWeight: on ? 600 : 400,
+  })
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11,
+    letterSpacing: 2,
+    color: GOLD,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  }
+
+  const renderBrief = () => {
+    if (!size || !type) return null
+    const spec = ALBUM_SPECS[size][type]
+    const toggleEvent = (id: EventId) =>
+      setBrief((b) => {
+        const has = b.events.includes(id)
+        const next = has ? b.events.filter((e) => e !== id) : [...b.events, id]
+        // Keep the wedding's natural order (Mehndi → … → Valima).
+        next.sort((a, c) => EVENTS.findIndex((e) => e.id === a) - EVENTS.findIndex((e) => e.id === c))
+        return { ...b, events: next }
+      })
+    const oneDay = brief.events.length === 1 && brief.events[0] === 'wedding'
+    const preview = recommendSpreads(brief.photoGoal, brief.feel, Math.max(1, brief.events.length), spec.minSpreads, spec.maxSpreads)
+    const rec = preview.find((o) => o.id === 'recommended')!
+    return (
+      <div style={{ ...css.container, maxWidth: 820 }}>
+        {renderStepIndicator()}
+        <h2 style={css.title}>
+          Tell us about your <em style={css.titleEm}>album.</em>
+        </h2>
+        <p style={css.subtitle}>Four quick taps so we can design it around your photos.</p>
+
+        <div style={{ ...css.card, marginBottom: 16 }} data-help="brief-events">
+          <p style={sectionLabel}>1 · Which events are in your album?</p>
+          <p style={{ fontSize: 12, color: 'var(--muted2)', marginBottom: 14 }}>
+            Each one becomes a chapter. Pick them in any order — we keep the wedding order.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button type="button" style={chipStyle(oneDay)} onClick={() => setBrief((b) => ({ ...b, events: ['wedding'] }))}>
+              Just one day
+            </button>
+            {EVENTS.filter((e) => e.id !== 'other1' && e.id !== 'other2').map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                style={chipStyle(brief.events.includes(e.id) && !oneDay)}
+                onClick={() => (oneDay ? setBrief((b) => ({ ...b, events: [e.id] })) : toggleEvent(e.id))}
+              >
+                {e.name}
+              </button>
+            ))}
+            <button type="button" style={chipStyle(brief.events.includes('other1'))} onClick={() => toggleEvent('other1')}>
+              Something else
+            </button>
+          </div>
+        </div>
+
+        <div style={{ ...css.card, marginBottom: 16 }} data-help="brief-mix">
+          <p style={sectionLabel}>2 · What kind of photos do you have most?</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+            {(Object.keys(MIX_INFO) as PhotoMix[]).map((m) => (
+              <div
+                key={m}
+                role="button"
+                tabIndex={0}
+                onClick={() => setBrief((b) => ({ ...b, mix: m, feel: suggestedFeel(m) }))}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault()
+                    setBrief((b) => ({ ...b, mix: m, feel: suggestedFeel(m) }))
+                  }
+                }}
+                style={{ ...css.cardSelectable, ...(brief.mix === m ? css.cardSelected : {}) }}
+              >
+                <p style={{ fontSize: 15, color: 'var(--cream)', fontWeight: 600, marginBottom: 4 }}>{MIX_INFO[m].title}</p>
+                <p style={{ fontSize: 12, color: 'var(--muted2)', lineHeight: 1.6 }}>{MIX_INFO[m].desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...css.card, marginBottom: 16 }} data-help="brief-feel">
+          <p style={sectionLabel}>3 · How should it feel?</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+            {(Object.keys(FEEL_INFO) as AlbumFeel[]).map((f) => (
+              <div
+                key={f}
+                role="button"
+                tabIndex={0}
+                onClick={() => setBrief((b) => ({ ...b, feel: f }))}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault()
+                    setBrief((b) => ({ ...b, feel: f }))
+                  }
+                }}
+                style={{ ...css.cardSelectable, ...(brief.feel === f ? css.cardSelected : {}) }}
+              >
+                <p style={{ fontSize: 15, color: 'var(--cream)', fontWeight: 600, marginBottom: 4 }}>
+                  {FEEL_INFO[f].title}
+                  {suggestedFeel(brief.mix) === f && (
+                    <span style={{ fontSize: 9, letterSpacing: 1, marginLeft: 8, color: '#0e0c09', background: GOLD, padding: '2px 7px', borderRadius: 30, textTransform: 'uppercase', verticalAlign: 'middle' }}>
+                      Suggested
+                    </span>
+                  )}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--muted2)', lineHeight: 1.6 }}>{FEEL_INFO[f].desc}</p>
+                <p style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>{FEEL_INFO[f].range}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...css.card, marginBottom: 16 }} data-help="brief-count">
+          <p style={sectionLabel}>4 · Roughly how many photos do you want in the album?</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {PHOTO_GOALS.map((g) => (
+              <button key={g} type="button" style={chipStyle(brief.photoGoal === g)} onClick={() => setBrief((b) => ({ ...b, photoGoal: g }))}>
+                About {g}{g === 300 ? '+' : ''}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--cream)', marginTop: 16, lineHeight: 1.8 }}>
+            That&apos;s about <strong style={{ color: GOLD }}>{rec.spreads} spreads</strong> ({rec.spreads * 2} pages) —
+            around ${computePrice(size, type, rec.spreads)} for {ALBUM_SPECS[size].label}{' '}
+            {type === 'standard' ? 'standard' : 'lay-flat'}. We&apos;ll fine-tune this once your photos are in.
+          </p>
+          <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 6 }}>
+            Upload up to {PHOTO_CAP} photos. Albums go up to {spec.maxSpreads} spreads.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('setup')}>
+            ← Back
+          </button>
+          <button
+            type="button"
+            style={{ ...css.btnPrimary, opacity: brief.events.length ? 1 : 0.4, cursor: brief.events.length ? 'pointer' : 'not-allowed' }}
+            disabled={!brief.events.length}
+            title={brief.events.length ? undefined : 'Pick at least one event'}
+            onClick={() => setStep('upload')}
+          >
+            Continue to upload →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const renderChapters = () => {
+    const sessions = detectSessions(photos)
+    const defaults = defaultSessionEvents(sessions, brief.events)
+    const byId = new Map(photos.map((p) => [p.id, p] as const))
+    // Default per session: the event most of its photos already carry
+    // (e.g. from folder names), else the brief's events in order.
+    const pickFor = (idx: number): EventId => {
+      const sKey = sessions[idx].key
+      if (chapterPick[sKey]) return chapterPick[sKey]
+      const counts = new Map<EventId, number>()
+      for (const id of sessions[idx].photoIds) {
+        const e = byId.get(id)?.eventId
+        if (e && e !== 'unassigned') counts.set(e, (counts.get(e) ?? 0) + 1)
+      }
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+      return top ? top[0] : defaults[idx]
+    }
+    const choices: EventId[] = [
+      ...brief.events,
+      ...EVENTS.map((e) => e.id).filter((id) => !brief.events.includes(id)),
+    ]
+    const datedCount = sessions.filter((s) => s.start !== undefined).length
+    const apply = () => {
+      if (!groupedByHand) {
+        const map = new Map<string, EventId>()
+        sessions.forEach((sess, i) => sess.photoIds.forEach((id) => map.set(id, pickFor(i))))
+        setPhotos((prev) => prev.map((p) => (map.has(p.id) ? { ...p, eventId: map.get(p.id)! } : p)))
+      }
+      setStep('pages')
+    }
+    return (
+      <div style={{ ...css.container, maxWidth: 880 }}>
+        {renderStepIndicator()}
+        <h2 style={css.title}>
+          Your <em style={css.titleEm}>chapters.</em>
+        </h2>
+        <p style={css.subtitle}>
+          {groupedByHand
+            ? 'You sorted your photos by hand — we’ll keep your groups.'
+            : datedCount > 1
+            ? `We found ${datedCount} sessions from your photo dates. Pick the event for each one.`
+            : datedCount === 1
+            ? 'Your photos are from one session. Pick its event below.'
+            : 'Your photos don’t have dates, so we can’t split them by day. Pick an event or sort them by hand.'}
+        </p>
+
+        {groupedByHand ? (
+          <div style={{ ...css.notice, marginBottom: 20 }}>
+            Hand-sorted groups: {[...new Set(photos.map((p) => p.eventId))].map((e) => eventName(e)).join(', ')}.{' '}
+            <button type="button" style={{ ...css.btnGhost, padding: '4px 10px', marginLeft: 6 }} onClick={() => setGroupedByHand(false)}>
+              Use automatic chapters instead
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} data-help="chapters-list">
+            {sessions.map((sess, i) => {
+              const cur = pickFor(i)
+              const thumbs = sess.photoIds.slice(0, 8).map((id) => byId.get(id)).filter(Boolean) as Photo[]
+              return (
+                <div key={sess.key} style={{ ...css.card, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                    <p style={{ fontSize: 11, letterSpacing: 1.5, color: GOLD, textTransform: 'uppercase', marginBottom: 6 }}>
+                      Chapter {i + 1} · {sess.photoIds.length} photo{sess.photoIds.length === 1 ? '' : 's'}
+                    </p>
+                    <p style={{ fontSize: 13, color: 'var(--cream)', marginBottom: 10 }}>{sessionLabel(sess)}</p>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {thumbs.map((p) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={p.id} src={p.preview} alt="" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4 }} />
+                      ))}
+                      {sess.photoIds.length > thumbs.length && (
+                        <span style={{ fontSize: 11, color: 'var(--muted2)', alignSelf: 'center', marginLeft: 4 }}>
+                          +{sess.photoIds.length - thumbs.length}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <label style={{ flex: '0 0 220px' }}>
+                    <span style={{ display: 'block', fontSize: 10, letterSpacing: 1.5, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Event
+                    </span>
+                    <select
+                      value={cur}
+                      onChange={(e) => setChapterPick((m) => ({ ...m, [sess.key]: e.target.value as EventId }))}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: 8, background: 'var(--dark3, #2a2218)', color: 'var(--cream)', border: `1px solid ${GOLD}`, fontSize: 13 }}
+                    >
+                      {choices.map((id) => (
+                        <option key={id} value={id}>
+                          {eventName(id)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
+          <button type="button" style={css.btnGhost} onClick={() => setStep('group')} data-help="fix-groups">
+            Sort photos by hand
+          </button>
+          <button type="button" style={css.btnGhost} onClick={() => setStep('tag')}>
+            Mark favorites (optional)
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
+            ← Back
+          </button>
+          <button type="button" style={css.btnPrimary} onClick={apply} disabled={photos.length === 0}>
+            Continue →
           </button>
         </div>
       </div>
@@ -3628,7 +4035,7 @@ function SmartDesignerInner() {
               <button data-help="clear-all" type="button" style={css.btnSecondary} onClick={() => setPhotos([])}>
                 Clear all
               </button>
-              <button type="button" style={css.btnPrimary} onClick={() => setStep('group')}>
+              <button type="button" style={css.btnPrimary} onClick={() => setStep('chapters')}>
                 Continue →
               </button>
               <span
@@ -4115,7 +4522,7 @@ function SmartDesignerInner() {
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
-          <button type="button" style={css.btnSecondary} onClick={() => setStep('upload')}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('chapters')}>
             ← Back
           </button>
           {selectedPhotoIds.size > 0 && (
@@ -4123,7 +4530,14 @@ function SmartDesignerInner() {
               Clear selection ({selectedPhotoIds.size})
             </button>
           )}
-          <button type="button" style={css.btnPrimary} onClick={() => setStep('tag')}>
+          <button
+            type="button"
+            style={css.btnPrimary}
+            onClick={() => {
+              setGroupedByHand(true)
+              setStep('pages')
+            }}
+          >
             {unassignedCount > 0 ? `Continue (${unassignedCount} untagged) →` : 'Continue →'}
           </button>
         </div>
@@ -4273,7 +4687,7 @@ function SmartDesignerInner() {
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-          <button type="button" style={css.btnSecondary} onClick={() => setStep('group')}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('chapters')}>
             ← Back
           </button>
           <button type="button" style={css.btnPrimary} onClick={() => setStep('pages')}>
@@ -4290,41 +4704,114 @@ function SmartDesignerInner() {
     const extraSpreads = Math.max(0, pageCount - spec.minSpreads)
     const extraCost = extraSpreads * spec.perExtraSpread
     return (
-      <div style={{ ...css.container, maxWidth: 640 }}>
+      <div style={{ ...css.container, maxWidth: 760 }}>
         {renderStepIndicator()}
         <h2 style={css.title}>
           Album <em style={css.titleEm}>length</em>
         </h2>
         <p style={css.subtitle}>
-          {usefulPhotoCount} usable photos · we recommend ~{recommendedSpreads} spreads
+          {usefulPhotoCount} photos · {chapterCount} chapter{chapterCount === 1 ? '' : 's'} · {FEEL_INFO[brief.feel].title.toLowerCase()}
         </p>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18 }}>
-          <span style={{ fontSize: 11, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
-            Spreads ({pageCount * 2} pages)
-          </span>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: 48, color: GOLD }}>{pageCount}</span>
+        <div data-help="length-options" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+          {spreadOptions.map((o) => {
+            const on = lengthChoice === o.id
+            const rec = o.id === 'recommended'
+            const crowded = o.perSpread > 6
+            const overflow = photosOverflow(usefulPhotoCount, o.spreads)
+            return (
+              <div
+                key={o.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setLengthChoice(o.id)
+                  setPageCount(o.spreads)
+                }}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault()
+                    setLengthChoice(o.id)
+                    setPageCount(o.spreads)
+                  }
+                }}
+                style={{ ...css.cardSelectable, ...(on ? css.cardSelected : {}), position: 'relative', paddingTop: rec ? 26 : undefined }}
+              >
+                {rec && (
+                  <span style={{ position: 'absolute', top: -9, left: 14, fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', color: '#0e0c09', background: GOLD, padding: '3px 8px', borderRadius: 30, fontWeight: 700 }}>
+                    Our pick
+                  </span>
+                )}
+                <p style={{ fontSize: 12, letterSpacing: 1.5, color: GOLD, textTransform: 'uppercase' }}>{o.title}</p>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 34, color: 'var(--cream)', lineHeight: 1.1, margin: '6px 0 2px' }}>
+                  {o.spreads} <span style={{ fontSize: 14, color: 'var(--muted2)' }}>spreads</span>
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--muted2)' }}>
+                  {o.spreads * 2} pages · ~{o.perSpread} photos per spread
+                </p>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: GOLD, marginTop: 8 }}>
+                  ${computePrice(size, type, o.spreads)}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--muted2)', marginTop: 4, lineHeight: 1.5 }}>{o.note}</p>
+                {overflow > 0 ? (
+                  <p style={{ fontSize: 11, color: '#ff8a8a', marginTop: 6 }}>⚠ {overflow} photos won&apos;t fit</p>
+                ) : crowded ? (
+                  <p style={{ fontSize: 11, color: '#ffb38a', marginTop: 6 }}>Pages will be crowded</p>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
 
-        <input data-help="spreads-slider"
-          type="range"
-          min={spec.minSpreads}
-          max={spec.maxSpreads}
-          value={pageCount}
-          onChange={(e) => setPageCount(parseInt(e.target.value))}
-          style={{ width: '100%', accentColor: GOLD, cursor: 'pointer' }}
-        />
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', marginTop: 8 }}>
-          <span>{spec.minSpreads} spreads</span>
-          <span>{spec.maxSpreads} spreads</span>
-        </div>
+        <details
+          open={lengthChoice === 'custom'}
+          style={{ marginTop: 16 }}
+          onToggle={(e) => {
+            if ((e.currentTarget as HTMLDetailsElement).open && lengthChoice !== 'custom') setLengthChoice('custom')
+          }}
+        >
+          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--muted2)', letterSpacing: 1 }}>
+            Choose an exact number of spreads
+          </summary>
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, letterSpacing: 2, color: 'var(--muted2)', textTransform: 'uppercase' }}>
+                Spreads ({pageCount * 2} pages)
+              </span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 40, color: GOLD }}>{pageCount}</span>
+            </div>
+            <input data-help="spreads-slider"
+              type="range"
+              min={spec.minSpreads}
+              max={spec.maxSpreads}
+              value={pageCount}
+              onChange={(e) => {
+                setLengthChoice('custom')
+                setPageCount(parseInt(e.target.value))
+              }}
+              style={{ width: '100%', accentColor: GOLD, cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, letterSpacing: 1, color: 'var(--muted2)', marginTop: 8 }}>
+              <span>{spec.minSpreads} spreads</span>
+              <span>{spec.maxSpreads} spreads</span>
+            </div>
+          </div>
+        </details>
 
         {pageCount < recommendedSpreads && (
           <div style={{ ...css.notice, marginTop: 18, borderColor: '#ff8a8a' }}>
             ⚠ With {pageCount} spreads, your {usefulPhotoCount} photos will be packed{' '}
-            <strong>~{Math.ceil(usefulPhotoCount / pageCount)} per spread</strong>. Consider going up to{' '}
-            <strong>{recommendedSpreads}</strong> for a more breathable layout.
+            <strong>~{Math.ceil(usefulPhotoCount / pageCount)} per spread</strong>
+            {photosOverflow(usefulPhotoCount, pageCount) > 0 && (
+              <> and <strong>{photosOverflow(usefulPhotoCount, pageCount)} photos won&apos;t fit</strong></>
+            )}
+            . We recommend <strong>{recommendedSpreads}</strong> spreads.
+          </div>
+        )}
+        {usefulPhotoCount > spec.maxSpreads * 8 && (
+          <div style={{ ...css.notice, marginTop: 12 }}>
+            You have more photos than one album can hold ({spec.maxSpreads} spreads). Leftover photos stay in your
+            &ldquo;Unused&rdquo; tray so you can swap them in.
           </div>
         )}
 
@@ -4446,7 +4933,7 @@ function SmartDesignerInner() {
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
-          <button type="button" style={css.btnSecondary} onClick={() => setStep('tag')}>
+          <button type="button" style={css.btnSecondary} onClick={() => setStep('chapters')}>
             ← Back
           </button>
           <button data-help="generate" type="button" style={css.btnPrimary} onClick={runGenerate}>
@@ -4786,6 +5273,30 @@ function SmartDesignerInner() {
               </p>
             </div>
 
+            {size && type && unusedPhotos.length >= 3 && (() => {
+              const spec = ALBUM_SPECS[size][type]
+              const room = spec.maxSpreads - billedSpreads
+              if (room <= 0) return null
+              const k = Math.min(room, spreadsForUnused(unusedPhotos.length, brief.feel))
+              const delta = computePrice(size, type, billedSpreads + k) - computePrice(size, type, billedSpreads)
+              return (
+                <div data-help="unused-upsell" style={{ ...css.card, borderColor: GOLD, background: 'rgba(184,150,90,0.08)' }}>
+                  <p style={{ fontSize: 13, color: 'var(--cream)', lineHeight: 1.6, marginBottom: 10 }}>
+                    You have <strong style={{ color: GOLD }}>{unusedPhotos.length} unused photos</strong>. Add{' '}
+                    {k} spread{k === 1 ? '' : 's'} to include them?
+                  </p>
+                  <button
+                    type="button"
+                    style={{ ...css.btnPrimary, width: '100%', padding: '12px 14px', fontSize: 11, opacity: addingUnused ? 0.6 : 1 }}
+                    disabled={addingUnused}
+                    onClick={() => addSpreadsForUnused(k)}
+                  >
+                    {addingUnused ? 'Adding…' : `Add ${k} spread${k === 1 ? '' : 's'} · +$${delta}`}
+                  </button>
+                </div>
+              )
+            })()}
+
             <div style={css.card}>
               <div
                 style={{
@@ -4833,6 +5344,7 @@ function SmartDesignerInner() {
               </div>
               <input
                 ref={addMorePhotosInputRef}
+                data-help="add-photos-input"
                 type="file"
                 accept="image/*"
                 multiple
@@ -6164,7 +6676,9 @@ function SmartDesignerInner() {
 
       {step === 'setup' && renderSetup()}
       {step === 'guidance' && renderGuidance()}
+      {step === 'brief' && renderBrief()}
       {step === 'upload' && renderUpload()}
+      {step === 'chapters' && renderChapters()}
       {step === 'group' && renderGroup()}
       {step === 'tag' && renderTag()}
       {step === 'pages' && renderPages()}

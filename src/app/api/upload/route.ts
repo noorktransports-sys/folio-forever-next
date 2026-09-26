@@ -73,9 +73,10 @@ function err(status: number, message: string) {
 export async function POST(request: Request) {
   const { env } = getRequestContext() as { env: Env };
   if (!env.PHOTOS) return err(503, 'storage binding unavailable');
-  // A full album is ~40–250 files (photos + print pages); 600/hour per IP
-  // leaves plenty of room for real customers and stops bulk abuse.
-  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'upload', 600, 3600))) {
+  // A big album is up to ~400 photos + 40 print spreads + previews, and a
+  // retry may resend some; 2000/hour per IP covers two full orders and
+  // still stops bulk abuse.
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'upload', 2000, 3600))) {
     return tooMany('Too many uploads from this connection — please wait a little and try again');
   }
 

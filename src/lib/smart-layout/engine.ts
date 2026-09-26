@@ -28,6 +28,10 @@ import type {
 // full-page (so a full-bleed single never looks soft).
 const HERO_MIN_PX = 3000
 
+// Most photos the engine puts on one spread (layouts exist for 1–8).
+// "Full story" albums need 6–8; lighter albums never get near it.
+const MAX_PER_SPREAD = 8
+
 /** Which layout family a given spread should use.
  *  @param isHeroSpread  this spread features a hero photo
  *  @param spreadOrdinal 0-based running position across the whole album
@@ -311,9 +315,9 @@ function generateLayout(
       } else {
         // Spread the remaining photos as evenly as possible across the
         // remaining spreads (ceil leans toward placing everything), then
-        // clamp to a sensible 1–5 photos per spread.
+        // clamp to 1–MAX_PER_SPREAD photos per spread.
         let size = Math.ceil(remainingPhotos / remainingSpreads)
-        size = Math.max(1, Math.min(5, size))
+        size = Math.max(1, Math.min(MAX_PER_SPREAD, size))
         // Don't pull a panorama into a multi-photo chunk — it has to
         // get its own spread (handled by the short-circuit at the top
         // of the loop). Truncate the chunk at the next panorama.
@@ -339,10 +343,10 @@ function generateLayout(
         pickTemplate(type, count, !useHero, undefined, chunk, spreadAspectRatio, undefined, idx, avoidFor(count))
 
       if (!tpl) {
-        // Defensive: should never happen for counts 1–5. Place the photos
+        // Defensive: should never happen for counts 1–8. Place the photos
         // anyway with a count-appropriate fallback so none are lost.
         const fallbackId =
-          count >= 5 ? 'mat-5-row' : count === 4 ? 'mat-4-grid' : count === 3 ? 'mat-3' : count === 2 ? 'pair' : 'one-full'
+          count >= 8 ? 'mat-8-grid' : count === 7 ? 'mat-7-Lbig-R6grid' : count === 6 ? 'mat-6-grid' : count === 5 ? 'mat-5-row' : count === 4 ? 'mat-4-grid' : count === 3 ? 'mat-3' : count === 2 ? 'pair' : 'one-full'
         eventSpreads.push({ id: `s-${idx++}`, templateId: fallbackId, photoIds: chunk.map((p) => p.id), eventId: eid })
         continue
       }
@@ -351,13 +355,13 @@ function generateLayout(
     }
 
     // If we hit the spread budget but still have photos in this event,
-    // jam the remainder onto the last spread (up to the 5-photo cap) so
+    // jam the remainder onto the last spread (up to MAX_PER_SPREAD) so
     // every photo is placed. Anything beyond that falls to the unused
     // pool (the client can drop it onto any spread).
     if (i < seq.length && eventSpreads.length > 0) {
       const leftover = seq.slice(i)
       const last = eventSpreads[eventSpreads.length - 1]
-      const tgt = Math.min(5, last.photoIds.length + leftover.length)
+      const tgt = Math.min(MAX_PER_SPREAD, last.photoIds.length + leftover.length)
       const upgrade = pickTemplate(
         type, tgt, false, undefined, undefined, undefined,
         templateFamily({ id: last.templateId }), idx,
@@ -379,7 +383,7 @@ function generateLayout(
   const orphans = useable.filter((p) => !placed.has(p.id))
   if (orphans.length > 0 && spreads.length > 0) {
     const last = spreads[spreads.length - 1]
-    const tgt = Math.min(5, last.photoIds.length + orphans.length)
+    const tgt = Math.min(MAX_PER_SPREAD, last.photoIds.length + orphans.length)
     const upgrade = pickTemplate(
       type, tgt, false, undefined, undefined, undefined,
       templateFamily({ id: last.templateId }),

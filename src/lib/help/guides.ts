@@ -798,7 +798,7 @@ export const GUIDES: Guide[] = [
     area: 'adjust',
     keywords: 'add spread new page more pages extra spread insert page',
     steps: ['Scroll to the bottom of the spreads.', 'Press + Add new spread. The price change is shown on the button.'],
-    tips: ['Up to 25 spreads.'],
+    tips: ['Up to 40 spreads.'],
     demo: 'addSpread',
     target: ['[data-help="add-spread"]'],
   },

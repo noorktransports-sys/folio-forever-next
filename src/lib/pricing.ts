@@ -13,22 +13,26 @@ export type CoverTypeKey = 'photo' | 'leather' | 'acrylic'
 
 export type AlbumTier = { base: number; perExtraSpread: number; minSpreads: number; maxSpreads: number }
 
+/** Most spreads the printer can bind, per binding. Change here only —
+ *  the designer, checkout price check and website all read this. */
+export const MAX_SPREADS: Record<AlbumTypeKey, number> = { standard: 40, layflat: 40 }
+
 export const ALBUM_PRICING: Record<AlbumSizeKey, Record<AlbumTypeKey, AlbumTier>> = {
   '17x24': {
-    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: MAX_SPREADS.standard },
+    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: MAX_SPREADS.layflat },
   },
   '12x24': {
-    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: MAX_SPREADS.standard },
+    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: MAX_SPREADS.layflat },
   },
   '20x30': {
-    standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+    standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: MAX_SPREADS.standard },
+    layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: MAX_SPREADS.layflat },
   },
   '15x30': {
-    standard: { base: 300, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 335, perExtraSpread: 18, minSpreads: 10, maxSpreads: 25 },
+    standard: { base: 300, perExtraSpread: 15, minSpreads: 10, maxSpreads: MAX_SPREADS.standard },
+    layflat: { base: 335, perExtraSpread: 18, minSpreads: 10, maxSpreads: MAX_SPREADS.layflat },
   },
 }
 
