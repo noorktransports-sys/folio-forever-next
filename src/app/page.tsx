@@ -339,22 +339,45 @@ export default function HomePage() {
           A couple sees their monument<br />for the first time
         </h2>
         <div className="video-frame">
-          {/* TODO: swap to real couple-reaction video */}
+          {/* Couple-reaction video: "coming soon" until the real film is ready. */}
           <div className="video-placeholder-inner">
-            <div className="play-btn" style={{ margin: '0 auto 12px' }}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M6 4L16 10L6 16V4Z" fill="#b8965a" />
-              </svg>
+            <span
+              style={{
+                display: 'inline-block',
+                border: '0.5px solid rgba(184,150,90,0.6)',
+                borderRadius: 30,
+                padding: '7px 18px',
+                fontSize: '10px',
+                letterSpacing: '3px',
+                color: '#b8965a',
+                textTransform: 'uppercase',
+                marginBottom: 14,
+              }}
+            >
+              Coming soon
+            </span>
+            <div
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 'clamp(20px, 3vw, 30px)',
+                fontStyle: 'italic',
+                color: 'var(--cream)',
+                lineHeight: 1.3,
+              }}
+            >
+              Real couples, real first reactions.
             </div>
             <span
               style={{
+                display: 'block',
+                marginTop: 10,
                 fontSize: '10px',
                 letterSpacing: '2px',
                 color: 'var(--muted2)',
                 textTransform: 'uppercase',
               }}
             >
-              Couple reaction video goes here
+              Our first reveal film is being edited
             </span>
           </div>
         </div>

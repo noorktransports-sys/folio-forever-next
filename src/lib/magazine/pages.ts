@@ -86,7 +86,7 @@ const CAP = { upper: true, spacing: 0.32, weight: 500 as const }
 export const MAG_PAGES: MagPage[] = [
   // 1 — magazine cover
   (() => {
-    const c = cover({ masthead: 'FOREVER', mastFont: 'bodoni', mastSpacing: 0.12, lineFont: 'playfair', lineItalic: true, accent: '#f3c9b4' })
+    const c = cover({ masthead: 'SIENARA', mastFont: 'bodoni', mastSpacing: 0.12, lineFont: 'playfair', lineItalic: true, accent: '#f3c9b4' })
     return page(1, 'Cover', WHITE, c.slots, [], c.texts, c.overlay)
   })(),
   // 2 — full-height photo between rust side bars
@@ -210,7 +210,7 @@ const WL = frame('#ffffff', 0.35)
 const NCAP = { upper: true, spacing: 0.35, weight: 500 as const }
 export const NOIR_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'NOIR', mastFont: 'bodoni', mastSize: 14, mastSpacing: 0.22, lineFont: 'bodoni', lineItalic: true, bw: true, accent: '#d6d6d6', shade: 0.6 })
+    const c = cover({ masthead: 'NOCTELLE', mastFont: 'bodoni', mastSize: 10.5, mastSpacing: 0.12, lineFont: 'bodoni', lineItalic: true, bw: true, accent: '#d6d6d6', shade: 0.6 })
     return nP(1, 'Cover', NB, c.slots, [], c.texts, c.overlay)
   })(),
   nP(2, 'Chapter One', NB, [{ x: 14, y: 8, w: 72, h: 72, frame: WL }], [], [
@@ -313,7 +313,7 @@ const FINE = frame('#d9d3ca', 0.3)
 const ICAP = { upper: true, spacing: 0.3 }
 export const IVORY_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'IVORY', mastFont: 'italiana', mastSize: 13, mastSpacing: 0.2, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, shade: 0.42 })
+    const c = cover({ masthead: 'PERLAINE', mastFont: 'italiana', mastSize: 11, mastSpacing: 0.12, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, shade: 0.42 })
     return iP(1, 'Cover', IB, c.slots, [], c.texts, c.overlay)
   })(),
   iP(2, 'Full bleed', IB, [FULL]),
@@ -408,7 +408,7 @@ const CF = frame(SAGE_CREAM, 0.9)
 const SCAP = { upper: true, spacing: 0.3 }
 export const SAGE_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'Bloom', mastFont: 'vibes', mastSize: 13, mastSpacing: 0, mastWeight: 400, lineFont: 'playfair', lineItalic: true, accent: '#dfe8d4', shade: 0.45 })
+    const c = cover({ masthead: 'Fernelle', mastFont: 'vibes', mastSize: 12, mastSpacing: 0, mastWeight: 400, lineFont: 'playfair', lineItalic: true, accent: '#dfe8d4', shade: 0.45 })
     return sP(1, 'Cover', SG, c.slots, [], c.texts, c.overlay)
   })(),
   sP(2, 'Full bleed', SC, [FULL]),
@@ -507,28 +507,28 @@ export type MagStyle = {
 export const MAG_STYLES: MagStyle[] = [
   {
     id: 'terracotta',
-    name: 'TERRACOTTA',
+    name: 'SIENARA',
     tagline: 'Warm rust bands, cream keylines, blurred photo washes.',
     swatches: [RUST, CREAM, '#ffffff'],
     pages: MAG_PAGES,
   },
   {
     id: 'noir',
-    name: 'NOIR',
+    name: 'NOCTELLE',
     tagline: 'Cinematic black pages, white keylines, black & white moments.',
     swatches: [NOIR_BG, '#ffffff', '#7a7a7a'],
     pages: NOIR_PAGES,
   },
   {
     id: 'ivory',
-    name: 'IVORY',
+    name: 'PERLAINE',
     tagline: 'Gallery white with blush and champagne pages — quiet and timeless.',
     swatches: [IVORY_BG, BLUSH, CHAMPAGNE],
     pages: IVORY_PAGES,
   },
   {
     id: 'sage',
-    name: 'SAGE',
+    name: 'FERNELLE',
     tagline: 'Garden green, layered cream frames and flowing script.',
     swatches: [SAGE, SAGE_CREAM, SAGE_DARK],
     pages: SAGE_PAGES,

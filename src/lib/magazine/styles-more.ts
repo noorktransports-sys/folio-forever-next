@@ -10,7 +10,7 @@ import { QUOTE, STORY, block, col, cover, frame, grid, styledPage, t, wash, FULL
 const W = '#ffffff'
 const CAP = { upper: true, spacing: 0.3, weight: 500 as const }
 
-/* ══════════════════════════ 05 · COUTURE ══════════════════════════
+/* ══════════════════════════ 05 · VELMORA ══════════════════════════
    (internal id stays 'vogue' so saved designs keep working)
  * High-fashion editorial: white pages, black type, a red accent,
  * chapter numbers, a contents page, full-bleed black & white. */
@@ -25,7 +25,7 @@ const chapter = (n: number, num: string, title: string): MagPage =>
   ])
 const VOGUE_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'VOWS', mastFont: 'bodoni', mastSize: 15, mastSpacing: 0.04, mastWeight: 700, lineFont: 'bodoni', lineItalic: true, accent: '#ffd9df' })
+    const c = cover({ masthead: 'VELMORA', mastFont: 'bodoni', mastSize: 11.5, mastSpacing: 0.04, mastWeight: 700, lineFont: 'bodoni', lineItalic: true, accent: '#ffd9df' })
     return vP(1, 'Cover', VW, c.slots, [], c.texts, c.overlay)
   })(),
   vP(2, 'Contents', VW, [
@@ -104,7 +104,7 @@ const dk = (x: number, y: number, w: number, h: number, pageColor: string) => [
 const MCAP = { upper: true, spacing: 0.4 }
 const MAHARANI_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'MAHARANI', mastFont: 'cinzel', mastSize: 9.2, mastSpacing: 0.12, mastWeight: 600, lineFont: 'cormorant', lineItalic: true, ink: '#fff3dc', accent: GOLD, shade: 0.55 })
+    const c = cover({ masthead: 'ZARIVELLE', mastFont: 'cinzel', mastSize: 8.4, mastSpacing: 0.12, mastWeight: 600, lineFont: 'cormorant', lineItalic: true, ink: '#fff3dc', accent: GOLD, shade: 0.55 })
     return mP(1, 'Cover', col(MAROON), c.slots, [], c.texts, c.overlay)
   })(),
   mP(2, 'Chapter One', col(MAROON), [{ x: 18, y: 10, w: 64, h: 62, frame: GL }], dk(18, 10, 64, 62, MAROON), [
@@ -178,7 +178,7 @@ const AP = col(PAPER)
 const ACAP = { upper: true, spacing: 0.26, weight: 500 as const }
 const ANALOG_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'ANALOG', mastFont: 'playfair', mastSize: 12, mastSpacing: 0.18, mastWeight: 700, lineFont: 'playfair', lineItalic: true, shade: 0.45 })
+    const c = cover({ masthead: 'FILMARA', mastFont: 'playfair', mastSize: 11, mastSpacing: 0.18, mastWeight: 700, lineFont: 'playfair', lineItalic: true, shade: 0.45 })
     return aP(1, 'Cover', AP, c.slots, [], c.texts, c.overlay)
   })(),
   aP(2, 'Frame 01', AP, [{ x: 14, y: 9, w: 72, h: 60, frame: PRINT }], [], [
@@ -249,7 +249,7 @@ const bP = styledPage('blush', ROSE)
 const BB = col(BL)
 const BLUSH_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'Blush', mastFont: 'vibes', mastSize: 14, mastSpacing: 0, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, accent: '#ffe3e0', shade: 0.4 })
+    const c = cover({ masthead: 'Rosavie', mastFont: 'vibes', mastSize: 13, mastSpacing: 0, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, accent: '#ffe3e0', shade: 0.4 })
     return bP(1, 'Cover', BB, c.slots, [], c.texts, c.overlay)
   })(),
   bP(2, 'Chapter One', BB, [{ x: 16, y: 10, w: 68, h: 64, frame: WF }], [], [
@@ -318,7 +318,7 @@ const RS = col(SAND)
 const RCAP = { upper: true, spacing: 0.3, weight: 500 as const }
 const RIVIERA_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'RIVIERA', mastFont: 'playfair', mastSize: 11.5, mastSpacing: 0.16, mastWeight: 700, lineFont: 'playfair', lineItalic: true, accent: '#cfe4f3', shade: 0.45 })
+    const c = cover({ masthead: 'MARAZUR', mastFont: 'playfair', mastSize: 11.5, mastSpacing: 0.16, mastWeight: 700, lineFont: 'playfair', lineItalic: true, accent: '#cfe4f3', shade: 0.45 })
     return rP(1, 'Cover', RS, c.slots, [], c.texts, c.overlay)
   })(),
   rP(2, 'Postcard', RS, [{ x: 10, y: 14, w: 80, h: 54, frame: POST }], [block(78, 2.5, 14, 9, AZURE)], [
@@ -392,7 +392,7 @@ const DECO = [block(6, 3.6, 88, 0.22, CHAMP), block(6, 4.4, 88, 0.1, CHAMP), blo
 const GCAP = { upper: true, spacing: 0.4, weight: 500 as const }
 const GILDED_PAGES: MagPage[] = [
   (() => {
-    const c = cover({ masthead: 'GILDED', mastFont: 'italiana', mastSize: 13, mastSpacing: 0.22, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, ink: '#fff7e6', accent: CHAMP, shade: 0.6 })
+    const c = cover({ masthead: 'AURIQUE', mastFont: 'italiana', mastSize: 12, mastSpacing: 0.22, mastWeight: 400, lineFont: 'cormorant', lineItalic: true, ink: '#fff7e6', accent: CHAMP, shade: 0.6 })
     return gP(1, 'Cover', GB, c.slots, [], c.texts, c.overlay)
   })(),
   gP(2, 'Chapter One', GB, [{ x: 16, y: 11, w: 68, h: 60, frame: CF }], DECO, [
@@ -448,10 +448,10 @@ const GILDED_PAGES: MagPage[] = [
 ]
 
 export const MORE_STYLES: MagStyle[] = [
-  { id: 'vogue', name: 'COUTURE', tagline: 'High-fashion editorial — black & white, a red accent, chapter numbers.', swatches: [W, V_INK, V_RED], pages: VOGUE_PAGES },
-  { id: 'maharani', name: 'MAHARANI', tagline: 'Royal maroon & emerald with gold double keylines.', swatches: [MAROON, EMERALD, GOLD], pages: MAHARANI_PAGES },
-  { id: 'analog', name: 'ANALOG', tagline: 'Film prints, contact sheets and warm paper.', swatches: [PAPER, '#ffffff', SHEET], pages: ANALOG_PAGES },
-  { id: 'blush', name: 'BLUSH', tagline: 'Soft blush and rose, white frames, flowing script.', swatches: [BL, ROSE, PLUM], pages: BLUSH_PAGES },
-  { id: 'riviera', name: 'RIVIERA', tagline: 'Destination postcards in sand, navy and azure.', swatches: [SAND, NAVY, AZURE], pages: RIVIERA_PAGES },
-  { id: 'gilded', name: 'GILDED', tagline: 'Black and champagne gold with art-deco rules.', swatches: [BLK, CHAMP, G_IVORY], pages: GILDED_PAGES },
+  { id: 'vogue', name: 'VELMORA', tagline: 'High-fashion editorial — black & white, a red accent, chapter numbers.', swatches: [W, V_INK, V_RED], pages: VOGUE_PAGES },
+  { id: 'maharani', name: 'ZARIVELLE', tagline: 'Royal maroon & emerald with gold double keylines.', swatches: [MAROON, EMERALD, GOLD], pages: MAHARANI_PAGES },
+  { id: 'analog', name: 'FILMARA', tagline: 'Film prints, contact sheets and warm paper.', swatches: [PAPER, '#ffffff', SHEET], pages: ANALOG_PAGES },
+  { id: 'blush', name: 'ROSAVIE', tagline: 'Soft blush and rose, white frames, flowing script.', swatches: [BL, ROSE, PLUM], pages: BLUSH_PAGES },
+  { id: 'riviera', name: 'MARAZUR', tagline: 'Destination postcards in sand, navy and azure.', swatches: [SAND, NAVY, AZURE], pages: RIVIERA_PAGES },
+  { id: 'gilded', name: 'AURIQUE', tagline: 'Black and champagne gold with art-deco rules.', swatches: [BLK, CHAMP, G_IVORY], pages: GILDED_PAGES },
 ]

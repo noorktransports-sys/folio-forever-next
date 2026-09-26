@@ -1015,9 +1015,9 @@ export const GUIDES: Guide[] = [
     id: 'mag-style',
     title: 'Choose a magazine style',
     area: 'magazine',
-    keywords: 'magazine style design theme look terracotta noir ivory sage couture maharani analog blush riviera gilded change style switch design different design',
+    keywords: 'magazine style design theme look terracotta noir ivory sage couture maharani sienara noctelle perlaine fernelle velmora zarivelle filmara rosavie marazur aurique analog blush riviera gilded change style switch design different design',
     steps: [
-      'At the top of the magazine page, click one of the 10 style cards — TERRACOTTA, NOIR, IVORY, SAGE, COUTURE, MAHARANI, ANALOG, BLUSH, RIVIERA or GILDED.',
+      'At the top of the magazine page, click one of the 10 style cards — SIENARA, NOCTELLE, PERLAINE, FERNELLE, VELMORA, ZARIVELLE, FILMARA, ROSAVIE, MARAZUR or AURIQUE.',
       'The 20-page preview changes to show that design.',
       'Already built? Pick another style and confirm — your photos are re-placed into the new design.',
     ],
