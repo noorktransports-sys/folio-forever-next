@@ -162,6 +162,9 @@ function generateLayout(
   type: AlbumType,
   spreadAspectRatio: number,
   style: AlbumStyle = 'mix',
+  /** The client's chapter order (e.g. Dholki → Mayun → Nikkah → Walima).
+   *  Any chapter not listed is placed after these, in capture-time order. */
+  chapterOrder: string[] = [],
 ): Spread[] {
   const useable = photos.filter((p) => !p.blurry)
   if (useable.length === 0) return []
@@ -174,7 +177,7 @@ function generateLayout(
   // matched multi-photo layouts. The layout family (full-bleed vs
   // matted) still follows the per-spread mix rhythm in familyForSpread.
 
-  const eventOrder: EventId[] = [
+  const legacyOrder: EventId[] = [
     'mehndi',
     'haldi',
     'prep',
@@ -191,6 +194,23 @@ function generateLayout(
     // the EventId isn't in the EVENTS list.
     'unassigned',
   ]
+  // Chapter order: the client's own list first, then any other chapter
+  // found on the photos (earliest photo first), untagged photos last.
+  // Nothing is ever dropped just because its chapter name is new.
+  const firstShot = new Map<EventId, number>()
+  for (const p of useable) {
+    const t = typeof p.capturedAt === 'number' ? p.capturedAt : Number.POSITIVE_INFINITY
+    if (!firstShot.has(p.eventId) || t < firstShot.get(p.eventId)!) firstShot.set(p.eventId, t)
+  }
+  const extra = [...firstShot.keys()]
+    .filter((e) => e !== 'unassigned')
+    .sort((a, b) => {
+      const la = legacyOrder.indexOf(a)
+      const lb = legacyOrder.indexOf(b)
+      if (la >= 0 && lb >= 0) return la - lb
+      return firstShot.get(a)! - firstShot.get(b)!
+    })
+  const eventOrder: EventId[] = [...new Set<EventId>([...chapterOrder, ...extra, 'unassigned'])]
   // Establish a stable upload index for each photo so we can fall back
   // to original order when neither EXIF nor filename give us a signal.
   const uploadIndex = new Map<string, number>()

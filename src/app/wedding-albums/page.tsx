@@ -19,7 +19,7 @@ const from = Math.min(...Object.values(ALBUM_PRICING).map((t) => t.standard.base
 
 export const metadata: Metadata = {
   title: 'Custom Lay-Flat Wedding Albums up to 20×30 in',
-  description: `Design a custom wedding album online: Smart Auto-Layout builds every spread, you approve each page, we print it. Standard or lay-flat binding, 17×24 to 20×30 inches open, from $${from}.`,
+  description: `Design a custom wedding album online: Smart Auto-Layout builds every spread, you approve each page, we print it. Classic book or lay-flat binding, 17×24 to 20×30 inches open, from $${from}.`,
   alternates: { canonical: '/wedding-albums' },
   openGraph: {
     title: 'Custom Wedding Albums | Folio Forever',
@@ -38,11 +38,11 @@ const SIZES: Array<{ key: AlbumSizeKey; name: string; closed: string; desc: stri
 const FAQS = [
   {
     q: 'What is a lay-flat wedding album?',
-    a: 'In a lay-flat (flush-mount) album every page opens completely flat with no dip in the middle, so a single photo can run seamlessly across both pages. Standard hardcover albums have a small gutter at the center fold.',
+    a: 'A lay-flat album has thick pages that open completely flat with no fold in the middle, so one photo can run across both pages. A classic book turns like a normal book, with a soft fold down the middle.',
   },
   {
-    q: 'How many spreads can my album have?',
-    a: `Every album starts at ${ALBUM_PRICING['17x24'].standard.minSpreads} spreads (${ALBUM_PRICING['17x24'].standard.minSpreads * 2} pages) and can have up to ${ALBUM_PRICING['17x24'].standard.maxSpreads} spreads. Each extra spread adds a small per-spread price shown in the table above.`,
+    q: 'How many pages can my album have?',
+    a: `Every album starts at ${ALBUM_PRICING['17x24'].standard.minSpreads * 2} pages and can have up to ${ALBUM_PRICING['17x24'].standard.maxSpreads * 2} pages. Pages are added two at a time (one spread), at the small price shown in the table above.`,
   },
   {
     q: 'Do I have to design the album myself?',
@@ -70,7 +70,7 @@ export default function WeddingAlbumsPage() {
             <p className="pp-eyebrow">Custom wedding albums</p>
             <h1 className="pp-h1">Custom wedding albums, designed online and printed to last</h1>
             <p className="pp-lede">
-              Upload your wedding photos and Smart Auto-Layout designs every spread for you. Choose standard or lay-flat
+              Upload your wedding photos and Smart Auto-Layout designs every spread for you. Choose classic book or lay-flat
               binding, sizes up to 20×30 inches open, and approve every page before we print.
             </p>
             <div className="pp-ctas">
@@ -78,9 +78,9 @@ export default function WeddingAlbumsPage() {
               <a href="#prices" className="pp-btn pp-btn-line">See prices</a>
             </div>
             <div className="pp-facts">
-              <div className="pp-fact"><b>From ${from}</b><span>10 spreads included</span></div>
+              <div className="pp-fact"><b>From ${from}</b><span>20 pages included</span></div>
               <div className="pp-fact"><b>Up to 20×30 in</b><span>Open size</span></div>
-              <div className="pp-fact"><b>Lay-flat</b><span>or standard binding</span></div>
+              <div className="pp-fact"><b>Lay-flat</b><span>or classic book binding</span></div>
               <div className="pp-fact"><b>5–7 days</b><span>Printing after approval</span></div>
             </div>
           </div>
@@ -109,14 +109,14 @@ export default function WeddingAlbumsPage() {
         <section className="pp-section" aria-labelledby="binding">
           <div className="pp-wrap">
             <p className="pp-eyebrow">Binding &amp; covers</p>
-            <h2 className="pp-h2" id="binding">Standard or lay-flat, with the cover you love</h2>
+            <h2 className="pp-h2" id="binding">Classic book or lay-flat, with the cover you love</h2>
             <div className="pp-grid">
               <div className="pp-card">
-                <h3>Standard hardcover</h3>
+                <h3>Classic book</h3>
                 <p>Classic bound pages with a small gutter at the fold. The most affordable way to a large album.</p>
               </div>
               <div className="pp-card">
-                <h3>Lay-flat (flush-mount)</h3>
+                <h3>Lay-flat</h3>
                 <p>Thick pages that open completely flat, so panoramic photos run seamlessly across the spread.</p>
               </div>
               <div className="pp-card">
@@ -136,7 +136,7 @@ export default function WeddingAlbumsPage() {
             <p className="pp-eyebrow">Prices</p>
             <h2 className="pp-h2">Wedding album prices</h2>
             <p className="pp-intro">
-              Prices include {ALBUM_PRICING['17x24'].standard.minSpreads} spreads ({ALBUM_PRICING['17x24'].standard.minSpreads * 2} pages)
+              Prices include {ALBUM_PRICING['17x24'].standard.minSpreads * 2} pages
               and a photo cover. You see the exact total, with shipping, before you pay.
             </p>
             <div className="pp-table-wrap">
@@ -144,9 +144,9 @@ export default function WeddingAlbumsPage() {
                 <thead>
                   <tr>
                     <th>Size (open)</th>
-                    <th>Standard</th>
+                    <th>Classic book</th>
                     <th>Lay-flat</th>
-                    <th>Extra spread</th>
+                    <th>Every 2 extra pages</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,7 +165,7 @@ export default function WeddingAlbumsPage() {
               </table>
             </div>
             <p className="pp-note">
-              Up to {ALBUM_PRICING['17x24'].standard.maxSpreads} spreads. Optional design-team polish +${POLISH_PRICE}.
+              Up to {ALBUM_PRICING['17x24'].standard.maxSpreads * 2} pages. Optional design-team polish +${POLISH_PRICE}.
               Delivery: {SHIPPING_OPTIONS.map((o) => `${o.label} $${o.usd}`).join(' · ')} —{' '}
               <Link href="/shipping">shipping details</Link>.
             </p>

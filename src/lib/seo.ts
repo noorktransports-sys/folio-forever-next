@@ -104,7 +104,7 @@ export function albumProductLd() {
     '@type': 'Product',
     name: 'Custom Wedding Album',
     description:
-      'Large-format custom wedding album, from 17×24 to 20×30 inches open, in standard or lay-flat binding with photo, leather or acrylic covers. Designed online with Smart Auto-Layout and approved page by page before printing.',
+      'Large-format custom wedding album, from 17×24 to 20×30 inches open, in classic book or lay-flat binding with photo, leather or acrylic covers. Designed online with Smart Auto-Layout and approved page by page before printing.',
     image: `${SITE_URL}/opengraph-image.png`,
     brand: { '@type': 'Brand', name: BRAND },
     category: 'Wedding albums',

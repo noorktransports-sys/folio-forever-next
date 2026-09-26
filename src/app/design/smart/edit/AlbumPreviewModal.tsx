@@ -367,7 +367,7 @@ export default function AlbumPreviewModal(props: AlbumPreviewModalProps) {
             marginLeft: 4,
           }}
         >
-          Your album · {sizeLabel} · {isStandard ? 'Standard hardcover' : 'Layflat'}
+          Your album · {sizeLabel} · {isStandard ? 'Classic book' : 'Lay-flat'}
         </span>
       </div>
 

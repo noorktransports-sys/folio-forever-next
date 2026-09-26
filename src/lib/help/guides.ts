@@ -107,12 +107,12 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'choose-binding',
-    title: 'Choose Standard or Layflat binding',
+    title: 'Choose Classic book or Lay-flat binding',
     area: 'start',
-    keywords: 'binding layflat lay flat flush mount standard hardcover gutter seam book type',
+    keywords: 'binding layflat lay flat flush mount standard hardcover classic book gutter seam fold book type',
     steps: [
-      'On the first step, click Standard hardcover or Layflat (flush-mount).',
-      'Standard has a visible centre gutter. Layflat opens completely flat with no seam.',
+      'On the first step, click Classic book or Lay-flat.',
+      'A Classic book turns like a normal book, with a soft fold in the middle. Lay-flat opens completely flat with no fold.',
       'Press Continue → once a size and binding are both chosen.',
     ],
     demo: 'click',

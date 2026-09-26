@@ -36,6 +36,13 @@ export const ALBUM_PRICING: Record<AlbumSizeKey, Record<AlbumTypeKey, AlbumTier>
   },
 }
 
+/** Customer-facing binding names (printer terms in brackets for staff). */
+export const BINDING_LABEL: Record<AlbumTypeKey, string> = { standard: 'Classic book', layflat: 'Lay-flat' }
+export const BINDING_LABEL_STAFF: Record<AlbumTypeKey, string> = {
+  standard: 'Classic book (standard hardcover)',
+  layflat: 'Lay-flat (flush-mount)',
+}
+
 /** Cover add-on by style: photo included, leather +$25, acrylic +$39. */
 export const COVER_PRICE: Record<CoverTypeKey, number> = { photo: 0, leather: 25, acrylic: 39 }
 

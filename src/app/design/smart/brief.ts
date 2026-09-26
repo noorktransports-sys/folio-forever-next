@@ -13,9 +13,15 @@ import type { EventId } from '@/lib/smart-layout/templates'
 export type PhotoMix = 'couple' | 'balanced' | 'family'
 export type AlbumFeel = 'airy' | 'balanced' | 'full'
 
+export type Tradition = 'muslim' | 'hindu' | 'sikh' | 'christian' | 'mixed'
+
 export type AlbumBrief = {
-  /** Events the wedding had, in order. Each becomes a chapter. */
+  /** Wedding tradition — decides which events we suggest. */
+  tradition?: Tradition
+  /** Chapters (events) in the album, in wedding order. */
   events: EventId[]
+  /** Display name for every chapter id (includes the client's own events). */
+  chapterNames: Record<string, string>
   mix: PhotoMix
   feel: AlbumFeel
   /** Rough number of photos the client wants in the album. */
@@ -24,9 +30,59 @@ export type AlbumBrief = {
 
 export const DEFAULT_BRIEF: AlbumBrief = {
   events: [],
+  chapterNames: {},
   mix: 'balanced',
   feel: 'balanced',
   photoGoal: 100,
+}
+
+/* ───────────────────────── wedding traditions ─────────────────────────
+ * Events per tradition, in the order they usually happen. "Getting
+ * ready" is NOT an event — those photos belong to the event they were
+ * taken at. The main ceremony of every tradition maps to the 'wedding'
+ * chapter id so folder names like "Wedding" still sort automatically. */
+
+export const TRADITIONS: Record<Tradition, { label: string; sub: string; events: string[] }> = {
+  muslim: { label: 'Muslim', sub: 'Pakistani / Indian / Bangladeshi', events: ['Dholki', 'Mayun', 'Mehndi', 'Nikkah', 'Baraat & Rukhsati', 'Walima'] },
+  hindu: { label: 'Hindu', sub: 'Indian / Nepali', events: ['Sagai', 'Haldi', 'Mehndi', 'Sangeet', 'Wedding (Pheras)', 'Vidaai', 'Reception'] },
+  sikh: { label: 'Sikh', sub: 'Punjabi', events: ['Roka / Kurmai', 'Maiyan', 'Jaggo', 'Chooda', 'Anand Karaj', 'Doli', 'Reception'] },
+  christian: { label: 'Christian / Western', sub: 'Church or civil wedding', events: ['Rehearsal dinner', 'Ceremony', 'Reception'] },
+  mixed: { label: 'Mixed / other', sub: 'Pick from everything or add your own', events: [] },
+}
+
+/** Events any tradition can add. */
+export const EXTRA_EVENTS = ['Engagement', 'Pre-wedding shoot']
+
+/** Mixed weddings: every tradition's events once, roughly in wedding order. */
+export function mixedEvents(): string[] {
+  const order = [
+    'Engagement', 'Pre-wedding shoot', 'Roka / Kurmai', 'Sagai', 'Dholki', 'Mayun', 'Maiyan', 'Haldi', 'Jaggo', 'Mehndi', 'Sangeet', 'Chooda',
+    'Rehearsal dinner', 'Nikkah', 'Wedding (Pheras)', 'Anand Karaj', 'Ceremony', 'Baraat & Rukhsati', 'Vidaai', 'Doli', 'Reception', 'Walima',
+  ]
+  return order
+}
+
+/** Existing chapter ids kept for these names (folder auto-sorting uses them). */
+const LEGACY_IDS: Record<string, EventId> = {
+  Mehndi: 'mehndi',
+  Haldi: 'haldi',
+  Nikkah: 'nikkah',
+  Reception: 'reception',
+  Walima: 'valima',
+  'Wedding (Pheras)': 'wedding',
+  'Anand Karaj': 'wedding',
+  Ceremony: 'wedding',
+}
+
+/** Stable chapter id for an event name ("Baraat & Rukhsati" → "ev-baraat-rukhsati"). */
+export function chapterIdFor(name: string): EventId {
+  if (LEGACY_IDS[name]) return LEGACY_IDS[name]
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40)
+  return `ev-${slug || 'chapter'}`
 }
 
 /** Average photos per spread for each feel. */

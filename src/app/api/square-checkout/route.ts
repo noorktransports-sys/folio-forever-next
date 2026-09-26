@@ -22,7 +22,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { createSquareCheckoutLink } from '@/lib/square';
-import { ORDER_SOURCE } from '@/lib/pricing';
+import { BINDING_LABEL, ORDER_SOURCE } from '@/lib/pricing';
 import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { getShipping, shippingText } from '@/lib/shipping';
 
@@ -145,9 +145,10 @@ export async function POST(request: Request) {
     });
   } else {
     const sizeLabel = String(order.album?.size ?? '').replace('x', '×');
-    const bindingLabel = order.album?.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)';
+    const bindingLabel = BINDING_LABEL[order.album?.type === 'standard' ? 'standard' : 'layflat'];
+    const albumPages = Number(order.album?.pageCount ?? 0) * 2;
     lineItems.push({
-      name: `${sizeLabel} ${bindingLabel} · ${order.album?.pageCount ?? ''} spreads`,
+      name: `${sizeLabel} ${bindingLabel} album · ${albumPages} pages`,
       quantity: 1,
       basePriceAmountCents: cents(pricing.albumUsd),
       note: order.albumName,

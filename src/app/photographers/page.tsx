@@ -160,7 +160,7 @@ export default function PhotographersPage() {
           <div className="benefit-card">
             <div className="benefit-title">Large formats</div>
             <p className="benefit-desc">
-              Albums from 17×24 to 20×30 inches open, in standard or lay-flat
+              Albums from 17×24 to 20×30 inches open, in classic book or lay-flat
               binding, with photo, leather or acrylic covers.
             </p>
           </div>
@@ -213,11 +213,11 @@ export default function PhotographersPage() {
           <div className="pricing-card">
             <span className="pricing-tier">17×24 open</span>
             <span className="pricing-num">${ALBUM_PRICING['17x24'].standard.base}</span>
-            <span className="pricing-sub">from · {ALBUM_PRICING['17x24'].standard.minSpreads} spreads</span>
+            <span className="pricing-sub">from · {ALBUM_PRICING['17x24'].standard.minSpreads * 2} pages</span>
             <ul className="pricing-features">
               <li>Lay-flat: ${ALBUM_PRICING['17x24'].layflat.base}</li>
-              <li>+${ALBUM_PRICING['17x24'].standard.perExtraSpread} per extra spread</li>
-              <li>Up to {ALBUM_PRICING['17x24'].standard.maxSpreads} spreads</li>
+              <li>+${ALBUM_PRICING['17x24'].standard.perExtraSpread} per 2 extra pages</li>
+              <li>Up to {ALBUM_PRICING['17x24'].standard.maxSpreads * 2} pages</li>
               <li>Photo cover included</li>
             </ul>
             <Link href="/design/smart" className="btn-outline" style={{ display: 'block', textAlign: 'center' }}>
@@ -228,11 +228,11 @@ export default function PhotographersPage() {
             <div className="pricing-badge">Largest size</div>
             <span className="pricing-tier">20×30 open</span>
             <span className="pricing-num">${ALBUM_PRICING['20x30'].standard.base}</span>
-            <span className="pricing-sub">from · {ALBUM_PRICING['20x30'].standard.minSpreads} spreads</span>
+            <span className="pricing-sub">from · {ALBUM_PRICING['20x30'].standard.minSpreads * 2} pages</span>
             <ul className="pricing-features">
               <li>Lay-flat: ${ALBUM_PRICING['20x30'].layflat.base}</li>
-              <li>+${ALBUM_PRICING['20x30'].standard.perExtraSpread} per extra spread</li>
-              <li>Up to {ALBUM_PRICING['20x30'].standard.maxSpreads} spreads</li>
+              <li>+${ALBUM_PRICING['20x30'].standard.perExtraSpread} per 2 extra pages</li>
+              <li>Up to {ALBUM_PRICING['20x30'].standard.maxSpreads * 2} pages</li>
               <li>Leather +${COVER_PRICE.leather} · Acrylic +${COVER_PRICE.acrylic}</li>
             </ul>
             <Link href="/design/smart" className="btn-gold" style={{ display: 'block', textAlign: 'center' }}>

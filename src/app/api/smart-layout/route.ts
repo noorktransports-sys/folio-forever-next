@@ -37,6 +37,7 @@ interface Body {
   spreadAspectRatio?: number
   style?: AlbumStyle
   shuffle?: boolean
+  chapterOrder?: unknown[]
 }
 
 function bad(message: string, status = 400) {
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
       tagged:
         p.tagged === 'hero' || p.tagged === 'favorite' ? p.tagged : 'none',
       blurry: !!p.blurry,
-      eventId: p.eventId,
+      eventId: typeof p.eventId === 'string' ? p.eventId.slice(0, 60) : 'unassigned',
       capturedAt:
         typeof p.capturedAt === 'number' && Number.isFinite(p.capturedAt)
           ? p.capturedAt
@@ -84,7 +85,14 @@ export async function POST(request: Request) {
         typeof p.seqNum === 'number' && Number.isFinite(p.seqNum)
           ? p.seqNum
           : undefined,
+      isPanorama: p.isPanorama === true,
     }))
+  // Client's chapter order (short, plain strings only).
+  const chapterOrder: string[] = Array.isArray(body.chapterOrder)
+    ? body.chapterOrder
+        .filter((c: unknown): c is string => typeof c === 'string' && c.length > 0 && c.length <= 60)
+        .slice(0, 30)
+    : []
 
   const ordered = body.shuffle
     ? [...clean].sort(() => Math.random() - 0.5)
@@ -97,6 +105,7 @@ export async function POST(request: Request) {
       type,
       spreadAspectRatio,
       style,
+      chapterOrder,
     )
     return new Response(JSON.stringify({ spreads }), {
       headers: { 'Content-Type': 'application/json' },

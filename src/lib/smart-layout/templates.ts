@@ -27,6 +27,9 @@ type EventId =
   | 'ceremony'
   | 'portraits'
   | 'other'
+  // Any other chapter name the client adds (e.g. 'ev-dholki', 'ev-anand-karaj').
+  // `string & {}` keeps editor autocomplete for the names above.
+  | (string & {})
 
 type Slot = {
   x: number

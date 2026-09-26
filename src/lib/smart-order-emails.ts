@@ -233,7 +233,7 @@ export function ownerPendingPaymentEmailHtml(
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 14px 0 6px;">Album</h3>
     <table style="font-size: 13px; line-height: 1.7;">
-      <tr><td style="padding-right: 12px; color: #6b5e4e;">Size · binding</td><td>${escapeHtml(a.size.replace('x', '×'))} · ${escapeHtml(a.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)')}</td></tr>
+      <tr><td style="padding-right: 12px; color: #6b5e4e;">Size · binding</td><td>${escapeHtml(a.size.replace('x', '×'))} · ${escapeHtml(a.type === 'standard' ? 'Classic book (standard hardcover)' : 'Lay-flat (flush-mount)')}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Spreads · photos</td><td>${a.pageCount} · ${totalPhotos}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Polish hand-off</td><td>${data.polishHandoff ? 'Yes (+$99)' : 'No'}</td></tr>
     </table>
@@ -326,7 +326,7 @@ export function ownerPaidEmailHtml(
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 18px 0 6px;">Album</h3>
     <table style="font-size: 13px; line-height: 1.7;">
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Size</td><td>${escapeHtml(a.size.replace('x', '×'))}</td></tr>
-      <tr><td style="padding-right: 12px; color: #6b5e4e;">Binding</td><td>${escapeHtml(a.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)')}</td></tr>
+      <tr><td style="padding-right: 12px; color: #6b5e4e;">Binding</td><td>${escapeHtml(a.type === 'standard' ? 'Classic book (standard hardcover)' : 'Lay-flat (flush-mount)')}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Spreads</td><td>${a.pageCount} (${a.pageCount * 2} pages)</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Photos</td><td>${totalPhotos} (${heroes} hero · ${favs} favorite)</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Polish hand-off</td><td>${data.polishHandoff ? 'Yes (+$99)' : 'No'}</td></tr>
@@ -417,7 +417,7 @@ export function customerPaidEmailHtml(
     <table style="font-size: 13px; line-height: 1.7; margin: 18px 0;">
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Order</td><td>${escapeHtml(data.orderId)}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Album</td><td>${escapeHtml(data.albumName)}</td></tr>
-      <tr><td style="padding-right: 12px; color: #6b5e4e;">Size</td><td>${escapeHtml(a.size.replace('x', '×'))} · ${escapeHtml(a.type === 'standard' ? 'Standard' : 'Layflat')}</td></tr>
+      <tr><td style="padding-right: 12px; color: #6b5e4e;">Size</td><td>${escapeHtml(a.size.replace('x', '×'))} · ${escapeHtml(a.type === 'standard' ? 'Classic book' : 'Lay-flat')}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Spreads</td><td>${a.pageCount}</td></tr>
       <tr><td style="padding-right: 12px; color: #6b5e4e;">Total paid</td><td><strong>$${a.totalPrice}</strong></td></tr>
     </table>

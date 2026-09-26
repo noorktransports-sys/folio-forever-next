@@ -144,7 +144,7 @@ export default function HomePage() {
               <span className="make-kicker">From ${ALBUM_FROM}</span>
               <span className="make-name">Custom wedding albums</span>
               <span className="make-desc">
-                Standard or lay-flat albums from 17×24 to 20×30 inches open, with
+                Classic book or lay-flat albums from 17×24 to 20×30 inches open, with
                 photo, leather or acrylic covers. Smart Auto-Layout designs every
                 spread; you approve each page.
               </span>
