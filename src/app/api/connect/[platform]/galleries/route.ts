@@ -10,7 +10,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { readProSession } from '@/lib/photographer-auth';
+import { readProSession, proSecret } from '@/lib/photographer-auth';
 import {
   appendSyncLog,
   decryptAccountToken,
@@ -33,6 +33,7 @@ interface KVNamespace {
 interface Env extends PlatformEnv {
   DESIGN_DRAFTS?: KVNamespace;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
   TOKEN_ENCRYPTION_KEY?: string;
 }
 
@@ -51,7 +52,7 @@ export async function GET(
   if (!env.DESIGN_DRAFTS) return err(503, 'storage unavailable');
   if (!env.TOKEN_ENCRYPTION_KEY) return err(500, 'TOKEN_ENCRYPTION_KEY not configured');
 
-  const photographerId = await readProSession(request, env.ADMIN_PASSWORD);
+  const photographerId = await readProSession(request, proSecret(env));
   if (!photographerId) return err(401, 'photographer not signed in');
 
   const { platform } = await params;

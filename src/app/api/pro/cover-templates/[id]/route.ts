@@ -10,7 +10,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { readProSession } from '@/lib/photographer-auth';
+import { readProSession, proSecret } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -24,6 +24,7 @@ interface KVNamespace {
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 interface IndexEntry {
@@ -56,7 +57,7 @@ export async function GET(
 ) {
   const { env } = getRequestContext() as { env: Env };
   if (!env.DESIGN_DRAFTS) return err(503, 'storage unavailable');
-  const accountId = await readProSession(request, env.ADMIN_PASSWORD);
+  const accountId = await readProSession(request, proSecret(env));
   if (!accountId) return err(401, 'not logged in');
 
   const { id } = await params;
@@ -78,7 +79,7 @@ export async function DELETE(
 ) {
   const { env } = getRequestContext() as { env: Env };
   if (!env.DESIGN_DRAFTS) return err(503, 'storage unavailable');
-  const accountId = await readProSession(request, env.ADMIN_PASSWORD);
+  const accountId = await readProSession(request, proSecret(env));
   if (!accountId) return err(401, 'not logged in');
 
   const { id } = await params;

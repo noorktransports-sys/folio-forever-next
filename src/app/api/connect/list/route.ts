@@ -13,7 +13,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { readProSession } from '@/lib/photographer-auth';
+import { readProSession, proSecret } from '@/lib/photographer-auth';
 import { listAccountsForPhotographer } from '@/lib/connected-accounts';
 import { listSupportedPlatforms, type PlatformEnv } from '@/lib/photo-platforms';
 
@@ -28,6 +28,7 @@ interface KVNamespace {
 interface Env extends PlatformEnv {
   DESIGN_DRAFTS?: KVNamespace;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 function err(status: number, message: string) {
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
   const { env } = getRequestContext() as { env: Env };
   if (!env.DESIGN_DRAFTS) return err(503, 'storage unavailable');
 
-  const photographerId = await readProSession(request, env.ADMIN_PASSWORD);
+  const photographerId = await readProSession(request, proSecret(env));
   if (!photographerId) return err(401, 'photographer not signed in');
 
   const platforms = listSupportedPlatforms(env);

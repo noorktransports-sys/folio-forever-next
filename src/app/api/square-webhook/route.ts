@@ -23,6 +23,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { verifySquareWebhookSignature } from '@/lib/square';
+import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
 import { customerMagazineEmailHtml, ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails';
 import {
   customerPaidEmailHtml,
@@ -56,8 +57,6 @@ interface Env {
 
 const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
-const ORDERS_INDEX_KEY = '_orders_index_v1';
-const SUBMITTED_TTL_SECONDS = 365 * 24 * 60 * 60;
 
 interface SquareEventEnvelope {
   merchant_id?: string;
@@ -177,16 +176,8 @@ export async function POST(request: Request) {
         const rec = JSON.parse(raw0) as Record<string, unknown> & { status?: string };
         if (rec.status === 'pending_payment') {
           const issue = { status: payment.status, at: new Date().toISOString() };
-          await env.DESIGN_DRAFTS.put(tok, JSON.stringify({ ...rec, paymentIssue: issue }), { expirationTtl: SUBMITTED_TTL_SECONDS });
-          const idxRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
-          if (idxRaw) {
-            const idx = JSON.parse(idxRaw) as Array<Record<string, unknown>>;
-            const i = idx.findIndex((e) => e.token === tok);
-            if (i >= 0) {
-              idx[i] = { ...idx[i], paymentIssue: issue };
-              await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(idx));
-            }
-          }
+          await env.DESIGN_DRAFTS.put(tok, JSON.stringify({ ...rec, paymentIssue: issue }));
+          await patchIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, tok, { paymentIssue: issue });
         }
       }
     } catch (e) {
@@ -243,12 +234,67 @@ export async function POST(request: Request) {
     return new Response('Order record corrupt', { status: 500 });
   }
 
-  // Idempotent — Square retries on 5xx, so we must not re-fire emails.
-  if (order.status === 'paid') {
-    return new Response(
-      JSON.stringify({ ok: true, alreadyPaid: true, orderId: order.orderId }),
-      { headers: { 'Content-Type': 'application/json' } },
+  const ownerEmail = env.OWNER_EMAIL || DEFAULT_OWNER;
+  const fromEmail = env.ORDER_FROM_EMAIL || DEFAULT_FROM;
+  const kvIdx = env.DESIGN_DRAFTS as unknown as IndexKV;
+  const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { 'Content-Type': 'application/json' } });
+  const alertOwner = async (subject: string, lines: string[]) => {
+    if (!env.RESEND_API_KEY) return;
+    await sendResendEmail(env.RESEND_API_KEY, {
+      from: fromEmail,
+      to: [ownerEmail],
+      subject,
+      html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6">${lines.map((l) => `<p>${l}</p>`).join('')}<p><a href="${siteUrl}/admin/orders/${token}">Open the order in admin →</a></p></div>`,
+    }).catch(() => undefined);
+  };
+  const amountCents = typeof payment.amount_money?.amount === 'number' ? payment.amount_money.amount : null;
+  const currency = payment.amount_money?.currency ?? null;
+
+  // Idempotent: this exact payment was already handled (Square retries,
+  // and a REFUND re-sends payment.updated with status still COMPLETED).
+  // Never flip the order back to "paid" or re-send emails.
+  if (payment.id && order.squarePaymentId === payment.id) {
+    return json({ ok: true, alreadyHandled: true, orderId: order.orderId });
+  }
+
+  // A DIFFERENT completed payment for an order that isn't waiting for
+  // payment (already paid, cancelled, refunded…): keep the status, record
+  // it and alert the owner so the extra charge can be refunded.
+  if (order.status !== 'pending_payment') {
+    const extra = Array.isArray(order.extraPayments) ? (order.extraPayments as Array<{ id?: string }>) : [];
+    if (!extra.some((x) => x.id === payment.id)) {
+      extra.push({ id: payment.id, amountCents, currency, at: new Date().toISOString() } as { id?: string });
+      await env.DESIGN_DRAFTS.put(token, JSON.stringify({ ...order, extraPayments: extra }));
+      await alertOwner(`[CHECK] Extra payment on ${order.orderId} — order status is "${order.status}"`, [
+        `Square received another payment of <b>$${((amountCents ?? 0) / 100).toFixed(2)}</b> (payment ${payment.id}) for order <b>${order.orderId}</b>, which is already <b>${order.status}</b>.`,
+        'The order was NOT changed. If this is a duplicate charge, refund it in Square.',
+      ]);
+    }
+    return json({ ok: true, extraPayment: true, orderId: order.orderId });
+  }
+
+  // ── Amount check: the charge must equal the server-computed total ──
+  const pricing = (order.pricing ?? {}) as { expectedCents?: number };
+  const expected = Number.isInteger(pricing.expectedCents) ? (pricing.expectedCents as number) : null;
+  if (expected === null || amountCents !== expected || (currency && currency !== 'USD')) {
+    const at = new Date().toISOString();
+    await env.DESIGN_DRAFTS.put(
+      token,
+      JSON.stringify({
+        ...order,
+        status: 'payment_mismatch',
+        squarePaymentId: payment.id ?? null,
+        squareAmountTotalCents: amountCents,
+        paymentMismatch: { expectedCents: expected, amountCents, currency, at },
+        junk: false,
+      }),
     );
+    await patchIndexEntry(kvIdx, token, { status: 'payment_mismatch', squarePaymentId: payment.id, junk: false, junkAt: undefined });
+    await alertOwner(`[CHECK] Payment amount mismatch — ${order.orderId}`, [
+      `Square charged <b>${amountCents === null ? 'an unknown amount' : '$' + (amountCents / 100).toFixed(2)}</b>${currency ? ' ' + currency : ''} for order <b>${order.orderId}</b>, but the order total is <b>${expected === null ? 'unknown (older order)' : '$' + (expected / 100).toFixed(2)}</b>.`,
+      'The order is marked "Payment check needed" and was NOT sent to production. Check it in Square before printing.',
+    ]);
+    return json({ ok: true, mismatch: true, orderId: order.orderId });
   }
 
   const paidAt = new Date().toISOString();
@@ -258,40 +304,19 @@ export async function POST(request: Request) {
     paidAt,
     squarePaymentId: payment.id ?? null,
     squareReceiptUrl: payment.receipt_url ?? null,
-    squareAmountTotalCents: payment.amount_money?.amount ?? null,
+    squareAmountTotalCents: amountCents,
     // A late payment brings an auto-junked (stale unpaid) order back.
     junk: false,
     junkAt: undefined,
   };
-  await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated), {
-    expirationTtl: SUBMITTED_TTL_SECONDS,
-  });
-
-  // Patch the orders index entry
+  await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
   try {
-    const indexRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
-    if (indexRaw) {
-      const index = JSON.parse(indexRaw) as Array<Record<string, unknown>>;
-      const idx = index.findIndex((e) => e.token === token);
-      if (idx >= 0) {
-        index[idx] = {
-          ...index[idx],
-          status: 'paid',
-          paidAt,
-          squarePaymentId: payment.id,
-          junk: false,
-          junkAt: undefined,
-        };
-        await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
-      }
-    }
+    await patchIndexEntry(kvIdx, token, { status: 'paid', paidAt, squarePaymentId: payment.id, amountPaidCents: amountCents, junk: false, junkAt: undefined });
   } catch (e) {
     console.warn('[square-webhook] index update failed', e);
   }
 
   // Confirmation emails (best-effort)
-  const ownerEmail = env.OWNER_EMAIL || DEFAULT_OWNER;
-  const fromEmail = env.ORDER_FROM_EMAIL || DEFAULT_FROM;
   let ownerEmailSent = false;
   let customerEmailSent = false;
 
@@ -372,6 +397,13 @@ export async function POST(request: Request) {
       html: customerPaidEmailHtml(emailData, siteUrl),
     });
     customerEmailSent = customerResult.ok;
+  }
+
+  // Remember whether the emails went out (shown in admin; lets you resend).
+  try {
+    await env.DESIGN_DRAFTS.put(token, JSON.stringify({ ...updated, paidEmails: { ownerEmailSent, customerEmailSent, at: new Date().toISOString() } }));
+  } catch {
+    /* non-fatal */
   }
 
   return new Response(

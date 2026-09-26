@@ -158,6 +158,7 @@ interface SavedDesign {
 function statusLabel(s?: string): string {
   switch (s) {
     case 'pending_payment': return 'Payment not clear';
+    case 'payment_mismatch': return 'Payment check needed';
     case 'paid': return 'Paid';
     case 'in_design': return 'In design';
     case 'in_production': return 'In production';

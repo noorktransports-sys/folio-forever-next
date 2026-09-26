@@ -64,9 +64,7 @@ export async function POST(
   }
   design.adminNotes = notes;
   design.adminNotesUpdatedAt = new Date().toISOString();
-  await env.DESIGN_DRAFTS.put(token, JSON.stringify(design), {
-    expirationTtl: 365 * 24 * 60 * 60,
-  });
+  await env.DESIGN_DRAFTS.put(token, JSON.stringify(design));
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

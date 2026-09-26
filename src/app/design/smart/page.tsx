@@ -69,11 +69,7 @@ const CoverBuilder = dynamic(() => import('../cover-builder'), {
 
 /** Cover add-on price by style (owner spec): photo included, leather
  *  +$25, acrylic +$39. Used in displayed totals + the order. */
-const COVER_PRICE: Record<CoverState['type'], number> = {
-  photo: 0,
-  leather: 25,
-  acrylic: 39,
-}
+const COVER_PRICE: Record<CoverState['type'], number> = COVER_PRICE_LIST
 
 import {
   TEMPLATES,
@@ -98,6 +94,7 @@ import type {
   LayoutPhoto,
 } from '@/lib/smart-layout/templates'
 import ShippingPicker from '@/components/ShippingPicker'
+import { ALBUM_PRICING, COVER_PRICE as COVER_PRICE_LIST, computeAlbumPrice, POLISH_PRICE } from '@/lib/pricing'
 import { DEFAULT_SHIPPING, getShipping, shippingText, type ShippingId } from '@/lib/shipping'
 
 // Client-only view-model type (the engine doesn't need it).
@@ -265,9 +262,7 @@ type Step =
 // captured in the audit record. Versioned — bump the suffix if clause text
 // changes so old acceptances stay traceable to the version they accepted.
 //
-// [ATTORNEY REVIEW PENDING] — placeholders [Company], [STATE/COUNTRY],
-// [JURISDICTION] left intentionally so the attorney can finalize before
-// these appear on payment-enabled production.
+// Have a lawyer review the wording before scaling up.
 // Legal clauses are shared with the magazine checkout (src/lib/legal-clauses.ts).
 
 // Threshold for the "low resolution" soft-warning shown at upload +
@@ -881,23 +876,23 @@ const ALBUM_SPECS: Record<
     spreadAspectRatio: 24 / 17,
     label: '17×24',
     desc: 'Coffee-table size · the classic format',
-    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+    standard: ALBUM_PRICING['17x24'].standard,
+    layflat: ALBUM_PRICING['17x24'].layflat,
   },
   '12x24': {
     // Same pricing as 17×24 per owner. 12 tall × 24 wide open → 24/12 = 2.0
     spreadAspectRatio: 24 / 12,
     label: '12×24',
     desc: 'Panoramic · slim landscape format',
-    standard: { base: 240, perExtraSpread: 8, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 275, perExtraSpread: 10, minSpreads: 10, maxSpreads: 25 },
+    standard: ALBUM_PRICING['12x24'].standard,
+    layflat: ALBUM_PRICING['12x24'].layflat,
   },
   '20x30': {
     spreadAspectRatio: 30 / 20,
     label: '20×30',
     desc: 'Oversized poster · premium hero format',
-    standard: { base: 340, perExtraSpread: 12, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 375, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
+    standard: ALBUM_PRICING['20x30'].standard,
+    layflat: ALBUM_PRICING['20x30'].layflat,
   },
   '15x30': {
     // Owner: $300 base, +$15 per sheet (standard). Layflat assumed at the
@@ -905,15 +900,14 @@ const ALBUM_SPECS: Record<
     spreadAspectRatio: 30 / 15,
     label: '15×30',
     desc: 'Grand panoramic · wide statement format',
-    standard: { base: 300, perExtraSpread: 15, minSpreads: 10, maxSpreads: 25 },
-    layflat: { base: 335, perExtraSpread: 18, minSpreads: 10, maxSpreads: 25 },
+    standard: ALBUM_PRICING['15x30'].standard,
+    layflat: ALBUM_PRICING['15x30'].layflat,
   },
 }
 
+// Prices live in src/lib/pricing.ts — the SAME table the server uses.
 function computePrice(size: AlbumSize, type: AlbumType, spreads: number): number {
-  const spec = ALBUM_SPECS[size][type]
-  const extra = Math.max(0, spreads - spec.minSpreads)
-  return spec.base + extra * spec.perExtraSpread
+  return computeAlbumPrice(size, type, spreads)
 }
 
 // ============== LAYOUT TEMPLATES ==============
@@ -1552,10 +1546,11 @@ function SmartDesignerInner() {
   // Cover add-on (0 until they've chosen on the Cover step).
   const coverPrice = coverState ? COVER_PRICE[coverState.type] : 0
   // Everything-in total shown at proof / submit / payment.
-  const orderTotal = albumPrice + (polishHandoff ? 99 : 0) + coverPrice
+  const orderTotal = albumPrice + (polishHandoff ? POLISH_PRICE : 0) + coverPrice
   // Delivery speed (chosen in the shipping step). Added on top of the
   // album total only at payment; the server re-derives the amount.
   const [shipId, setShipId] = useState<ShippingId>(DEFAULT_SHIPPING)
+  const [termsOk, setTermsOk] = useState(false)
   const payTotal = orderTotal + getShipping(shipId).usd
 
   // Phase 2: gate any path that adds photos behind the content-rights modal.
@@ -2555,6 +2550,7 @@ function SmartDesignerInner() {
             totalPrice: orderTotal,
           },
           shippingMethod: shipId,
+          termsAccepted: { acceptedAt: new Date().toISOString(), version: LEGAL_VERSION },
           cover: coverPayload,
           photos: photosPayload,
           spreads,
@@ -2642,6 +2638,7 @@ function SmartDesignerInner() {
     adjusts,
     orderTotal,
     shipId,
+    termsOk,
   ])
 
   // ---------- DnD: slot↔slot swap, unused→slot swap, unused→spread (+1) ----------
@@ -2985,7 +2982,7 @@ function SmartDesignerInner() {
     <div style={css.container}>
       {renderStepIndicator()}
       <div style={{ textAlign: 'center', marginBottom: 36 }}>
-        <span style={css.betaPill}>⚡ Smart Auto-Layout · Beta</span>
+        <span style={css.betaPill}>⚡ Smart Auto-Layout</span>
         <h1 style={css.title}>
           Choose your <em style={css.titleEm}>album.</em>
         </h1>
@@ -5256,6 +5253,21 @@ function SmartDesignerInner() {
                 </div>
               </div>
 
+              <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 16, fontSize: 12, lineHeight: 1.6, color: 'var(--cream)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={termsOk}
+                  onChange={(e) => setTermsOk(e.target.checked)}
+                  style={{ accentColor: GOLD, width: 16, height: 16, marginTop: 2, flex: 'none' }}
+                />
+                <span>
+                  I agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noopener" style={{ color: GOLD }}>Terms of Service</a>,{' '}
+                  <a href="/refunds" target="_blank" rel="noopener" style={{ color: GOLD }}>Refund &amp; Cancellation Policy</a> and{' '}
+                  <a href="/shipping" target="_blank" rel="noopener" style={{ color: GOLD }}>Shipping Policy</a>.
+                </span>
+              </label>
+
               {/* Progress / error / submit */}
               {submitting.stage === 'uploading' && (
                 <div style={{ marginTop: 20 }}>
@@ -5315,8 +5327,9 @@ function SmartDesignerInner() {
                 </button>
                 <button
                   type="button"
-                  style={{ ...css.btnPrimary, opacity: submitting.stage === 'uploading' || submitting.stage === 'persisting' ? 0.6 : 1 }}
-                  disabled={submitting.stage === 'uploading' || submitting.stage === 'persisting'}
+                  style={{ ...css.btnPrimary, opacity: submitting.stage === 'uploading' || submitting.stage === 'persisting' || !termsOk ? 0.5 : 1, cursor: termsOk ? 'pointer' : 'not-allowed' }}
+                  disabled={submitting.stage === 'uploading' || submitting.stage === 'persisting' || !termsOk}
+                  title={termsOk ? undefined : 'Please tick “I agree” above first'}
                   onClick={runFinalSubmit}
                 >
                   {submitting.stage === 'uploading' || submitting.stage === 'persisting'
@@ -5544,7 +5557,7 @@ function SmartDesignerInner() {
           }}
         >
           <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 10 }}>
-            Clause 2.3 — Proof Approval [attorney review pending]
+            Clause 2.3 — Proof Approval
           </strong>
           <div style={{ marginTop: 8 }}>{CLAUSE_PROOF_APPROVAL}</div>
         </div>
@@ -6081,8 +6094,8 @@ function SmartDesignerInner() {
           What happens next
         </p>
         <ol style={{ paddingLeft: 18, lineHeight: 2, fontSize: 12, color: 'var(--cream)' }}>
-          <li>Complete payment on Stripe (you&apos;ll be redirected back)</li>
-          <li>Our design team reviews crops &amp; pacing (24 h)</li>
+          <li>Complete payment on Square&apos;s secure checkout</li>
+          <li>We check your print files before printing</li>
           <li>Printing &amp; binding begins (5–7 business days)</li>
           <li>We ship to the address on file with tracking</li>
         </ol>
@@ -6252,7 +6265,7 @@ function SmartDesignerInner() {
               }}
             >
               <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 9 }}>
-                Clause 2.4 — Copyright [attorney review pending]
+                Clause 2.4 — Copyright
               </strong>
               <div style={{ marginTop: 6 }}>{CLAUSE_CONTENT_RIGHTS}</div>
             </div>
@@ -6285,7 +6298,7 @@ function SmartDesignerInner() {
               }}
             >
               <strong style={{ color: GOLD, letterSpacing: 1.5, textTransform: 'uppercase', fontSize: 9 }}>
-                Clause 2.2 — Content quality &amp; policy [attorney review pending]
+                Clause 2.2 — Content quality &amp; policy
               </strong>
               <div style={{ marginTop: 6 }}>{CLAUSE_CONTENT_POLICY}</div>
             </div>

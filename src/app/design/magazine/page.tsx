@@ -192,6 +192,7 @@ function MagazineDesigner() {
   const [orderStep, setOrderStep] = useState<null | 'review' | 'ship' | 'working'>(null)
   const [approved, setApproved] = useState(false)
   const [rightsOk, setRightsOk] = useState(false)
+  const [termsOk, setTermsOk] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', phone: '', line1: '', line2: '', city: '', region: '', postalCode: '', country: 'United States', notes: '' })
   const [progress, setProgress] = useState<{ done: number; total: number; label: string } | null>(null)
   const [orderErr, setOrderErr] = useState<string | null>(null)
@@ -360,6 +361,7 @@ function MagazineDesigner() {
     if (demoCount > 0) return
     setOrderErr(null)
     setApproved(false)
+    setTermsOk(false)
     setOrderStep('review')
     setSel(null)
     setSelText(null)
@@ -409,6 +411,7 @@ function MagazineDesigner() {
           emptyFrames: pages.flat().filter((x) => x === null).length,
           proofApproval: { acceptedAt: now, clauseVersion: LEGAL_VERSION, clauseText: CLAUSE_PROOF_APPROVAL },
           contentRights: { acceptedAt: now, clauseVersion: LEGAL_VERSION, copyrightClause: CLAUSE_CONTENT_RIGHTS, policyClause: CLAUSE_CONTENT_POLICY },
+          termsAccepted: { acceptedAt: now, version: LEGAL_VERSION },
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -1380,6 +1383,15 @@ function MagazineDesigner() {
                   </span>
                 </label>
                 <label style={checkRow}>
+                  <input type="checkbox" checked={termsOk} onChange={(e) => setTermsOk(e.target.checked)} />
+                  <span>
+                    I agree to the{' '}
+                    <a href="/terms" target="_blank" rel="noopener" style={{ color: GOLD }}>Terms of Service</a>,{' '}
+                    <a href="/refunds" target="_blank" rel="noopener" style={{ color: GOLD }}>Refund &amp; Cancellation Policy</a> and{' '}
+                    <a href="/shipping" target="_blank" rel="noopener" style={{ color: GOLD }}>Shipping Policy</a>.
+                  </span>
+                </label>
+                <label style={checkRow}>
                   <input type="checkbox" checked={rightsOk} onChange={(e) => setRightsOk(e.target.checked)} />
                   <span>
                     I own these photos or have permission to print them, and they meet the content policy.{' '}
@@ -1388,7 +1400,7 @@ function MagazineDesigner() {
                 </label>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
                   <button type="button" style={btn(false)} onClick={() => setOrderStep(null)}>← Keep editing</button>
-                  <button type="button" style={{ ...btn(true), opacity: approved && rightsOk ? 1 : 0.45, cursor: approved && rightsOk ? 'pointer' : 'not-allowed' }} disabled={!approved || !rightsOk} onClick={() => setOrderStep('ship')}>
+                  <button type="button" style={{ ...btn(true), opacity: approved && rightsOk && termsOk ? 1 : 0.45, cursor: approved && rightsOk && termsOk ? 'pointer' : 'not-allowed' }} disabled={!approved || !rightsOk || !termsOk} onClick={() => setOrderStep('ship')}>
                     Approve &amp; continue →
                   </button>
                 </div>

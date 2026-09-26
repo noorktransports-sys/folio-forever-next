@@ -23,6 +23,9 @@ import { sendResendEmail, customerOrderReceivedEmailHtml } from '@/lib/smart-ord
 import { MAG_PAGE_COUNT, MAG_PRICE, getMagStyle, MAG_STYLES } from '@/lib/magazine/pages'
 import { ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails'
 import { getShipping, shippingText } from '@/lib/shipping'
+import { ORDER_SOURCE } from '@/lib/pricing'
+import { putIndexEntry, type IndexKV } from '@/lib/order-index'
+import { allowRequest, tooMany } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
@@ -42,8 +45,6 @@ interface Env {
 
 const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>'
 const DEFAULT_OWNER = 'noorktransports@gmail.com'
-const ORDERS_INDEX_KEY = '_orders_index_v1'
-const TTL = 365 * 24 * 60 * 60
 
 type Payload = {
   albumId?: string
@@ -58,6 +59,7 @@ type Payload = {
   emptyFrames?: number
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; clauseText?: string }
   contentRights?: { acceptedAt?: string; clauseVersion?: string; copyrightClause?: string; policyClause?: string }
+  termsAccepted?: { acceptedAt?: string; version?: string }
 }
 
 function err(status: number, error: string) {
@@ -79,6 +81,7 @@ export async function POST(request: Request) {
   }
   const { env } = getRequestContext() as { env: Env }
   if (!env.DESIGN_DRAFTS) return err(500, 'Storage not configured')
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'submit-mag', 6, 600))) return tooMany()
 
   const name = str(p.customer?.name, 120)
   const email = str(p.customer?.email, 200).toLowerCase()
@@ -99,14 +102,17 @@ export async function POST(request: Request) {
   }
   if (!shipping.line1 || !shipping.city || !shipping.postalCode) return err(400, 'Shipping address is incomplete')
   if (!p.proofApproval?.acceptedAt || !p.contentRights?.acceptedAt) return err(400, 'Proof approval and content rights are required')
+  if (!p.termsAccepted?.acceptedAt) return err(400, 'Please accept the Terms of Service and Refund Policy')
   if (Number(p.demoPhotos ?? 0) > 0) return err(400, 'Demo photos can’t be ordered — please upload your own photos')
   if (!p.styleId || !MAG_STYLES.some((s) => s.id === p.styleId)) return err(400, 'Unknown magazine style')
   const style = getMagStyle(p.styleId)
 
   const pages = Array.isArray(p.pages) ? p.pages : []
   if (pages.length !== MAG_PAGE_COUNT) return err(400, `Expected ${MAG_PAGE_COUNT} pages`)
+  // Page files must be the ones uploaded for THIS magazine.
+  const albumPrefix = `designs/${str(p.albumId, 64).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)}/`
   for (const pg of pages) {
-    if (typeof pg.key !== 'string' || !pg.key.startsWith('designs/') || typeof pg.url !== 'string' || !pg.url.startsWith('/api/photo/designs/')) {
+    if (typeof pg.key !== 'string' || !pg.key.startsWith(albumPrefix) || typeof pg.url !== 'string' || pg.url !== `/api/photo/${pg.key}`) {
       return err(400, 'Invalid page file')
     }
   }
@@ -144,25 +150,27 @@ export async function POST(request: Request) {
     spreadComposites: pages.map((pg) => ({ spreadId: `page-${String(pg.n).padStart(2, '0')}`, key: pg.key, url: pg.url })),
     proofApproval: p.proofApproval,
     contentRights: p.contentRights,
+    termsAccepted: { acceptedAt: str(p.termsAccepted.acceptedAt, 40), version: str(p.termsAccepted.version, 40) },
     auditClientIp: clientIp,
     auditUserAgent: userAgent,
+    // Server-computed price (the ONLY amount checkout will charge) and
+    // the marker that proves this record came from this route.
+    pricing: { magazineUsd: price, shippingUsd, shippingId: ship.id, totalUsd: total, expectedCents: Math.round(total * 100) },
+    orderSource: ORDER_SOURCE,
   }
 
   try {
-    await env.DESIGN_DRAFTS.put(token, JSON.stringify(record), { expirationTtl: TTL })
+    // No expiry: orders and their legal records are kept.
+    await env.DESIGN_DRAFTS.put(token, JSON.stringify(record))
     await env.DESIGN_DRAFTS.put(
       `proof_approval:${orderId}`,
       JSON.stringify({ orderId, token, customer: record.customer, proofApproval: p.proofApproval, pages: record.spreadComposites, clientIp, userAgent, serverReceivedAt: submittedAt }),
-      { expirationTtl: TTL },
     )
     await env.DESIGN_DRAFTS.put(
       `content_rights:${orderId}`,
       JSON.stringify({ orderId, token, customer: record.customer, contentRights: p.contentRights, photoCount: p.photoCount ?? 0, clientIp, userAgent, serverReceivedAt: submittedAt }),
-      { expirationTtl: TTL },
     )
-    const indexRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY)
-    const index: Array<Record<string, unknown>> = indexRaw ? JSON.parse(indexRaw) : []
-    index.unshift({
+    await putIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, {
       token,
       orderId,
       mode: 'magazine',
@@ -179,7 +187,6 @@ export async function POST(request: Request) {
       rightsAcceptedAt: p.contentRights.acceptedAt,
       clauseVersion: p.proofApproval.clauseVersion ?? null,
     })
-    await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index))
   } catch (e) {
     console.warn('[submit-magazine-order] KV failed', e)
     return err(503, 'Could not save the order — please try again')

@@ -87,23 +87,31 @@ export default function OrdersTable({ rows, mode }: { rows: OrderRow[]; mode: 'l
       setMsg(null)
       let deleted = 0
       let files = 0
+      let kept = 0
       try {
         // The server works in batches — repeat until nothing remains.
         for (let guard = 0; guard < 100; guard++) {
           setBusy(`Deleting… ${deleted}/${count}`)
           const j = (await post('/api/admin/orders/delete', all ? { all: true, confirm: 'DELETE' } : { tokens: selected, confirm: 'DELETE' })) as {
             deleted: number
+            skipped?: number
             files: number
             remaining: number
             filesSkipped?: boolean
           }
           deleted += j.deleted
           files += j.files
+          kept = Math.max(kept, j.skipped ?? 0)
           if (j.filesSkipped) setMsg({ ok: false, text: 'Photo storage is not connected here — order records deleted, files kept.' })
           if (!j.remaining || !j.deleted) break
         }
         setSel(new Set())
-        setMsg((m) => m ?? { ok: true, text: `Deleted ${deleted} order${deleted === 1 ? '' : 's'} and ${files} file${files === 1 ? '' : 's'}.` })
+        setMsg((m) => m ?? {
+          ok: true,
+          text:
+            `Deleted ${deleted} order${deleted === 1 ? '' : 's'} and ${files} file${files === 1 ? '' : 's'}.` +
+            (kept ? ` Kept ${kept} paid order${kept === 1 ? '' : 's'} that ${kept === 1 ? 'is' : 'are'} not delivered yet (their print files may be needed for a reprint).` : ''),
+        })
         router.refresh()
       } catch (e) {
         setMsg({ ok: false, text: `${e instanceof Error ? e.message : String(e)} (${deleted} deleted so far)` })

@@ -20,11 +20,19 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { readProSession } from '@/lib/photographer-auth';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
+import { readProSession, proSecret } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
 
 const TTL_SECONDS = 60 * 24 * 60 * 60; // 60 days
+
+/** Fields only the order/payment routes may set. */
+const RESERVED_ORDER_KEYS = [
+  'orderId', 'status', 'statusHistory', 'orderSource', 'pricing', 'mode', 'magazine',
+  'paidAt', 'squarePaymentId', 'squareOrderId', 'squarePaymentLinkId', 'squareCheckoutUrl',
+  'squareCheckoutCents', 'squareAmountTotalCents', 'junk', 'junkAt', 'refunds', 'submittedAt',
+];
 const MAX_BYTES = 1_000_000; // 1 MB hard cap on the saved JSON
 
 interface KVNamespace {
@@ -55,6 +63,7 @@ interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   SITE_URL?: string;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 function err(status: number, message: string) {
@@ -73,18 +82,25 @@ export async function POST(request: Request) {
   // Detect logged-in photographer (cookie). If present, the design
   // gets tagged with their accountId so the /pro dashboard can list
   // it. Anonymous (couple-direct) saves stay un-tagged.
-  const photographerId = await readProSession(request, env.ADMIN_PASSWORD);
+  const photographerId = await readProSession(request, proSecret(env));
 
-  const text = await request.text();
-  if (!text || text.length === 0) return err(400, 'empty body');
-  if (text.length > MAX_BYTES) {
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'design-save', 60, 3600))) return tooMany();
+
+  const rawText = await request.text();
+  if (!rawText || rawText.length === 0) return err(400, 'empty body');
+  if (rawText.length > MAX_BYTES) {
     return err(413, `design too large; max ${MAX_BYTES} bytes`);
   }
 
-  // Validate it's at least parseable JSON. We don't enforce a schema —
-  // the client owns that contract — but reject obvious garbage.
+  // Validate it's a JSON object. A saved DRAFT must never look like an
+  // order: strip every field the order / payment code relies on, so a
+  // crafted draft can't be paid at a made-up price or appear as an order.
+  let text: string;
   try {
-    JSON.parse(text);
+    const parsed = JSON.parse(rawText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return err(400, 'body is not a JSON object');
+    for (const k of RESERVED_ORDER_KEYS) delete (parsed as Record<string, unknown>)[k];
+    text = JSON.stringify(parsed);
   } catch {
     return err(400, 'body is not valid JSON');
   }

@@ -22,7 +22,8 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { createSquareCheckoutLink } from '@/lib/square';
-import { magazineTotal } from '@/lib/magazine/pricing';
+import { ORDER_SOURCE } from '@/lib/pricing';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { getShipping, shippingText } from '@/lib/shipping';
 
 export const runtime = 'edge';
@@ -85,14 +86,15 @@ export async function POST(request: Request) {
   } catch {
     return err(400, 'Invalid JSON');
   }
-  const token = body.token;
-  if (!token) return err(400, 'Missing token');
+  const token = String(body.token ?? '');
+  if (!/^[a-f0-9]{8,64}$/i.test(token)) return err(400, 'Missing token');
 
   const { env } = getRequestContext() as { env: Env };
   if (!env.SQUARE_ACCESS_TOKEN || !env.SQUARE_LOCATION_ID) {
     return err(500, 'Square not configured');
   }
   if (!env.DESIGN_DRAFTS) return err(500, 'Storage not configured');
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'checkout', 20, 600))) return tooMany();
 
   const raw = await env.DESIGN_DRAFTS.get(token);
   if (!raw) return err(404, 'Order not found');
@@ -104,90 +106,86 @@ export async function POST(request: Request) {
     return err(500, 'Order record corrupt');
   }
 
-  if (order.status === 'paid') return err(409, 'Order already paid');
+  // Only REAL orders written by the submit routes can be paid, and only
+  // while they're still unpaid. (Saved drafts can never carry this marker.)
+  const pricing = order.pricing as
+    | { expectedCents?: number; albumUsd?: number; coverUsd?: number; polishUsd?: number; magazineUsd?: number; shippingUsd?: number; shippingId?: string }
+    | undefined;
+  if (order.orderSource !== ORDER_SOURCE || !pricing || !Number.isInteger(pricing.expectedCents) || (pricing.expectedCents ?? 0) <= 0) {
+    return err(404, 'Order not found');
+  }
+  if (order.status !== 'pending_payment') {
+    return err(409, order.status === 'cancelled' ? 'This order was cancelled' : 'Order already paid');
+  }
+  const expectedCents = pricing.expectedCents as number;
+
+  // Re-use the link we already made for this exact amount (one link per
+  // order — no stray payable links floating around).
+  if (typeof order.squareCheckoutUrl === 'string' && order.squareCheckoutCents === expectedCents) {
+    return new Response(JSON.stringify({ ok: true, url: order.squareCheckoutUrl, reused: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
   const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
   // The token is the secret order key; including it in the success URL is
   // equivalent to handing the customer their receipt URL.
   const successUrl = `${siteUrl}/design/${order.mode === 'magazine' ? 'magazine' : 'smart'}/success?token=${encodeURIComponent(order.token)}&order=${encodeURIComponent(order.orderId)}`;
 
-  // ── Magazine: price comes from the SERVER (pricing.ts), never the client.
-  let magazineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] | null = null;
+  // ── Line items come ONLY from the server-computed pricing on the order.
+  const cents = (usd: number | undefined) => Math.round(Number(usd ?? 0) * 100);
+  const ship = getShipping(pricing.shippingId);
+  const lineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] = [];
   if (order.mode === 'magazine') {
-    // Stored at submit from the chosen delivery option (older orders fall
-    // back to the env-based amount).
-    const fallback = magazineTotal(env);
-    const price = order.magazine?.price ?? fallback.price;
-    const shippingUsd = order.magazine?.shippingUsd ?? fallback.shippingUsd;
-    magazineItems = [
-      {
-        name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)`,
+    lineItems.push({
+      name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)`,
+      quantity: 1,
+      basePriceAmountCents: cents(pricing.magazineUsd),
+      note: order.magazine?.names || order.albumName,
+    });
+  } else {
+    const sizeLabel = String(order.album?.size ?? '').replace('x', '×');
+    const bindingLabel = order.album?.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)';
+    lineItems.push({
+      name: `${sizeLabel} ${bindingLabel} · ${order.album?.pageCount ?? ''} spreads`,
+      quantity: 1,
+      basePriceAmountCents: cents(pricing.albumUsd),
+      note: order.albumName,
+    });
+    if ((pricing.coverUsd ?? 0) > 0 && order.cover) {
+      lineItems.push({
+        name:
+          order.cover.type === 'leather'
+            ? 'Leather cover — premium hide + foil stamp'
+            : order.cover.type === 'acrylic'
+              ? 'Acrylic cover — photo behind clear acrylic'
+              : 'Photo cover',
         quantity: 1,
-        basePriceAmountCents: Math.round(price * 100),
-        note: order.magazine?.names || order.albumName,
-      },
-    ];
-    if (shippingUsd > 0) {
-      magazineItems.push({ name: `Shipping · ${order.magazine?.shippingLabel ?? 'delivery'}`, quantity: 1, basePriceAmountCents: Math.round(shippingUsd * 100), note: 'Magazine delivery' });
+        basePriceAmountCents: cents(pricing.coverUsd),
+        note: 'Album cover upgrade',
+      });
+    }
+    if ((pricing.polishUsd ?? 0) > 0) {
+      lineItems.push({
+        name: 'Polish hand-off — design team finishing',
+        quantity: 1,
+        basePriceAmountCents: cents(pricing.polishUsd),
+        note: 'Hand-finishing by Folio Forever design team before printing',
+      });
     }
   }
-
-  // album.totalPrice INCLUDES polish hand-off + cover add-on. Split
-  // them out so the customer sees itemised line items at checkout.
-  const polishHandoff = !!order.polishHandoff;
-  const coverAdd =
-    order.cover && Number.isFinite(order.cover.priceAdd)
-      ? Math.max(0, Math.round(order.cover.priceAdd))
-      : 0;
-  // Albums: shipping is part of album.totalPrice; the amount is re-derived
-  // from the chosen option id so it can't be tampered with.
-  const albumShip = order.shippingMethod ? getShipping(order.shippingMethod) : null;
-  const albumShipUsd = albumShip ? albumShip.usd : 0;
-  const baseDollars =
-    order.album.totalPrice - (polishHandoff ? 99 : 0) - coverAdd - albumShipUsd;
-  if (!magazineItems && (baseDollars <= 0 || !Number.isFinite(baseDollars))) {
-    return err(500, 'Invalid album price');
-  }
-  const sizeLabel = order.album.size.replace('x', '×');
-  const bindingLabel = order.album.type === 'standard' ? 'Standard hardcover' : 'Layflat (flush-mount)';
-
-  const lineItems = magazineItems ?? [
-    {
-      name: `${sizeLabel} ${bindingLabel} · ${order.album.pageCount} spreads`,
-      quantity: 1,
-      basePriceAmountCents: baseDollars * 100,
-      note: order.albumName,
-    },
-  ];
-  if (!magazineItems && coverAdd > 0 && order.cover) {
-    const cl =
-      order.cover.type === 'leather'
-        ? 'Leather cover — premium hide + foil stamp'
-        : order.cover.type === 'acrylic'
-        ? 'Acrylic cover — photo behind clear acrylic'
-        : 'Photo cover';
+  if ((pricing.shippingUsd ?? 0) > 0) {
     lineItems.push({
-      name: cl,
+      name: `Shipping · ${shippingText(ship)}`,
       quantity: 1,
-      basePriceAmountCents: coverAdd * 100,
-      note: 'Album cover upgrade',
+      basePriceAmountCents: cents(pricing.shippingUsd),
+      note: order.mode === 'magazine' ? 'Magazine delivery' : 'Album delivery',
     });
   }
-  if (!magazineItems && albumShip) {
-    lineItems.push({
-      name: `Shipping · ${shippingText(albumShip)}`,
-      quantity: 1,
-      basePriceAmountCents: albumShipUsd * 100,
-      note: 'Album delivery',
-    });
-  }
-  if (!magazineItems && polishHandoff) {
-    lineItems.push({
-      name: 'Polish hand-off — design team finishing',
-      quantity: 1,
-      basePriceAmountCents: 9900,
-      note: 'Hand-finishing by Folio Forever design team before printing',
-    });
+  const sum = lineItems.reduce((a, li) => a + li.basePriceAmountCents * li.quantity, 0);
+  if (sum !== expectedCents || lineItems.some((li) => !Number.isInteger(li.basePriceAmountCents) || li.basePriceAmountCents <= 0)) {
+    console.warn('[square-checkout] line items do not add up', { token, sum, expectedCents });
+    return err(500, 'Order total could not be verified — please contact us');
   }
 
   const envName: 'production' | 'sandbox' =
@@ -197,8 +195,8 @@ export async function POST(request: Request) {
     accessToken: env.SQUARE_ACCESS_TOKEN,
     locationId: env.SQUARE_LOCATION_ID,
     envName,
-    // Token is already a 12-hex random; collisions impossible at our volume.
-    idempotencyKey: `checkout_${order.token}`,
+    // Keyed on the amount too, so a changed total can never reuse an old link.
+    idempotencyKey: `checkout_${order.token}_${expectedCents}`,
     lineItems,
     prePopulatedEmail: order.customer.email,
     redirectUrl: successUrl,
@@ -212,21 +210,22 @@ export async function POST(request: Request) {
   });
 
   if (!result.ok || !result.url) {
-    return err(502, `Square error: ${result.error || 'unknown'}`);
+    console.warn('[square-checkout] Square error', result.error);
+    return err(502, 'Payment could not be started — please try again in a moment');
   }
 
   // Annotate the order with the Square IDs so the webhook + admin can
-  // correlate (and so the admin can re-link the customer to their
-  // payment page if they bail and come back).
+  // correlate (and so the customer can be sent back to the same link).
   try {
     const updated = {
       ...order,
       squarePaymentLinkId: result.paymentLinkId,
       squareOrderId: result.orderId,
       squareCheckoutUrl: result.url,
+      squareCheckoutCents: expectedCents,
       squareCheckoutCreatedAt: new Date().toISOString(),
     };
-    await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated), { expirationTtl: 365 * 24 * 60 * 60 });
+    await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
   } catch {
     // Non-fatal — the link works regardless.
   }
@@ -280,7 +279,6 @@ export async function GET(request: Request) {
   if (order.status === 'cancelled') {
     return page('Order cancelled', `Order <strong>${order.orderId}</strong> was cancelled. Reply to your order email if this is a mistake.`);
   }
-  if (order.squareCheckoutUrl) return Response.redirect(order.squareCheckoutUrl, 302);
 
   const res = await POST(
     new Request(url.toString(), {

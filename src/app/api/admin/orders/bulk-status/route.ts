@@ -14,6 +14,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
+import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
 import { setJunk, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
@@ -44,8 +45,6 @@ interface Env {
   ADMIN_PASSWORD?: string;
 }
 
-const ORDERS_INDEX_KEY = '_orders_index_v1';
-const TTL = 365 * 24 * 60 * 60;
 
 function err(status: number, message: string) {
   return new Response(JSON.stringify({ error: message }), {
@@ -108,7 +107,7 @@ export async function POST(request: Request) {
       const history = Array.isArray(design.statusHistory) ? design.statusHistory : [];
       history.push({ status, at, by: 'admin', note });
       design.statusHistory = history;
-      await env.DESIGN_DRAFTS.put(token, JSON.stringify(design), { expirationTtl: TTL });
+      await env.DESIGN_DRAFTS.put(token, JSON.stringify(design));
       results[token] = { ok: true };
     } catch (e) {
       results[token] = { ok: false, error: String(e) };
@@ -117,17 +116,8 @@ export async function POST(request: Request) {
 
   // Rewrite the orders index once
   try {
-    const indexRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
-    if (indexRaw) {
-      const index = JSON.parse(indexRaw) as Array<Record<string, unknown>>;
-      const succeeded = new Set(Object.entries(results).filter(([, r]) => r.ok).map(([t]) => t));
-      for (let i = 0; i < index.length; i++) {
-        const tok = index[i].token;
-        if (typeof tok === 'string' && succeeded.has(tok)) {
-          index[i] = { ...index[i], status };
-        }
-      }
-      await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
+    for (const [tok, r] of Object.entries(results)) {
+      if (r.ok) await patchIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, tok, { status });
     }
   } catch (e) {
     console.warn('[bulk-status] index update failed', e);

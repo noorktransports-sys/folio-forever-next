@@ -1,0 +1,70 @@
+.legal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 20px 5%;
+  border-bottom: 0.5px solid rgba(184, 150, 90, 0.2);
+}
+.legal-logo {
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 5px;
+  color: var(--cream);
+  text-decoration: none;
+}
+.legal-nav { display: flex; gap: 22px; flex-wrap: wrap; }
+.legal-nav a {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #d9cbb1;
+  text-decoration: none;
+}
+.legal-nav a:hover, .legal-nav a:focus-visible { color: var(--gold); text-decoration: underline; }
+.legal-main { max-width: 760px; margin: 0 auto; padding: 56px 20px 72px; }
+.legal-eyebrow {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.legal-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(34px, 5vw, 48px);
+  line-height: 1.1;
+  color: var(--cream-light);
+  margin: 12px 0 8px;
+}
+.legal-updated { font-size: 12px; color: #a89a84; margin-bottom: 32px; }
+.legal-body { font-size: 15px; line-height: 1.8; color: #e9dfcc; }
+.legal-body h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 26px;
+  color: var(--cream-light);
+  margin: 36px 0 10px;
+}
+.legal-body h3 { font-size: 15px; font-weight: 600; color: var(--cream-light); margin: 22px 0 6px; }
+.legal-body p { margin: 0 0 14px; }
+.legal-body ul, .legal-body ol { margin: 0 0 16px 22px; }
+.legal-body li { margin-bottom: 6px; }
+.legal-body a { color: var(--gold); }
+.legal-body strong { color: var(--cream-light); }
+.legal-body table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 14px; }
+.legal-body th, .legal-body td { text-align: left; padding: 10px 12px; border-bottom: 0.5px solid rgba(184, 150, 90, 0.25); }
+.legal-body th { color: var(--gold); font-weight: 600; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+.legal-note {
+  border: 0.5px solid rgba(184, 150, 90, 0.35);
+  background: rgba(184, 150, 90, 0.07);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0 0 22px;
+  font-size: 14px;
+}
+.legal-body details { border-bottom: 0.5px solid rgba(184, 150, 90, 0.2); padding: 14px 0; }
+.legal-body summary { cursor: pointer; font-weight: 600; color: var(--cream-light); }
+.legal-body summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.legal-body details p { margin: 10px 0 0; }

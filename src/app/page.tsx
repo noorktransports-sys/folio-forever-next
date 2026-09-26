@@ -1,6 +1,8 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import Album3D from './components/Album3D';
 import './homepage.css';
+import SiteFooter from '@/components/SiteFooter';
 
 /**
  * Homepage — ported from `folio-forever-child/page-homepage.php`.
@@ -15,7 +17,10 @@ import './homepage.css';
  */
 const ROUTE_DESIGN = '/design';
 const ROUTE_PHOTOG = '/photographers';
-const ROUTE_FAQ = '/photographers#faq';
+const ROUTE_FAQ = '/faq';
+const ROUTE_MAGAZINE = '/design/magazine';
+
+export const metadata: Metadata = { alternates: { canonical: '/' } };
 
 export default function HomePage() {
   return (
@@ -36,7 +41,7 @@ export default function HomePage() {
             <Link href={ROUTE_PHOTOG}>Photographers</Link>
           </li>
           <li>
-            <a href="#sample">Sample Kit</a>
+            <Link href={ROUTE_FAQ}>FAQ</Link>
           </li>
         </ul>
         <Link href={ROUTE_DESIGN} className="nav-cta">
@@ -64,7 +69,7 @@ export default function HomePage() {
         </div>
         <div className="hero-overlay" />
         <div className="hero-content">
-          <span className="hero-tag">Printed on paper no one else offers</span>
+          <span className="hero-tag">Archival fine-art wedding albums</span>
           <h1 className="hero-title">
             Not an album.<br />
             <em>
@@ -73,14 +78,14 @@ export default function HomePage() {
           </h1>
           <p className="hero-subtitle">
             Up to 20×30 inches open. 3D tactile printing you can feel.<br />
-            A scale and quality no online printer comes close to.
+            Designed by you, proofed page by page, printed to last.
           </p>
           <div className="hero-btns">
             <Link href={ROUTE_DESIGN} className="btn-primary">
               Order Your Monument
             </Link>
-            <Link href={ROUTE_DESIGN} className="btn-secondary">
-              Get Free Sample Kit
+            <Link href={ROUTE_MAGAZINE} className="btn-secondary">
+              Make a Wedding Magazine
             </Link>
           </div>
         </div>
@@ -93,18 +98,18 @@ export default function HomePage() {
       {/* TRUST BAR */}
       <div className="trust-bar">
         <div className="trust-item">
-          <span className="trust-num">500+</span>
-          <span className="trust-label">Albums Delivered</span>
+          <span className="trust-num">300 DPI</span>
+          <span className="trust-label">Archival Print Quality</span>
         </div>
         <div className="trust-divider" />
         <div className="trust-item">
-          <span className="trust-num">12–16 days</span>
-          <span className="trust-label">US Delivery</span>
+          <span className="trust-num">Proof First</span>
+          <span className="trust-label">Approve Every Page</span>
         </div>
         <div className="trust-divider" />
         <div className="trust-item">
-          <span className="trust-num">100%</span>
-          <span className="trust-label">Satisfaction Guarantee</span>
+          <span className="trust-num">Reprint Promise</span>
+          <span className="trust-label">Print Defects Fixed Free</span>
         </div>
         <div className="trust-divider" />
         <div className="trust-item">
@@ -147,7 +152,7 @@ export default function HomePage() {
               leatherHex="#2a1c12"
               foilHex="#d4b07a"
               width={320}
-              caption="Drag to rotate · Real 3D leather"
+              caption="Drag to rotate · 3D preview"
             />
           </div>
 
@@ -174,7 +179,7 @@ export default function HomePage() {
               </div>
             </div>
             <div className="size-card featured">
-              <div className="badge">Most Popular</div>
+              <div className="badge">Largest Size</div>
               <span className="size-dims">20 × 30&quot;</span>
               <span className="size-name">Open · The Full Statement</span>
               <p
@@ -201,7 +206,7 @@ export default function HomePage() {
       <section className="difference-section">
         <span className="section-tag">See the difference</span>
         <h2 className="section-title" style={{ color: 'var(--dark)' }}>
-          Feel what other printers<br />simply cannot do
+          Printing you can<br />feel with your fingertips
         </h2>
         <div className="gold-line centered" />
         <p
@@ -241,18 +246,16 @@ export default function HomePage() {
               <div className="compare-label-overlay">Standard printing</div>
             </div>
             <div className="compare-body">
-              <p className="compare-title">Every other printer</p>
+              <p className="compare-title">Standard flat printing</p>
               <ul className="compare-features">
                 <li>Completely flat surface</li>
                 <li>No texture or depth</li>
-                <li>Colors fade over time</li>
-                <li>Looks like every other album</li>
+                <li>Photos sit on the surface</li>
               </ul>
             </div>
           </div>
           <div className="compare-side ours">
             <div className="compare-video">
-              {/* TODO: swap to real texture close-up video */}
               <div style={{ textAlign: 'center' }}>
                 <div
                   className="play-btn"
@@ -269,7 +272,7 @@ export default function HomePage() {
                     letterSpacing: '1px',
                   }}
                 >
-                  Your texture video here
+                  Close-up film coming soon
                 </span>
               </div>
               <div className="compare-label-overlay">Our 3D tactile printing</div>
@@ -279,8 +282,7 @@ export default function HomePage() {
               <ul className="compare-features">
                 <li>Raised edges you can feel</li>
                 <li>Tactile depth and dimension</li>
-                <li>Deep color permanence</li>
-                <li>A physical experience unlike anything</li>
+                <li>Archival inks and paper</li>
               </ul>
             </div>
           </div>
@@ -310,18 +312,18 @@ export default function HomePage() {
           </div>
           <div className="step">
             <div className="step-num">2</div>
-            <p className="step-title">We Design It</p>
+            <p className="step-title">Design &amp; Approve</p>
             <p className="step-desc">
-              Our expert team designs your album — or use our self-design tool
-              to create it yourself.
+              Smart Auto-Layout builds every spread for you. Adjust anything,
+              or add design-team polish (+$99). Approve each page before paying.
             </p>
           </div>
           <div className="step">
             <div className="step-num">3</div>
             <p className="step-title">Delivered to You</p>
             <p className="step-desc">
-              Carefully packaged and shipped to anywhere in the US within 12–16
-              days.
+              Printed in 5–7 business days after approval, then shipped with
+              Express, Standard or Economy delivery anywhere in the US.
             </p>
           </div>
         </div>
@@ -392,9 +394,9 @@ export default function HomePage() {
               Offer your clients something<br />no one else can
             </h2>
             <p className="strip-desc">
-              Trade pricing available. Built by a working wedding photographer.
+              Built by a working wedding photographer.
               <br />
-              Repeat order discounts. Your clients will never go anywhere else.
+              Our trade program is coming soon — register your interest today.
             </p>
           </div>
           <Link href={ROUTE_PHOTOG} className="btn-dark">
@@ -403,15 +405,17 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* TESTIMONIAL */}
+      {/* PROMISE */}
       <section className="testimonial-section">
-        <span className="section-tag">What couples say</span>
+        <span className="section-tag">Our promise</span>
         <div className="gold-line centered" />
         <blockquote className="testimonial-quote">
-          “We&apos;ve shown this album to everyone who visits. The paper, the
-          colors, the weight of it — nothing we have seen online comes close.”
+          You see and approve every page before we print. If anything arrives
+          with a print defect or shipping damage, we reprint it free.
         </blockquote>
-        <p className="testimonial-author">— Sarah &amp; James, married 2024</p>
+        <p className="testimonial-author">
+          <Link href="/refunds">Read our reprint promise</Link>
+        </p>
       </section>
 
       {/* SAMPLE CTA */}
@@ -421,53 +425,21 @@ export default function HomePage() {
             className="section-tag"
             style={{ display: 'block', textAlign: 'center' }}
           >
-            Before you order
+            Coming soon
           </span>
           <h2 className="section-title">Hold it in your hands first</h2>
           <div className="gold-line centered" />
           <p className="sample-desc">
-            Order a sample kit for $15. Feel the 3D texture. See the paper
-            quality. The $15 is fully credited toward your album order.
+            A paper and texture sample kit is on the way. Want to hear when
+            it&apos;s ready? Send us a note.
           </p>
-          <Link href={ROUTE_DESIGN} className="btn-primary">
-            Get Your Sample Kit — $15
+          <Link href="/contact" className="btn-primary">
+            Contact Us
           </Link>
         </div>
       </section>
 
-      {/* FOOTER */}
-      <footer>
-        <div className="footer-logo">FOLIO FOREVER</div>
-        <ul className="footer-links">
-          <li>
-            <a href="#albums">Albums</a>
-          </li>
-          <li>
-            <a href="#how-it-works">How It Works</a>
-          </li>
-          <li>
-            <Link href={ROUTE_DESIGN}>Design</Link>
-          </li>
-          <li>
-            <Link href={ROUTE_PHOTOG}>Photographers</Link>
-          </li>
-          <li>
-            <Link href={ROUTE_FAQ}>FAQ</Link>
-          </li>
-          <li>
-            <a href="mailto:orders@noorkphotography.com">Contact</a>
-          </li>
-        </ul>
-        <span className="footer-copy">
-          © {new Date().getFullYear()} Folio Forever. All rights reserved.
-          {' · '}
-          {/* Discreet admin link — not advertised on the homepage hero
-              (would attract brute-force attempts) but easy to find for
-              Jayvee in the footer. Bookmarking /admin is the better
-              path; this is the safety net. */}
-          <a href="/admin" className="footer-admin">Admin</a>
-        </span>
-      </footer>
+      <SiteFooter />
     </>
   );
 }

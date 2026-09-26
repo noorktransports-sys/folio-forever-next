@@ -17,14 +17,16 @@ import { isAuthedFromCookieHeader } from '@/lib/admin-auth';
 import './admin.css';
 import AdminLogin from './admin-login';
 import OrdersTable, { type OrderRow } from './OrdersTable';
+import { readAllIndex, type IndexKV } from '@/lib/order-index';
 import { readDeleted, setJunk, staleUnpaidTokens, STALE_UNPAID_DAYS, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
 
 interface KVNamespace {
   get(key: string): Promise<string | null>;
-  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  put(key: string, value: string, options?: { expirationTtl?: number; metadata?: unknown }): Promise<void>;
   delete(key: string): Promise<void>;
+  list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: Array<{ name: string; metadata?: unknown }>; list_complete: boolean; cursor?: string }>;
 }
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
@@ -85,6 +87,8 @@ function statusLabel(s?: string): string {
       return 'Cancelled';
     case 'refunded':
       return 'Refunded';
+    case 'payment_mismatch':
+      return 'Payment check needed';
     case 'submitted':
       return 'Submitted';
     default:
@@ -101,6 +105,9 @@ function totalSpreadsOf(o: OrderEntry): number {
 }
 
 function totalPriceOf(o: OrderEntry): number {
+  // Prefer what Square actually collected once an order is paid.
+  const collected = (o as { amountPaidCents?: number }).amountPaidCents;
+  if (typeof collected === 'number' && collected > 0) return collected / 100;
   return o.totalPrice ?? o.amountPaid ?? 0;
 }
 
@@ -122,8 +129,7 @@ export default async function AdminPage({
   let deletedOrders: OrderEntry[] = [];
   try {
     if (env.DESIGN_DRAFTS) {
-      const oj = await env.DESIGN_DRAFTS.get('_orders_index_v1');
-      if (oj) allOrders = JSON.parse(oj);
+      allOrders = (await readAllIndex(env.DESIGN_DRAFTS as unknown as IndexKV)) as unknown as OrderEntry[];
       const dj = await env.DESIGN_DRAFTS.get('_drafts_index_v1');
       if (dj) drafts = JSON.parse(dj);
       // Deleted-forever orders still count toward revenue history.

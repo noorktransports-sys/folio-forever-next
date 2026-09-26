@@ -119,8 +119,9 @@ export interface EmailAuditMeta {
   stripePaymentIntent?: string;
 }
 
-export function escapeHtml(s: string): string {
-  return s
+export function escapeHtml(s: string | null | undefined): string {
+  // Missing optional fields (e.g. no phone) must never break an email.
+  return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -211,7 +212,7 @@ export function ownerPendingPaymentEmailHtml(
 <html><body style="font-family: Georgia, serif; color: #2a2218; background: #f5f0e8; padding: 24px;">
   <div style="max-width: 620px; margin: 0 auto; background: #fff; border: 1px solid #b8965a; padding: 28px;">
     <div style="background: #fff3cd; border: 1px solid #d4a843; padding: 10px 14px; margin: 0 0 18px; border-radius: 4px;">
-      <strong style="color: #8a6800;">PENDING PAYMENT</strong> — the customer was redirected to Stripe. They have not paid yet.
+      <strong style="color: #8a6800;">PENDING PAYMENT</strong> — the customer was sent to Square checkout. They have not paid yet.
       You'll get a separate "PAID" email when payment lands.
     </div>
 
@@ -423,9 +424,9 @@ export function customerPaidEmailHtml(
 
     <h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 20px 0 6px;">What happens next</h3>
     <ol style="font-size: 13px; line-height: 1.9; color: #2a2218; padding-left: 18px; margin: 0;">
-      <li>Our design team reviews crops &amp; pacing (24 h)</li>
-      <li>Printing &amp; binding begins (5–7 days)</li>
-      <li>We ship to the address on file with tracking</li>
+      <li>We check your print files before printing</li>
+      <li>Printing &amp; binding (5–7 business days)</li>
+      <li>We ship with your chosen delivery option and email tracking</li>
     </ol>
 
     ${compositesHtml ? `<h3 style="font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 400; color: #2a2218; margin: 22px 0 8px;">Your album · spread previews</h3>

@@ -156,9 +156,9 @@ function SuccessInner() {
             What happens next
           </strong>
           <ol style={{ paddingLeft: 18, margin: 0, color: '#e8ddc1' }}>
-            <li>Our design team reviews crops &amp; pacing (24 h)</li>
+            <li>We check your print files before printing</li>
             <li>Printing &amp; binding begins (5–7 business days)</li>
-            <li>We ship with tracking to the address on file</li>
+            <li>We ship with your chosen delivery option and email tracking</li>
           </ol>
         </div>
 

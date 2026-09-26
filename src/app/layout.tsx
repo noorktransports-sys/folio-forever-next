@@ -3,15 +3,32 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'Folio Forever — Heirloom wedding albums',
+    default: 'Folio Forever — Heirloom wedding albums & magazines',
     template: '%s | Folio Forever',
   },
   description:
-    'Hand-bound, archival wedding albums for photographers and couples. Trade pricing for studios.',
+    'Large-format wedding albums and wedding magazines. Upload your photos, Smart Auto-Layout designs every page, you approve each one, and we print it to last.',
   metadataBase: new URL(
     process.env.SITE_URL ?? 'https://folioforever.com',
   ),
+  applicationName: 'Folio Forever',
+  openGraph: {
+    type: 'website',
+    siteName: 'Folio Forever',
+    locale: 'en_US',
+    title: 'Folio Forever — Heirloom wedding albums & magazines',
+    description:
+      'Design your wedding album or magazine online, approve every page, and we print it to last.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Folio Forever — Heirloom wedding albums & magazines',
+    description:
+      'Design your wedding album or magazine online, approve every page, and we print it to last.',
+  },
 };
+
+export const viewport = { themeColor: '#0e0c09' };
 
 /**
  * Root layout. Loads brand fonts from Google Fonts via <link> for now —

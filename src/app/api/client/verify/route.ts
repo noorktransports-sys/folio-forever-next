@@ -12,6 +12,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { buildClientCookie } from '@/lib/client-auth';
 
 export const runtime = 'edge';
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
   }
 
   const { env } = getRequestContext() as { env: Env };
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'client-verify', 10, 900))) return tooMany();
   if (!env.DESIGN_DRAFTS) return json({ ok: false, error: 'Storage unavailable' }, 500);
 
   const key = `clientcode:${email}`;

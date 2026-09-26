@@ -34,7 +34,7 @@ export default function JunkControls({ token, orderId, junk, junkAt }: { token: 
     if (typed !== 'DELETE') return
     const j = await call('/api/admin/orders/delete', { tokens: [token], confirm: 'DELETE' })
     if (j && j.deleted) window.location.href = '/admin?tab=junk'
-    else if (j) setErr('Not deleted — the order must be in Junk first.')
+    else if (j) setErr('Not deleted — only orders in Junk can be deleted, and a paid order only once it is delivered, refunded or cancelled.')
   }
 
   if (!junk) {

@@ -175,6 +175,7 @@
 .admin-status-delivered { background: #d6efdc; color: #1c4a2c; border-color: #7abe92; }
 .admin-status-cancelled { background: #f4e0e0; color: #7a2828; border-color: #d8a8a8; }
 .admin-status-refunded { background: #efeaea; color: #6b3a3a; border-color: #b89a9a; }
+.admin-status-payment_mismatch { background: #fff0d6; color: #8a4b00; border-color: #e0a44a; }
 
 .admin-paid-yes { color: #2a6a3f; font-weight: 500; font-size: 13px; }
 .admin-paid-no { color: #6b5e4d; font-size: 12px; }

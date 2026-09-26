@@ -14,18 +14,17 @@
 //     still add up. Legal consent records (proof_approval:/content_rights:)
 //     are kept.
 
-export interface JunkKV {
-  get(key: string): Promise<string | null>
-  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
-  delete(key: string): Promise<void>
-}
+import { readAllIndex, patchIndexEntry, removeIndexEntry, type IndexKV } from './order-index'
+
+export type JunkKV = IndexKV
 export interface JunkR2 {
   delete(keys: string | string[]): Promise<void>
 }
 
 export const ORDERS_INDEX_KEY = '_orders_index_v1'
 export const DELETED_INDEX_KEY = '_orders_deleted_v1'
-const RECORD_TTL = 365 * 24 * 60 * 60
+/** Paid orders may only be deleted forever once they're finished. */
+const DELETABLE_WHEN_PAID = new Set(['delivered', 'refunded', 'cancelled'])
 /** Unpaid orders older than this go to Junk automatically. */
 export const STALE_UNPAID_DAYS = 30
 
@@ -48,8 +47,7 @@ export type DeletedSummary = {
 
 export async function readIndex(kv: JunkKV): Promise<IndexEntry[]> {
   try {
-    const raw = await kv.get(ORDERS_INDEX_KEY)
-    return raw ? (JSON.parse(raw) as IndexEntry[]) : []
+    return (await readAllIndex(kv)) as IndexEntry[]
   } catch {
     return []
   }
@@ -82,7 +80,7 @@ export async function flagRecord(kv: JunkKV, token: string, junk: boolean, note:
   const hist = Array.isArray(rec.statusHistory) ? rec.statusHistory : []
   hist.push({ status: rec.status ?? 'submitted', at, by, note })
   rec.statusHistory = hist
-  await kv.put(token, JSON.stringify(rec), { expirationTtl: RECORD_TTL })
+  await kv.put(token, JSON.stringify(rec))
   return true
 }
 
@@ -96,19 +94,11 @@ export async function setJunk(
   const by = opts.by ?? 'admin'
   const note = opts.note ?? (junk ? 'Moved to Junk' : 'Restored from Junk')
   let n = 0
-  for (const t of tokens) if (await flagRecord(kv, t, junk, note, by)) n++
-  const list = await readIndex(kv)
   const at = new Date().toISOString()
-  let changed = false
-  const want = new Set(tokens)
-  for (const e of list) {
-    if (!want.has(e.token) || !!e.junk === junk) continue
-    e.junk = junk
-    if (junk) e.junkAt = at
-    else delete e.junkAt
-    changed = true
+  for (const t of tokens) {
+    if (await flagRecord(kv, t, junk, note, by)) n++
+    await patchIndexEntry(kv, t, junk ? { junk: true, junkAt: at } : { junk: false, junkAt: undefined })
   }
-  if (changed) await kv.put(ORDERS_INDEX_KEY, JSON.stringify(list))
   return n
 }
 
@@ -145,9 +135,15 @@ export async function deleteJunkOrders(
   max = 20,
 ): Promise<{ deleted: number; files: number; remaining: number; skipped: number }> {
   const list = await readIndex(kv)
-  const junkTokens = new Set(list.filter((e) => e.junk).map((e) => e.token))
+  // Only Junk orders, and never a PAID order that isn't finished yet
+  // (e.g. sent to print but not delivered) — its print files may still
+  // be needed for a reprint.
+  const deletable = (e: IndexEntry) =>
+    !!e.junk && (!e.paidAt || DELETABLE_WHEN_PAID.has(String(e.status ?? '')))
+  const junkTokens = new Set(list.filter(deletable).map((e) => e.token))
+  const inJunk = list.filter((e) => e.junk).length
   const targets = (tokens === 'all' ? [...junkTokens] : tokens.filter((t) => junkTokens.has(t)))
-  const skipped = tokens === 'all' ? 0 : tokens.length - targets.length
+  const skipped = tokens === 'all' ? inJunk - targets.length : tokens.length - targets.length
   const batch = targets.slice(0, max)
   const deletedSummaries: DeletedSummary[] = []
   const gone = new Set<string>()
@@ -196,8 +192,7 @@ export async function deleteJunkOrders(
   }
 
   if (gone.size) {
-    const fresh = await readIndex(kv) // re-read: keep any orders that arrived meanwhile
-    await kv.put(ORDERS_INDEX_KEY, JSON.stringify(fresh.filter((e) => !gone.has(e.token))))
+    for (const t of gone) await removeIndexEntry(kv, t)
     const del = await readDeleted(kv)
     await kv.put(DELETED_INDEX_KEY, JSON.stringify([...deletedSummaries, ...del].slice(0, 5000)))
   }

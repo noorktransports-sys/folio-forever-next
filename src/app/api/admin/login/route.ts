@@ -10,11 +10,27 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { buildSessionCookie } from '@/lib/admin-auth';
+import { allowRequest, tooMany, type RateKV } from '@/lib/rate-limit';
 
 export const runtime = 'edge';
 
 interface Env {
   ADMIN_PASSWORD?: string;
+  DESIGN_DRAFTS?: RateKV;
+}
+
+/** Compare without leaking how many characters matched. */
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const x = new Uint8Array(ha);
+  const y = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
 }
 
 export async function POST(request: Request) {
@@ -24,6 +40,11 @@ export async function POST(request: Request) {
       JSON.stringify({ error: 'admin not configured' }),
       { status: 503, headers: { 'Content-Type': 'application/json' } },
     );
+  }
+
+  // 8 attempts per 15 minutes per IP — stops password guessing.
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'admin-login', 8, 900))) {
+    return tooMany('Too many login attempts — wait 15 minutes and try again');
   }
 
   let body: { password?: string };
@@ -36,7 +57,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!body.password || body.password !== env.ADMIN_PASSWORD) {
+  if (!body.password || !(await sameSecret(String(body.password), env.ADMIN_PASSWORD))) {
     return new Response(JSON.stringify({ error: 'wrong password' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },

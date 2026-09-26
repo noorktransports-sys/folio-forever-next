@@ -140,7 +140,7 @@ nav {
 .cta-sub { font-size: 12px; color: var(--muted2); line-height: 2; max-width: 440px; margin: 0 auto 36px; }
 
 /* FOOTER */
-footer { background: var(--dark); border-top: 0.5px solid rgba(184, 150, 90, 0.1); padding: 40px 5%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
+footer:not(.site-footer) { background: var(--dark); border-top: 0.5px solid rgba(184, 150, 90, 0.1); padding: 40px 5%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
 .footer-logo { font-family: var(--font-display); font-size: 18px; letter-spacing: 3px; color: var(--cream); }
 .footer-links { display: flex; gap: 24px; list-style: none; }
 .footer-links a { font-size: 10px; letter-spacing: 1px; color: var(--muted2); text-decoration: none; transition: color 0.3s; }
@@ -164,5 +164,5 @@ footer { background: var(--dark); border-top: 0.5px solid rgba(184, 150, 90, 0.1
   .benefits-grid, .pricing-grid, .testimonials-grid { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr 1fr; }
   .steps::before { display: none; }
-  footer { flex-direction: column; text-align: center; }
+  footer:not(.site-footer) { flex-direction: column; text-align: center; }
 }

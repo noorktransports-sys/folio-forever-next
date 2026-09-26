@@ -21,6 +21,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
+import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
 import { mintIdempotencyKey, refundSquarePayment } from '@/lib/square';
 
 export const runtime = 'edge';
@@ -59,7 +60,6 @@ interface OrderRecord {
   [k: string]: unknown;
 }
 
-const ORDERS_INDEX_KEY = '_orders_index_v1';
 
 function err(status: number, message: string) {
   return new Response(JSON.stringify({ error: message }), {
@@ -159,9 +159,7 @@ export async function POST(
     statusHistory: history,
     lastRefundAt: refundEntry.at,
   };
-  await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated), {
-    expirationTtl: 365 * 24 * 60 * 60,
-  });
+  await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
 
   // Store a standalone refund audit record for legal review
   try {
@@ -174,7 +172,6 @@ export async function POST(
         orderId: order.orderId,
         squarePaymentId: order.squarePaymentId,
       }),
-      { expirationTtl: 365 * 24 * 60 * 60 },
     );
   } catch (e) {
     console.warn('[refund] audit write failed', e);
@@ -182,15 +179,7 @@ export async function POST(
 
   // Patch the orders index
   try {
-    const indexRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
-    if (indexRaw) {
-      const index = JSON.parse(indexRaw) as Array<Record<string, unknown>>;
-      const idx = index.findIndex((e) => e.token === token);
-      if (idx >= 0) {
-        index[idx] = { ...index[idx], status: 'refunded', refundedAt: refundEntry.at };
-        await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
-      }
-    }
+    await patchIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, token, { status: 'refunded', refundedAt: refundEntry.at });
   } catch (e) {
     console.warn('[refund] index update failed', e);
   }

@@ -24,6 +24,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
+import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
 import { setJunk, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
@@ -142,21 +143,11 @@ export async function POST(
   });
   design.statusHistory = history;
 
-  await env.DESIGN_DRAFTS.put(token, JSON.stringify(design), {
-    expirationTtl: 365 * 24 * 60 * 60,
-  });
+  await env.DESIGN_DRAFTS.put(token, JSON.stringify(design));
 
   // Patch the orders index
   try {
-    const indexJson = await env.DESIGN_DRAFTS.get('_orders_index_v1');
-    if (indexJson) {
-      const list = JSON.parse(indexJson) as IndexEntry[];
-      const i = list.findIndex((e) => e.token === token);
-      if (i >= 0) {
-        list[i].status = newStatus;
-        await env.DESIGN_DRAFTS.put('_orders_index_v1', JSON.stringify(list));
-      }
-    }
+    await patchIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, token, { status: newStatus });
   } catch (e) {
     console.warn('Folio admin: orders index patch failed', e);
   }

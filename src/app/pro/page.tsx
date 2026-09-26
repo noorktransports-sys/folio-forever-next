@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { readProSessionFromCookieHeader } from '@/lib/photographer-auth';
+import { readProSessionFromCookieHeader, proSecret } from '@/lib/photographer-auth';
 import { ConnectedAccounts } from './ConnectedAccounts';
 import './pro.css';
 
@@ -25,6 +25,7 @@ interface KVNamespace {
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 interface PhotographerRecord {
@@ -71,7 +72,7 @@ export default async function ProDashboard() {
   const { env } = getRequestContext() as { env: Env };
   const accountId = await readProSessionFromCookieHeader(
     cookieHeader,
-    env.ADMIN_PASSWORD,
+    proSecret(env),
   );
 
   if (!accountId) {

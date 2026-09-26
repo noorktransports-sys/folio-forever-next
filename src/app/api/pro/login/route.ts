@@ -7,6 +7,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { newMagicToken } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
@@ -45,6 +46,7 @@ function escapeHtml(s: string): string {
 
 export async function POST(request: Request) {
   const { env } = getRequestContext() as { env: Env };
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'pro-login', 10, 900))) return tooMany();
   if (!env.DESIGN_DRAFTS) {
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

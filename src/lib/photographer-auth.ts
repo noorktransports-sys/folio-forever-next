@@ -36,6 +36,16 @@ async function hmac(message: string, key: string): Promise<string> {
     .replace(/=+$/, '');
 }
 
+/**
+ * Signing secret for photographer sessions. Use a separate random
+ * SESSION_SECRET (Cloudflare secret) so a photographer's cookie can never
+ * be used to guess the admin password offline. Falls back to
+ * ADMIN_PASSWORD only until SESSION_SECRET is set (older behaviour).
+ */
+export function proSecret(env: { SESSION_SECRET?: string; ADMIN_PASSWORD?: string }): string | undefined {
+  return env.SESSION_SECRET || env.ADMIN_PASSWORD
+}
+
 export async function buildProSessionCookie(
   accountId: string,
   secret: string,

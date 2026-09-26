@@ -45,7 +45,26 @@ export async function GET(
     });
   }
 
-  return new Response(json, {
+  // Real ORDERS: only hand back what the thank-you page needs — never the
+  // customer's address, phone, email or audit data (anyone with the link
+  // could otherwise read them).
+  let body = json;
+  try {
+    const rec = JSON.parse(json) as Record<string, unknown>;
+    if (rec && typeof rec === 'object' && rec.orderId) {
+      body = JSON.stringify({
+        orderId: rec.orderId,
+        status: rec.status,
+        mode: rec.mode,
+        albumName: rec.albumName,
+        sharePack: rec.sharePack ?? null,
+      });
+    }
+  } catch {
+    /* not JSON — return as saved */
+  }
+
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/json',

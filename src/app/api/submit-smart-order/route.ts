@@ -31,6 +31,9 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { getShipping, shippingText } from '@/lib/shipping';
+import { quoteSmartOrder, ORDER_SOURCE } from '@/lib/pricing';
+import { putIndexEntry, type IndexKV } from '@/lib/order-index';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import {
   ownerPendingPaymentEmailHtml,
   sendResendEmail,
@@ -60,8 +63,6 @@ interface Env {
 
 const DEFAULT_FROM = 'Folio Forever <orders@folioforever.com>';
 const DEFAULT_OWNER = 'noorktransports@gmail.com';
-const ORDERS_INDEX_KEY = '_orders_index_v1';
-const SUBMITTED_TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
 
 /* ─── Types ────────────────────────────────────────────────────────── */
 
@@ -148,6 +149,7 @@ interface SubmitPayload {
   };
   /** Delivery option id (lib/shipping.ts). Price is decided HERE. */
   shippingMethod?: string;
+  termsAccepted?: { acceptedAt?: string; version?: string };
   photos: SmartPhotoUpload[];
   spreads: SmartSpreadSnapshot[];
   /** Composite JPEGs of each spread, uploaded by the client at submit
@@ -217,6 +219,11 @@ function mintOrderId(token: string): string {
 /* ─── Handler ──────────────────────────────────────────────────────── */
 
 export async function POST(request: Request) {
+  {
+    const { env } = getRequestContext() as { env: Env };
+    // 6 order submits per 10 minutes per IP is plenty for a real couple.
+    if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'submit-smart', 6, 600))) return tooMany();
+  }
   // Validate payload
   let payload: SubmitPayload;
   try {
@@ -250,6 +257,9 @@ export async function POST(request: Request) {
   if (!payload.contentRights || !payload.contentRights.acceptedAt) {
     return err(400, 'Missing content rights acceptance (clauses 2.2 / 2.4)');
   }
+  if (!payload.termsAccepted?.acceptedAt) {
+    return err(400, 'Please accept the Terms of Service and Refund Policy');
+  }
 
   const { env } = getRequestContext() as { env: Env };
   const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
@@ -264,12 +274,41 @@ export async function POST(request: Request) {
     null;
   const userAgent = request.headers.get('user-agent') || null;
 
-  // Delivery option: the amount comes from lib/shipping (server-side) and
-  // is folded into album.totalPrice so admin, emails and revenue all see
-  // the full amount the client pays.
-  const ship = getShipping(payload.shippingMethod);
+  // ── PRICE IS DECIDED HERE ──
+  // Recomputed from lib/pricing (the same table the builder shows). The
+  // browser's totalPrice / cover priceAdd are ignored, so a tampered
+  // request can't lower the amount.
+  let quote;
+  try {
+    quote = quoteSmartOrder({
+      size: payload.album.size,
+      type: payload.album.type,
+      spreads: Array.isArray(payload.spreads) && payload.spreads.length > 0 ? payload.spreads.length : payload.album.pageCount,
+      coverType: payload.cover?.type,
+      polish: !!payload.polishHandoff,
+      shippingId: payload.shippingMethod,
+    });
+  } catch (e) {
+    return err(400, e instanceof Error ? e.message : 'Invalid album');
+  }
+  const ship = getShipping(quote.shippingId);
   payload.shipping = { ...payload.shipping, method: ship.id, methodLabel: shippingText(ship), shippingUsd: ship.usd };
-  payload.album = { ...payload.album, totalPrice: payload.album.totalPrice + ship.usd };
+  payload.album = {
+    ...payload.album,
+    pageCount: Array.isArray(payload.spreads) && payload.spreads.length > 0 ? payload.spreads.length : payload.album.pageCount,
+    totalPrice: quote.totalUsd,
+  };
+  if (payload.cover) payload.cover = { ...payload.cover, priceAdd: quote.coverUsd };
+
+  // Only accept files that were uploaded for THIS album (keys under
+  // designs/<albumId>/) and site-relative photo URLs — never outside links.
+  const albumPrefix = `designs/${String(payload.albumId ?? '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64)}/`;
+  const ownKey = (k: unknown) => typeof k === 'string' && k.startsWith(albumPrefix);
+  const ownUrl = (u: unknown) => typeof u === 'string' && u.startsWith(`/api/photo/${albumPrefix}`);
+  payload.spreadComposites = (payload.spreadComposites ?? []).filter((c) => ownKey(c.key) && ownUrl(c.url));
+  if (payload.photos.some((ph) => (ph.originalKey && !ownKey(ph.originalKey)) || (ph.previewKey && !ownKey(ph.previewKey)))) {
+    return err(400, 'Photo files do not belong to this album');
+  }
 
   // Mint identifiers
   const token = mintToken();
@@ -298,6 +337,10 @@ export async function POST(request: Request) {
       photos: payload.photos,
       spreads: payload.spreads,
       spreadComposites: payload.spreadComposites ?? [],
+      // Server-computed price (the ONLY amount checkout will charge) and
+      // the marker that proves this record came from this route.
+      pricing: quote,
+      orderSource: ORDER_SOURCE,
       // Share-ready Instagram-Story-sized cards. Surfaced on the
       // /design/smart/success page so the couple can post immediately
       // — each carries a folioforever footer for organic acquisition.
@@ -308,14 +351,17 @@ export async function POST(request: Request) {
       // the canonical evidence record.
       proofApproval: payload.proofApproval,
       contentRights: payload.contentRights,
+      termsAccepted: {
+        acceptedAt: String(payload.termsAccepted.acceptedAt).slice(0, 40),
+        version: String(payload.termsAccepted.version ?? '').slice(0, 40),
+      },
       lowResPhotos: payload.lowResPhotos ?? [],
       auditClientIp: clientIp,
       auditUserAgent: userAgent,
     };
     try {
-      await env.DESIGN_DRAFTS.put(token, JSON.stringify(record), {
-        expirationTtl: SUBMITTED_TTL_SECONDS,
-      });
+      // No expiry: orders and their legal records are kept.
+      await env.DESIGN_DRAFTS.put(token, JSON.stringify(record));
       // ── Standalone audit records (clauses 2.2 / 2.3 / 2.4) ──
       // Stored under their own keys so a future legal review can pull
       // them without scanning every order. Same 1-year TTL.
@@ -331,9 +377,7 @@ export async function POST(request: Request) {
         userAgent,
         serverReceivedAt: submittedAt,
       };
-      await env.DESIGN_DRAFTS.put(proofKey, JSON.stringify(proofAudit), {
-        expirationTtl: SUBMITTED_TTL_SECONDS,
-      });
+      await env.DESIGN_DRAFTS.put(proofKey, JSON.stringify(proofAudit));
       const rightsKey = `content_rights:${orderId}`;
       const rightsAudit = {
         orderId,
@@ -346,16 +390,9 @@ export async function POST(request: Request) {
         userAgent,
         serverReceivedAt: submittedAt,
       };
-      await env.DESIGN_DRAFTS.put(rightsKey, JSON.stringify(rightsAudit), {
-        expirationTtl: SUBMITTED_TTL_SECONDS,
-      });
-      // Append to the shared orders index so /admin lists this alongside
-      // manual orders. Keep the entry shape consistent with the manual flow.
-      const indexRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
-      const index: Array<Record<string, unknown>> = indexRaw
-        ? (JSON.parse(indexRaw) as Array<Record<string, unknown>>)
-        : [];
-      index.unshift({
+      await env.DESIGN_DRAFTS.put(rightsKey, JSON.stringify(rightsAudit));
+      // Admin list entry — one key per order (no shared-array races).
+      await putIndexEntry(env.DESIGN_DRAFTS as unknown as IndexKV, {
         token,
         orderId,
         mode: 'smart',
@@ -372,12 +409,14 @@ export async function POST(request: Request) {
         rightsAcceptedAt: payload.contentRights?.acceptedAt ?? null,
         clauseVersion: payload.proofApproval?.clauseVersion ?? null,
       });
-      await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
     } catch (e) {
-      // Continue to email anyway — we'd rather get the lead than lose it
-      // because of a transient KV blip.
+      // Never tell the customer "order received" when it wasn't saved —
+      // the payment link would then point at nothing.
       console.warn('[submit-smart-order] KV persistence failed', e);
+      return err(503, 'We could not save your order — please try again in a minute');
     }
+  } else {
+    return err(503, 'Order storage is not available right now — please try again later');
   }
 
   // Owner heads-up: someone got to checkout. No customer email yet — that

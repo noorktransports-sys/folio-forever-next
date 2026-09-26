@@ -17,8 +17,11 @@
   --gold-light: #d4b07a;
   --cream: #e8d5b0;
   --cream-light: #f5f0e8;
-  --muted: #6b5e4e;
-  --muted2: #8a7a65;
+  /* Raised for WCAG AA contrast on the dark background (light sections
+     override these locally — see homepage.css). */
+  --muted: #9a8b74;
+  --muted2: #a89a84;
+  --gold-ink: #7a5f2e; /* gold text on light backgrounds */
   --white: #ffffff;
   --font-display: 'Cormorant Garamond', serif;
   --font-body: 'Montserrat', sans-serif;
@@ -39,4 +42,10 @@ body {
   background: var(--dark);
   color: var(--cream);
   overflow-x: hidden;
+}
+
+/* Keyboard focus — visible everywhere, only for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }

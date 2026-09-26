@@ -828,14 +828,12 @@ export default function AlbumViewer({
               {isSubmitted ? (
                 <span className="album-end-locked">Submitted &#10003;</span>
               ) : (
-                <button
-                  type="button"
-                  className="album-end-primary"
-                  disabled={submitting}
-                  onClick={openShippingForm}
-                >
-                  {submitting ? 'Submitting…' : 'Submit album'}
-                </button>
+                // Ordering now happens in the album designer (secure checkout
+                // with proof approval + payment); this older preview can't
+                // place orders any more.
+                <Link href="/design/smart" className="album-end-primary">
+                  Order in the album designer →
+                </Link>
               )}
             </div>
             {!isSubmitted && isOwner ? (

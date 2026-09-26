@@ -576,7 +576,7 @@ nav {
 .sample-desc { font-size: 13px; color: var(--muted2); max-width: 400px; margin: 0 auto 40px; line-height: 1.8; }
 
 /* FOOTER */
-footer {
+footer:not(.site-footer) {
   background: var(--dark);
   border-top: 0.5px solid rgba(184,150,90,0.1);
   padding: 40px 5%;
@@ -622,7 +622,7 @@ footer {
   .strip-inner { flex-direction: column; text-align: center; }
   .trust-divider { display: none; }
   .trust-bar { gap: 24px; }
-  footer { flex-direction: column; text-align: center; }
+  footer:not(.site-footer) { flex-direction: column; text-align: center; }
 }
 
 /* ANIMATIONS */
@@ -635,3 +635,22 @@ footer {
 .hero-title { animation: fadeUp 0.8s 0.2s ease both; }
 .hero-subtitle { animation: fadeUp 0.8s 0.4s ease both; }
 .hero-btns { animation: fadeUp 0.8s 0.6s ease both; }
+
+/* Light sections: darker muted/gold tones so text keeps AA contrast. */
+.trust-bar,
+.difference-section,
+.compare-side.standard,
+.photographer-strip,
+.testimonial-section {
+  --muted: #5e5244;
+  --muted2: #6b5e4e;
+}
+.difference-section .section-tag,
+.photographer-strip .section-tag,
+.strip-text .section-tag,
+.testimonial-section .section-tag,
+.testimonial-author,
+.testimonial-author a {
+  color: var(--gold-ink);
+}
+.compare-side.standard .compare-label-overlay { color: #6b5e4e; }

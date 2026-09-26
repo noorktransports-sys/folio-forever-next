@@ -213,10 +213,32 @@ function startNewAlbumAndNavigate(router: ReturnType<typeof useRouter>, path: st
   router.push(path + sep + 'album=' + id);
 }
 
+/** Make a clickable card usable with the keyboard (Enter / Space). */
+function cardProps(onActivate: () => void) {
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
+
 export default function DesignerPage() {
   const router = useRouter();
   const pathname = usePathname();
   const currentStep: RouteStep = deriveStepFromPath(pathname || '/design');
+
+  // The old self-design / expert builder could not take payment (it only
+  // pretended to submit). Every album is now ordered through the Smart
+  // designer, which saves a priced order and opens secure checkout.
+  useEffect(() => {
+    if (currentStep !== 'intro') router.replace('/design/smart');
+  }, [currentStep, router]);
 
   const [photos, setPhotos] = useState<{ id: string; src: string }[]>([]);
 
@@ -712,7 +734,7 @@ export default function DesignerPage() {
         <div className="path-choice">
           <div
             className="path-card recommended"
-            onClick={() => router.push('/design/smart')}
+            {...cardProps(() => router.push('/design/smart'))}
           >
             <div className="path-badge">Recommended</div>
             <div className="path-icon">
@@ -723,7 +745,7 @@ export default function DesignerPage() {
               </svg>
             </div>
             <p className="path-name">Smart Auto-Layout</p>
-            <span className="path-tagline">AI-assisted designer · Beta</span>
+            <span className="path-tagline">Smart Auto-Layout designer</span>
             <p className="path-desc">
               Tag your favorites and our smart layout engine arranges
               the album for you. Adjust before ordering.
@@ -744,7 +766,7 @@ export default function DesignerPage() {
 
           <div
             className="path-card"
-            onClick={() => router.push('/design/magazine')}
+            {...cardProps(() => router.push('/design/magazine'))}
           >
             <div className="path-badge">New</div>
             <div className="path-icon">
@@ -775,38 +797,9 @@ export default function DesignerPage() {
             </button>
           </div>
 
-          <div className="path-card" onClick={() => startNewAlbumAndNavigate(router, '/design/product')}>
-            <div className="path-icon">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <rect x="2" y="2" width="7" height="7" stroke="#b8965a" strokeWidth="0.8" />
-                <rect x="11" y="2" width="7" height="4" stroke="#b8965a" strokeWidth="0.8" />
-                <rect x="11" y="9" width="7" height="9" stroke="#b8965a" strokeWidth="0.8" />
-                <rect x="2" y="12" width="7" height="6" stroke="#b8965a" strokeWidth="0.8" />
-              </svg>
-            </div>
-            <p className="path-name">I&apos;ll design it</p>
-            <span className="path-tagline">Self-design builder</span>
-            <p className="path-desc">
-              Upload your photos and place them into pre-built layouts.
-              Simple drag and drop — no design skills needed.
-            </p>
-            <ul className="path-features">
-              <li>Upload your photos directly</li>
-              <li>12 curated layouts per spread</li>
-              <li>Drag &amp; drop to fill each page</li>
-              <li>Preview before submitting</li>
-            </ul>
-            <span className="path-price">
-              Included <span>in your album price</span>
-            </span>
-            <button type="button" className="btn-path btn-path-secondary">
-              Open the Builder
-            </button>
-          </div>
-
           <div
             className="path-card"
-            onClick={() => router.push('/design/expert')}
+            {...cardProps(() => router.push('/design/smart'))}
           >
             <div className="path-icon">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -818,23 +811,24 @@ export default function DesignerPage() {
                 />
               </svg>
             </div>
-            <p className="path-name">We design it</p>
-            <span className="path-tagline">Expert design service</span>
+            <p className="path-name">Our team finishes it</p>
+            <span className="path-tagline">Design-team polish</span>
             <p className="path-desc">
-              Upload your photos and our team professionally layouts every
-              spread — beautifully composed, perfectly balanced.
+              Build your album with Smart Auto-Layout, then add
+              &ldquo;Design-team polish&rdquo; at checkout — our designers
+              hand-finish every spread before printing.
             </p>
             <ul className="path-features">
-              <li>Upload your photos</li>
-              <li>Our designers handle everything</li>
-              <li>Digital proof within 3 business days</li>
-              <li>One round of revisions included</li>
+              <li>Start with Smart Auto-Layout</li>
+              <li>Tick &ldquo;Polish hand-off&rdquo; before you pay</li>
+              <li>We refine crops, pacing and balance</li>
+              <li>Printed after our designers finish</li>
             </ul>
             <span className="path-price">
-              +$150 <span>design fee added to order</span>
+              +$99 <span>added at checkout</span>
             </span>
-            <button type="button" className="btn-path btn-path-primary">
-              Choose Expert Design
+            <button type="button" className="btn-path btn-path-primary" tabIndex={-1}>
+              Start my album
             </button>
           </div>
         </div>
@@ -1298,7 +1292,7 @@ export default function DesignerPage() {
 
       <div className="modal-overlay" id="modalOverlay">
         <div className="modal">
-          <button type="button" className="modal-close" onClick={() => fb('closeModal')}>×</button>
+          <button type="button" className="modal-close" aria-label="Close" onClick={() => fb('closeModal')}>×</button>
           <span className="modal-tag">Almost done</span>
           <h2 className="modal-title">Submit your <em>design</em></h2>
           <p className="modal-desc">

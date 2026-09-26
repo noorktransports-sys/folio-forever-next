@@ -40,7 +40,7 @@ function Inner() {
           <p style={{ color: 'var(--muted2)', fontSize: 14, lineHeight: 1.8 }}>
             Your wedding magazine order{order ? <> <strong style={{ color: 'var(--cream)' }}>{order}</strong></> : null} is confirmed.
             <br />A confirmation email with your approved pages is on its way.
-            <br />We&apos;ll be in touch about shipping.
+            <br />Printing takes 5–7 business days once payment is complete, then it ships with the delivery option you chose. We&apos;ll email tracking.
           </p>
         )}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 28, flexWrap: 'wrap' }}>

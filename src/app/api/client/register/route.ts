@@ -11,6 +11,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { sendResendEmail } from '@/lib/smart-order-emails';
 
 export const runtime = 'edge';
@@ -93,12 +94,13 @@ export async function POST(request: Request) {
     return json({ ok: false, error: 'Please enter a valid phone number' }, 400);
 
   const { env } = getRequestContext() as { env: Env };
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'client-register', 5, 3600))) return tooMany();
   if (!env.DESIGN_DRAFTS) return json({ ok: false, error: 'Storage unavailable' }, 500);
   if (!env.RESEND_API_KEY)
     return json({ ok: false, error: 'Email service not configured' }, 500);
 
   // 6-digit numeric code.
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
 
   await env.DESIGN_DRAFTS.put(
     `clientcode:${email}`,

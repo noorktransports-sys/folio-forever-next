@@ -9,7 +9,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { buildProSessionCookie } from '@/lib/photographer-auth';
+import { buildProSessionCookie, proSecret } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
 
@@ -25,6 +25,7 @@ interface KVNamespace {
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
   ADMIN_PASSWORD?: string;
+  SESSION_SECRET?: string;
 }
 
 export async function GET(request: Request) {
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
   if (!token || !/^[a-f0-9]{32}$/i.test(token)) {
     return Response.redirect(`${url.origin}/pro/login?error=invalid`, 302);
   }
-  if (!env.DESIGN_DRAFTS || !env.ADMIN_PASSWORD) {
+  if (!env.DESIGN_DRAFTS || !proSecret(env)) {
     return Response.redirect(`${url.origin}/pro/login?error=unavailable`, 302);
   }
 
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
 
   const cookie = await buildProSessionCookie(
     record.accountId,
-    env.ADMIN_PASSWORD,
+    proSecret(env) as string,
   );
   return new Response(null, {
     status: 302,

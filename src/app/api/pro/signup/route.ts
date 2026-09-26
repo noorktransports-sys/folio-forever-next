@@ -11,6 +11,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
+import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { newAccountId } from '@/lib/photographer-auth';
 
 export const runtime = 'edge';
@@ -73,6 +74,7 @@ function escapeHtml(s: string): string {
 
 export async function POST(request: Request) {
   const { env } = getRequestContext() as { env: Env };
+  if (!(await allowRequest(env.DESIGN_DRAFTS, request, 'pro-signup', 5, 3600))) return tooMany();
   if (!env.DESIGN_DRAFTS) return err(503, 'storage unavailable');
 
   let body: {
