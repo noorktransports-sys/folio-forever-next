@@ -166,6 +166,37 @@ export async function POST(request: Request) {
   const payment = event.data?.object?.payment;
   if (!payment) return new Response('No payment in event', { status: 400 });
 
+  // FAILED / CANCELED attempts: the order stays "payment not clear"; we
+  // just record the attempt so the admin can see what happened.
+  if ((payment.status === 'FAILED' || payment.status === 'CANCELED') && payment.order_id && env.SQUARE_ACCESS_TOKEN && env.DESIGN_DRAFTS) {
+    try {
+      const envName0: 'production' | 'sandbox' = env.SQUARE_ENV === 'sandbox' ? 'sandbox' : 'production';
+      const tok = await lookupOrderToken(env.SQUARE_ACCESS_TOKEN, envName0, payment.order_id);
+      const raw0 = tok ? await env.DESIGN_DRAFTS.get(tok) : null;
+      if (tok && raw0) {
+        const rec = JSON.parse(raw0) as Record<string, unknown> & { status?: string };
+        if (rec.status === 'pending_payment') {
+          const issue = { status: payment.status, at: new Date().toISOString() };
+          await env.DESIGN_DRAFTS.put(tok, JSON.stringify({ ...rec, paymentIssue: issue }), { expirationTtl: SUBMITTED_TTL_SECONDS });
+          const idxRaw = await env.DESIGN_DRAFTS.get(ORDERS_INDEX_KEY);
+          if (idxRaw) {
+            const idx = JSON.parse(idxRaw) as Array<Record<string, unknown>>;
+            const i = idx.findIndex((e) => e.token === tok);
+            if (i >= 0) {
+              idx[i] = { ...idx[i], paymentIssue: issue };
+              await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(idx));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[square-webhook] could not record failed payment', e);
+    }
+    return new Response(JSON.stringify({ ok: true, recorded: payment.status }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // We only act on COMPLETED payments. Square fires payment.updated for
   // many transitions (APPROVED, COMPLETED, FAILED, etc.).
   if (payment.status !== 'COMPLETED') {

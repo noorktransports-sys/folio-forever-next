@@ -53,6 +53,7 @@ interface OrderEntry {
   rightsAcceptedAt?: string | null;
   junk?: boolean;
   junkAt?: string;
+  paymentIssue?: { status: string; at: string };
 }
 interface DraftEntry {
   token: string;
@@ -67,7 +68,7 @@ interface DraftEntry {
 function statusLabel(s?: string): string {
   switch (s) {
     case 'pending_payment':
-      return 'Pending payment';
+      return 'Payment not clear';
     case 'paid':
       return 'Paid';
     case 'in_design':
@@ -286,7 +287,7 @@ export default async function AdminPage({
         </div>
         <div className="admin-stat admin-stat-pending">
           <div className="admin-stat-label">
-            Pending payment
+            Payment not clear
             {abandonedCount > 0 && <span className="admin-stat-soon" title={`${abandonedCount} older than 24h`}>{abandonedCount} stale</span>}
           </div>
           <div className="admin-stat-value">{pendingPaymentCount}</div>
@@ -354,7 +355,7 @@ export default async function AdminPage({
           All ({totalOrders})
         </Link>
         <Link href="/admin?tab=pending_payment" className={'admin-tab' + (tab === 'pending_payment' ? ' is-active' : '')}>
-          Pending payment ({pendingPaymentCount})
+          Payment not clear ({pendingPaymentCount})
         </Link>
         <Link href="/admin?tab=paid" className={'admin-tab' + (tab === 'paid' ? ' is-active' : '')}>
           Paid ({paidCount})
@@ -462,6 +463,7 @@ export default async function AdminPage({
               total: totalPriceOf(o),
               mode: o.mode,
               junkAt: o.junkAt,
+              paymentIssue: o.paymentIssue?.status,
             }),
           )}
         />

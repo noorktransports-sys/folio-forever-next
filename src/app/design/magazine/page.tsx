@@ -411,7 +411,12 @@ function MagazineDesigner() {
         body: JSON.stringify({ token: j.token }),
       })
       const pj = await pay.json().catch(() => ({}))
-      if (!pay.ok || !pj.url) throw new Error(pj.error || 'Payment could not start — please try again')
+      if (!pay.ok || !pj.url) {
+        // The order IS saved (and the client has an email with the order
+        // number + a payment link) — never make them submit it twice.
+        window.location.href = `/design/magazine/success?order=${encodeURIComponent(j.orderId ?? '')}&pending=1`
+        return
+      }
       window.location.href = pj.url
     } catch (e) {
       setOrderErr(e instanceof Error ? e.message : 'Something went wrong — please try again')

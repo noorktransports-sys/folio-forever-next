@@ -2591,14 +2591,11 @@ function SmartDesignerInner() {
         body: JSON.stringify({ token: json.token }),
       })
       if (!checkoutRes.ok) {
-        let detail = ''
-        try {
-          const j = (await checkoutRes.json()) as { error?: string }
-          detail = j.error ?? ''
-        } catch {
-          /* ignore */
-        }
-        throw new Error(`Couldn't start payment${detail ? ': ' + detail : ''}`)
+        // The order IS saved (status "payment not clear") and the client
+        // was emailed their order number + a payment link — send them to
+        // the pending page instead of an error, so they never resubmit.
+        window.location.href = `/design/smart/success?order=${encodeURIComponent(json.orderId)}&token=${encodeURIComponent(json.token)}&pending=1`
+        return
       }
       const checkoutJson = (await checkoutRes.json()) as { url: string }
       // Hard navigation — Stripe's hosted checkout takes over from here.

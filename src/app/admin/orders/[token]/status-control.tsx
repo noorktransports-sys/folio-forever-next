@@ -15,7 +15,7 @@
 import { useState } from 'react';
 
 const STATUSES = [
-  { v: 'pending_payment', label: 'Pending payment', forSmart: true },
+  { v: 'pending_payment', label: 'Payment not clear', forSmart: true },
   { v: 'in_design', label: 'In design', forSmart: true },
   { v: 'in_production', label: 'In production', forSmart: true },
   { v: 'shipped', label: 'Shipped', forSmart: true },

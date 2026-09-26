@@ -35,6 +35,7 @@ function SuccessInner() {
   const params = useSearchParams()
   const orderId = params?.get('order') ?? null
   const token = params?.get('token') ?? null
+  const pending = params?.get('pending') === '1'
 
   const [sharePack, setSharePack] = useState<SharePack | null>(null)
 
@@ -113,7 +114,15 @@ function SuccessInner() {
             color: '#f5f0e6',
           }}
         >
-          Thank you — payment <em style={{ color: GOLD, fontStyle: 'italic' }}>received</em>.
+          {pending ? (
+            <>
+              Order received — payment <em style={{ color: GOLD, fontStyle: 'italic' }}>still needed</em>.
+            </>
+          ) : (
+            <>
+              Thank you — payment <em style={{ color: GOLD, fontStyle: 'italic' }}>received</em>.
+            </>
+          )}
         </h1>
         {orderId && (
           <p style={{ fontSize: 13, letterSpacing: 1.5, color: GOLD, marginBottom: 18, textTransform: 'uppercase' }}>
@@ -122,9 +131,9 @@ function SuccessInner() {
         )}
 
         <p style={{ fontSize: 13, lineHeight: 1.7, color: '#cbb98a', margin: '0 0 24px' }}>
-          We&apos;ve received your payment and your album is now locked for production.
-          A confirmation email is on its way to your inbox — if you don&apos;t see it within a
-          few minutes, check spam, or reply to{' '}
+          {pending
+            ? 'Your album order is saved. Online payment couldn’t open just now — nothing was charged. We’ve emailed you your order number and a “Complete payment” link; production starts once payment is complete. Questions? Reply to that email or write to '
+            : 'We’ve received your payment and your album is now locked for production. A confirmation email is on its way to your inbox — if you don’t see it within a few minutes, check spam, or reply to '}
           <a href="mailto:orders@folioforever.com" style={{ color: GOLD }}>
             orders@folioforever.com
           </a>

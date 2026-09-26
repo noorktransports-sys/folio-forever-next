@@ -25,6 +25,8 @@ export interface OrderRow {
   total: number
   mode?: string
   junkAt?: string
+  /** Last failed/cancelled Square attempt, e.g. "FAILED". */
+  paymentIssue?: string
 }
 
 export default function OrdersTable({ rows, mode }: { rows: OrderRow[]; mode: 'live' | 'junk' }) {
@@ -191,6 +193,9 @@ export default function OrdersTable({ rows, mode }: { rows: OrderRow[]; mode: 'l
               </td>
               <td>
                 <span className={'admin-status admin-status-' + (o.status || 'submitted')}>{o.statusLabel}</span>
+                {o.status === 'pending_payment' && o.paymentIssue && (
+                  <div style={{ fontSize: 10, color: '#8a2a2a', marginTop: 3 }}>last attempt {o.paymentIssue.toLowerCase()}</div>
+                )}
               </td>
               <td>
                 {o.total > 0 ? (

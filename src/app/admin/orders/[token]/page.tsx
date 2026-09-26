@@ -93,6 +93,7 @@ interface SavedDesign {
   status?: string;
   junk?: boolean;
   junkAt?: string;
+  paymentIssue?: { status: string; at: string };
   orderId?: string;
   submittedAt?: string;
   savedAt?: string;
@@ -156,7 +157,7 @@ interface SavedDesign {
 
 function statusLabel(s?: string): string {
   switch (s) {
-    case 'pending_payment': return 'Pending payment';
+    case 'pending_payment': return 'Payment not clear';
     case 'paid': return 'Paid';
     case 'in_design': return 'In design';
     case 'in_production': return 'In production';
@@ -397,7 +398,10 @@ export default async function OrderDetail({
                 {isPaidLike ? (
                   <span className="admin-paid-yes">Paid · ${(design.squareAmountTotalCents ?? totalPrice * 100) / 100}</span>
                 ) : design.status === 'pending_payment' ? (
-                  <span className="admin-paid-no">Awaiting payment</span>
+                  <span className="admin-paid-no">
+                    Payment not clear
+                    {design.paymentIssue ? ` — last attempt ${design.paymentIssue.status.toLowerCase()} ${new Date(design.paymentIssue.at).toLocaleString()}` : ' — client has not paid yet'}
+                  </span>
                 ) : (
                   <span className="admin-paid-no">{statusLabel(design.status)}</span>
                 )}
