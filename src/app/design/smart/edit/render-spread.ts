@@ -24,6 +24,7 @@
 
 import { rotationCoverZoom } from '@/lib/smart-layout/rotate-cover'
 import { encodePrintJpeg } from './jpeg-print'
+import { loadPrintImage, makePrintCanvas, sampleBox, boxChanged, sourceMatchesColor, assertPageRendered, type PrintSource } from '@/lib/print-image'
 
 const COMPOSITE_LONG_EDGE = 2000
 const JPEG_QUALITY = 0.85
@@ -232,20 +233,6 @@ const DEFAULT_ADJUST: PhotoAdjust = {
   fit: 'fill',
 }
 
-/**
- * Load an <img> we can draw onto canvas. Source can be a blob: URL,
- * an https:// URL, or a data: URL. crossOrigin is set for https so the
- * canvas isn't tainted (sample picsum photos send CORS headers).
- */
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image()
-    if (/^https?:\/\//.test(src)) img.crossOrigin = 'anonymous'
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error(`Image load failed: ${src.slice(0, 80)}`))
-    img.src = src
-  })
-}
 
 /**
  * Render one spread to a Blob.
@@ -278,11 +265,14 @@ export async function renderSpreadComposite({
   // the spread aspect.
   const W = Math.max(64, Math.round(outputLongEdgePx ?? COMPOSITE_LONG_EDGE))
   const H = Math.round(W / spreadAspectRatio)
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 2d context unavailable')
+  // Print renders (outputLongEdgePx set) are STRICT: photos are decoded
+  // one at a time at the size needed, every filled frame is verified, and
+  // any failure throws so the caller retries / stops — never a blank frame
+  // in a print file. On-screen previews stay lenient.
+  const strict = !!outputLongEdgePx
+  const { canvas, ctx } = makePrintCanvas(W, H)
+  const held: PrintSource[] = []
+  try {
 
   // ── Background (paper / colour / blurred photo) ──
   // Must match the editor's SpreadView render exactly so the printed
@@ -300,10 +290,12 @@ export async function renderSpreadComposite({
     const bgPhoto = photos.get(bg.photoId)
     if (bgPhoto) {
       try {
-        const bgImg = await loadImage(bgPhoto.preview)
         const z = Math.min(BG_PHOTO_MAX_ZOOM, Math.max(1, bg.zoom ?? 1))
+        const bgSrc = await loadPrintImage(bgPhoto.preview, (nw, nh) => Math.max(W / nw, H / nh) * z)
+        held.push(bgSrc)
+        const bgImg = bgSrc.source
         // cover-fit the spread, then apply zoom
-        const ir = bgImg.naturalWidth / bgImg.naturalHeight
+        const ir = bgSrc.width / bgSrc.height
         const sr = W / H
         let cw: number
         let ch: number
@@ -337,8 +329,9 @@ export async function renderSpreadComposite({
           ctx.fillRect(0, 0, W, H)
           ctx.restore()
         }
-      } catch {
-        // bg photo failed to load — fall back to the flat fill already drawn
+      } catch (e) {
+        if (strict) throw e
+        // preview only: bg photo failed to load — keep the flat fill
       }
     }
   }
@@ -366,10 +359,15 @@ export async function renderSpreadComposite({
     const sw = (slot.w / 100) * W
     const sh = (slot.h / 100) * H
 
-    let img: HTMLImageElement
+    let pimg: PrintSource
     try {
-      img = await loadImage(photo.preview)
-    } catch {
+      const rot0 = adj.rotate || 0
+      pimg = await loadPrintImage(photo.preview, (nw, nh) =>
+        Math.max(sw / nw, sh / nh) * Math.max(adj.zoom || 1, rotationCoverZoom(nw / nh, sw / sh, rot0)),
+      )
+      held.push(pimg)
+    } catch (e) {
+      if (strict) throw new Error(`Spread ${spread.id}: ${e instanceof Error ? e.message : 'photo failed'}`)
       // Skip slots whose image can't be loaded (broken blob URL, CORS, etc.)
       // The slot will appear as the slot-background grey instead.
       ctx.save()
@@ -400,8 +398,9 @@ export async function renderSpreadComposite({
     }
     ctx.clip()
 
+    const img = pimg.source
     // Cover dims at zoom=1: scale image so smaller dimension fills slot.
-    const ir = img.naturalWidth / img.naturalHeight
+    const ir = pimg.width / pimg.height
     const sr = sw / sh
     let coverW: number
     let coverH: number
@@ -442,6 +441,7 @@ export async function renderSpreadComposite({
     const offsetY = ((50 - adj.panY) / 100) * overflowY
 
     if (slot.filter === 'bw') ctx.filter = 'grayscale(1)'
+    const before = strict ? sampleBox(ctx, sx, sy, sw, sh) : null
     ctx.drawImage(
       img,
       -coverW / 2 + offsetX,
@@ -450,6 +450,10 @@ export async function renderSpreadComposite({
       coverH,
     )
     ctx.restore()
+    if (before && !boxChanged(before, sampleBox(ctx, sx, sy, sw, sh)) && !sourceMatchesColor(pimg, before[12])) {
+      throw new Error(`Spread ${spread.id}: a photo did not draw`)
+    }
+    pimg.release()
 
     // Photo frame (border) — drawn INSIDE the slot rect as 4 bars so it
     // matches the editor's inset border. Width = 2.2% of slot width at
@@ -588,8 +592,13 @@ export async function renderSpreadComposite({
     }
   }
 
+  } finally {
+    for (const h of held) h.release()
+  }
+
   // Print files (submit-time, outputLongEdgePx set): 0.95 quality +
   // 300-DPI header. On-screen previews keep the lighter 0.85.
+  if (strict) assertPageRendered(ctx, `Spread ${spread.id}`)
   if (outputLongEdgePx) return encodePrintJpeg(canvas, 300)
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(

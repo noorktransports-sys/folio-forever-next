@@ -10,6 +10,7 @@
 // pass a higher `outputLongEdgePx` so the print files hit 300 DPI
 // for the cover's physical height (17" → 5100 px, 20" → 6000 px).
 import { encodePrintJpeg } from './jpeg-print'
+import { loadPrintImage, makePrintCanvas, sampleBox, boxChanged, sourceMatchesColor, assertPageRendered } from '@/lib/print-image'
 
 const LONG_EDGE = 1600
 const JPEG_QUALITY = 0.86
@@ -72,16 +73,6 @@ export interface CoverRenderInput {
   outputLongEdgePx?: number
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image()
-    if (/^https?:\/\//.test(src)) img.crossOrigin = 'anonymous'
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('cover image load failed'))
-    img.src = src
-  })
-}
-
 export async function renderCoverComposite(
   input: CoverRenderInput,
 ): Promise<Blob> {
@@ -91,11 +82,8 @@ export async function renderCoverComposite(
   // when the submit pipeline passes one; default to the preview size.
   const H = Math.max(64, Math.round(input.outputLongEdgePx ?? LONG_EDGE))
   const W = Math.round(H * aspect)
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('2d context unavailable')
+  const strict = !!input.outputLongEdgePx
+  const { canvas, ctx } = makePrintCanvas(W, H)
 
   const isPhotoSide =
     (input.type === 'acrylic' && input.side === 'front') ||
@@ -113,9 +101,11 @@ export async function renderCoverComposite(
       : input.photoSrc
   if (isPhotoSide && photoUrl) {
     try {
-      const img = await loadImage(photoUrl)
+      const scale0 = Math.max(1, input.photoScale || 1)
+      const src = await loadPrintImage(photoUrl, (nw, nh) => Math.max(W / nw, H / nh) * scale0)
+      const img = src.source
       // object-fit: cover baseline.
-      const ir = img.naturalWidth / img.naturalHeight
+      const ir = src.width / src.height
       const fr = W / H
       let cw: number
       let ch: number
@@ -137,10 +127,15 @@ export async function renderCoverComposite(
       ctx.beginPath()
       ctx.rect(0, 0, W, H)
       ctx.clip()
+      const before = strict ? sampleBox(ctx, 0, 0, W, H) : null
       ctx.drawImage(img, dx, dy, cw, ch)
       ctx.restore()
-    } catch {
-      /* keep dark fallback */
+      const drew = !before || boxChanged(before, sampleBox(ctx, 0, 0, W, H)) || sourceMatchesColor(src, before[12])
+      src.release()
+      if (!drew) throw new Error('Cover photo did not draw')
+    } catch (e) {
+      if (strict) throw new Error(`Cover: ${e instanceof Error ? e.message : 'photo failed'}`)
+      /* preview only: keep dark fallback */
     }
   }
 
@@ -214,6 +209,7 @@ export async function renderCoverComposite(
   }
 
   // Print files: 0.95 quality + 300-DPI header (see jpeg-print.ts).
+  if (strict) assertPageRendered(ctx, 'Cover')
   if (input.outputLongEdgePx) return encodePrintJpeg(canvas, 300)
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(

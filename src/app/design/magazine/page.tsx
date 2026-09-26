@@ -35,6 +35,7 @@ import {
 } from '@/lib/magazine/pages'
 import HelpSearch from '../help/HelpSearch'
 import { renderMagPage } from '@/lib/magazine/render'
+import { withRetry } from '@/lib/print-image'
 import { uploadToR2 } from '../smart/edit/submit-helpers'
 import { LEGAL_VERSION, CLAUSE_PROOF_APPROVAL, CLAUSE_CONTENT_RIGHTS, CLAUSE_CONTENT_POLICY } from '@/lib/legal-clauses'
 import {
@@ -372,7 +373,14 @@ function MagazineDesigner() {
       const uploaded: { n: number; key: string; url: string }[] = []
       for (let pi = 0; pi < SP.length; pi++) {
         setProgress({ done: pi, total: SP.length, label: `Preparing page ${pi + 1} of ${SP.length} for print…` })
-        const blob = await renderPage(pi)
+        let blob: Blob
+        try {
+          blob = await withRetry(() => renderPage(pi))
+        } catch (e) {
+          throw new Error(
+            `Page ${pi + 1} could not be prepared for print (${e instanceof Error ? e.message : 'error'}). Nothing was charged — close other browser tabs and press the button again.`,
+          )
+        }
         const up = await uploadToR2(blob, albumId, `page-${String(pi + 1).padStart(2, '0')}.jpg`)
         uploaded.push({ n: pi + 1, key: up.key, url: up.url })
       }
@@ -422,7 +430,7 @@ function MagazineDesigner() {
       const urls: string[] = []
       for (let pi = 0; pi < SP.length; pi++) {
         setProgress({ done: pi, total: SP.length, label: `Making preview page ${pi + 1} of ${SP.length}…` })
-        const blob = await renderPage(pi, { heightPx: 1400, watermark: true })
+        const blob = await withRetry(() => renderPage(pi, { heightPx: 1400, watermark: true }))
         const up = await uploadToR2(blob, albumId, `preview-${String(pi + 1).padStart(2, '0')}.jpg`)
         urls.push(up.url)
       }

@@ -14,6 +14,7 @@ import { encodePrintJpeg } from '@/app/design/smart/edit/jpeg-print'
 import { MAG_ASPECT, drawMagOverlay, type MagPage } from './kit'
 import { magSlotBox, MAG_PRINT_LONG_EDGE_PX } from './pages'
 import { drawMagTexts, type MagMeta, type MagText } from './text'
+import { loadPrintImage, makePrintCanvas, sampleBox, boxChanged, sourceMatchesColor, assertPageRendered, type PrintSource } from '@/lib/print-image'
 
 export type MagRenderPhoto = { preview: string; width: number; height: number }
 export type MagRenderAdjust = { panX: number; panY: number; zoom: number; rotate?: number }
@@ -32,22 +33,6 @@ export type MagRenderInput = {
   watermark?: boolean
 }
 
-const imgCache = new Map<string, Promise<HTMLImageElement>>()
-function loadImage(src: string): Promise<HTMLImageElement> {
-  let p = imgCache.get(src)
-  if (!p) {
-    p = new Promise((resolve, reject) => {
-      const img = new Image()
-      img.decoding = 'async'
-      img.onload = () => resolve(img)
-      img.onerror = () => reject(new Error('Image failed to load'))
-      img.src = src
-    })
-    imgCache.set(src, p)
-  }
-  return p
-}
-
 /** Cover-fit an image into a box (object-fit: cover + object-position). */
 function coverRect(iw: number, ih: number, bw: number, bh: number, panX: number, panY: number) {
   const s = Math.max(bw / iw, bh / ih)
@@ -60,36 +45,31 @@ export async function renderMagPage(input: MagRenderInput): Promise<Blob> {
   const { page } = input
   const H = Math.round(input.heightPx ?? MAG_PRINT_LONG_EDGE_PX)
   const W = Math.round(H * MAG_ASPECT)
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas unavailable')
+  const { canvas, ctx } = makePrintCanvas(W, H)
+  const label = `Page ${page.id.replace(/^.*-p0?/, '')}`
 
   const slots = page.slots.map(magSlotBox)
-  const imgs = await Promise.all(
-    input.photoIds.map(async (id) => {
-      const ph = id ? input.photos.get(id) : undefined
-      if (!ph) return null
-      try {
-        return await loadImage(ph.preview)
-      } catch {
-        return null
-      }
-    }),
-  )
+  const srcOf = (i: number) => {
+    const id = input.photoIds[i]
+    return id ? input.photos.get(id)?.preview ?? null : null
+  }
+  const held: PrintSource[] = []
+  try {
 
   // 1 — background
   const bg = page.bg
   ctx.fillStyle = bg.kind === 'color' ? bg.color : '#ffffff'
   ctx.fillRect(0, 0, W, H)
   if (bg.kind === 'blur') {
-    const bgImg = imgs[bg.slot]
-    if (bgImg) {
-      const r = coverRect(bgImg.naturalWidth, bgImg.naturalHeight, W, H, 50, 50)
+    const src = srcOf(bg.slot)
+    if (src) {
+      // Blurred wash: a small decode is plenty.
+      const bgImg = await loadPrintImage(src, (iw, ih) => Math.max(W / iw, H / ih) * 0.35)
+      held.push(bgImg)
+      const r = coverRect(bgImg.width, bgImg.height, W, H, 50, 50)
       ctx.save()
       ctx.filter = `blur(${(bg.blur / 100) * W}px)`
-      ctx.drawImage(bgImg, r.left, r.top, r.cw, r.ch)
+      ctx.drawImage(bgImg.source, r.left, r.top, r.cw, r.ch)
       ctx.restore()
       ctx.fillStyle = `rgba(0,0,0,${bg.dim})`
       ctx.fillRect(0, 0, W, H)
@@ -113,8 +93,8 @@ export async function renderMagPage(input: MagRenderInput): Promise<Blob> {
     .map((x) => x.i)
   for (const i of order) {
     const s = slots[i]
-    const img = imgs[i]
-    if (!img) continue
+    const src = srcOf(i)
+    if (!src) continue
     const bx = (s.x / 100) * W
     const by = (s.y / 100) * H
     const bw = (s.w / 100) * W
@@ -122,8 +102,14 @@ export async function renderMagPage(input: MagRenderInput): Promise<Blob> {
     const circle = s.shape === 'circle'
     const adj = input.adjusts[`${page.id}::${i}`] ?? { panX: 50, panY: 50, zoom: 1, rotate: 0 }
     const rot = adj.rotate ?? 0
-    const iw = img.naturalWidth
-    const ih = img.naturalHeight
+    // Decode only this photo, at the size this frame needs.
+    const pimg = await loadPrintImage(src, (nw, nh) =>
+      Math.max(bw / nw, bh / nh) * effectiveZoom(adj.zoom, nw / nh, bw / bh, rot),
+    )
+    held.push(pimg)
+    const img = pimg.source
+    const iw = pimg.width
+    const ih = pimg.height
     const z = effectiveZoom(adj.zoom, iw / ih, bw / bh, rot)
     const r = coverRect(iw, ih, bw, bh, adj.panX, adj.panY)
     const dx = ((adj.panX - 50) / 100) * bw
@@ -143,8 +129,14 @@ export async function renderMagPage(input: MagRenderInput): Promise<Blob> {
     ctx.translate(-dx, -dy)
     ctx.translate(-(bx + bw / 2), -(by + bh / 2))
     if (s.filter === 'bw') ctx.filter = 'grayscale(1)'
+    const before = sampleBox(ctx, bx, by, bw, bh)
     ctx.drawImage(img, bx + r.left, by + r.top, r.cw, r.ch)
     ctx.restore()
+    if (!boxChanged(before, sampleBox(ctx, bx, by, bw, bh)) && !sourceMatchesColor(pimg, before[12])) {
+      throw new Error(`${label}: a photo did not draw`)
+    }
+    // Free this photo right away — keeps memory flat on big orders.
+    pimg.release()
 
     // keyline frame (drawn inside the box, like the CSS border)
     if (s.frame && s.frame.pct > 0) {
@@ -160,11 +152,16 @@ export async function renderMagPage(input: MagRenderInput): Promise<Blob> {
     }
   }
 
+  } finally {
+    for (const h of held) h.release()
+  }
+
   // 4 — overlay (cover shading, barcode, rules)
   drawMagOverlay(ctx, page.overlay, W, H)
 
   // 5 — text
   await drawMagTexts(ctx, input.texts, input.meta, W, H)
+  assertPageRendered(ctx, label)
 
   if (input.watermark) {
     const fs = Math.round(W / 16)

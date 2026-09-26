@@ -15,6 +15,7 @@
 import { loadAlbumBlobs } from './photo-blob-store'
 import { renderSpreadComposite } from './render-spread'
 import { renderCoverComposite } from './render-cover'
+import { withRetry } from '@/lib/print-image'
 import {
   renderShareCardCover,
   renderShareCardMontage,
@@ -478,17 +479,21 @@ export async function prepareSubmission({
         continue
       }
       try {
-        const blob = await renderSpreadComposite({
-          spread: s,
-          template: tpl,
-          photos: photoLookup,
-          adjusts: adjusts ?? {},
-          spreadAspectRatio,
-          showGutter: !!showGutter,
-          bg: spreadBgs?.[s.id],
-          texts: spreadTexts?.[s.id],
-          outputLongEdgePx: printSpreadLongEdgePx,
-        })
+        // Retry once; if it still fails we STOP the submission (below)
+        // rather than sending a print package with a missing/blank spread.
+        const blob = await withRetry(() =>
+          renderSpreadComposite({
+            spread: s,
+            template: tpl,
+            photos: photoLookup,
+            adjusts: adjusts ?? {},
+            spreadAspectRatio,
+            showGutter: !!showGutter,
+            bg: spreadBgs?.[s.id],
+            texts: spreadTexts?.[s.id],
+            outputLongEdgePx: printSpreadLongEdgePx,
+          }),
+        )
         // Keep the first 2 spread blobs around in memory so the
         // share-pack montage card (below) can reuse them without
         // re-fetching from R2.
@@ -497,7 +502,10 @@ export async function prepareSubmission({
         composites.push({ spreadId: s.id, key: up.key, url: up.url })
       } catch (err) {
         console.warn('[submit-helpers] composite render failed for spread', s.id, err)
-        // Continue — partial composite set is still useful.
+        throw new Error(
+          `Spread ${i + 1} could not be prepared for print (${err instanceof Error ? err.message : 'error'}). ` +
+            'Nothing was charged — close other browser tabs and press the button again.',
+        )
       }
       done++
       onProgress?.(done, total, `Rendered ${composites.length}/${spreadSteps} spreads`)
@@ -527,13 +535,38 @@ export async function prepareSubmission({
       prevToFinal.set(p.preview, final)
     }
     const rsv = (s: string | null) => (s ? prevToFinal.get(s) ?? s : null)
+    // Local (this-session) blob URLs — fallback if the uploaded copy
+    // can't be fetched for drawing.
+    const prevToLocal = new Map<string, string>()
+    for (const p of photos) {
+      const lookup = photoLookup.get(p.id)
+      if (lookup?.preview) prevToLocal.set(p.preview, lookup.preview)
+    }
+    const localCover = {
+      photoSrc: cover.photoSrc ? prevToLocal.get(cover.photoSrc) ?? cover.photoSrc : null,
+      backPhotoSrc: cover.backPhotoSrc ? prevToLocal.get(cover.backPhotoSrc) ?? cover.backPhotoSrc : null,
+    }
     cover = {
       ...cover,
       photoSrc: rsv(cover.photoSrc),
       backPhotoSrc: rsv(cover.backPhotoSrc),
     }
-    try {
-      const frontBlob = await renderCoverComposite({
+    const renderCoverSafe = async (args: Parameters<typeof renderCoverComposite>[0], label: string) => {
+      try {
+        return await withRetry(() => renderCoverComposite(args))
+      } catch {
+        try {
+          return await renderCoverComposite({ ...args, ...localCover })
+        } catch (err) {
+          throw new Error(
+            `The ${label} could not be prepared for print (${err instanceof Error ? err.message : 'error'}). ` +
+              'Nothing was charged — close other browser tabs and press the button again.',
+          )
+        }
+      }
+    }
+    {
+      const frontBlob = await renderCoverSafe({
         type: cover.type,
         side: 'front',
         leatherColor: cover.leatherColor,
@@ -552,17 +585,15 @@ export async function prepareSubmission({
         titleX: cover.titleX,
         titleY: cover.titleY,
         outputLongEdgePx: printCoverLongEdgePx,
-      })
+      }, 'front cover')
       const up = await uploadToR2(frontBlob, designId, 'cover-front.jpg')
       coverFrontUrl = up.url
       // Reuse for the share-pack cover card below.
       coverFrontBlobCapture = frontBlob
-    } catch (err) {
-      console.warn('[submit-helpers] cover front render failed', err)
     }
     if (cover.type === 'photo') {
-      try {
-        const backBlob = await renderCoverComposite({
+      {
+        const backBlob = await renderCoverSafe({
           type: cover.type,
           side: 'back',
           leatherColor: cover.leatherColor,
@@ -579,11 +610,9 @@ export async function prepareSubmission({
           photoX: cover.photoX,
           photoY: cover.photoY,
           outputLongEdgePx: printCoverLongEdgePx,
-        })
+        }, 'back cover')
         const up = await uploadToR2(backBlob, designId, 'cover-back.jpg')
         coverBackUrl = up.url
-      } catch (err) {
-        console.warn('[submit-helpers] cover back render failed', err)
       }
     }
   }

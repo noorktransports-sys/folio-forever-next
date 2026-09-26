@@ -53,9 +53,13 @@ function shipBlock(o: MagazineOrderEmail): string {
   return lines.join('<br/>') + (s.notes ? `<br/><em>Notes: ${escapeHtml(s.notes)}</em>` : '')
 }
 
-function totals(o: MagazineOrderEmail): string {
+function totals(o: MagazineOrderEmail, paid: boolean): string {
   const ship = o.shippingUsd > 0 ? `$${o.shippingUsd.toFixed(2)}` : 'arranged separately'
-  return `Magazine (20 pages, 8.5×11): $${o.price.toFixed(2)}<br/>Shipping: ${ship}<br/><strong>Total paid: $${(o.price + o.shippingUsd).toFixed(2)}</strong>`
+  const total = `$${(o.price + o.shippingUsd).toFixed(2)}`
+  const line = paid
+    ? `<strong>Total paid: ${total}</strong>`
+    : `<strong>Total due: ${total}</strong> <span style="color:#b0413e">— NOT PAID YET</span>`
+  return `Magazine (20 pages, 8.5×11): $${o.price.toFixed(2)}<br/>Shipping: ${ship}<br/>${line}`
 }
 
 export function ownerMagazineEmailHtml(o: MagazineOrderEmail, siteUrl: string, stage: 'pending' | 'paid'): string {
@@ -63,7 +67,8 @@ export function ownerMagazineEmailHtml(o: MagazineOrderEmail, siteUrl: string, s
 <h1 style="font-weight:400;font-size:24px;margin:0 0 6px">${stage === 'paid' ? 'Magazine order PAID' : 'Magazine order started (awaiting payment)'}</h1>
 <p style="font:13px Arial,sans-serif;color:#6b5f52;margin:0 0 18px">${escapeHtml(o.orderId)} · ${escapeHtml(o.styleName)} · ${escapeHtml(o.names)} · ${escapeHtml(o.date)}</p>
 <p style="font:14px Arial,sans-serif;line-height:1.6"><strong>${escapeHtml(o.customer.name)}</strong> &lt;${escapeHtml(o.customer.email)}&gt;<br/>${shipBlock(o)}</p>
-<p style="font:14px Arial,sans-serif;line-height:1.6">${totals(o)}</p>
+<p style="font:14px Arial,sans-serif;line-height:1.6">${totals(o, stage === 'paid')}</p>
+${stage === 'pending' ? '<p style="font:13px Arial,sans-serif;color:#6b5f52">The client was sent to Square to pay. You will get a second “PAID” email when payment goes through — do not print before that.</p>' : ''}
 <p style="font:13px Arial,sans-serif">Print files (300 DPI, 2550×3300) are in the admin order page — use “Download print package”.</p>
 ${pageGrid(o.pages, siteUrl, 5)}`)
 }
@@ -72,7 +77,7 @@ export function customerMagazineEmailHtml(o: MagazineOrderEmail, siteUrl: string
   return wrap(`
 <h1 style="font-weight:400;font-size:28px;text-align:center;margin:0 0 8px">Thank you, ${escapeHtml(o.customer.name.split(' ')[0] || o.customer.name)}</h1>
 <p style="text-align:center;font-size:16px;font-style:italic;margin:0 0 20px">Your wedding magazine is on its way to print.</p>
-<p style="font:14px Arial,sans-serif;line-height:1.7">Order <strong>${escapeHtml(o.orderId)}</strong><br/>Style: ${escapeHtml(o.styleName)}<br/>${totals(o)}</p>
+<p style="font:14px Arial,sans-serif;line-height:1.7">Order <strong>${escapeHtml(o.orderId)}</strong><br/>Style: ${escapeHtml(o.styleName)}<br/>${totals(o, true)}</p>
 <p style="font:14px Arial,sans-serif;line-height:1.7"><strong>Shipping to</strong><br/>${shipBlock(o)}</p>
 <p style="font:13px Arial,sans-serif;color:#6b5f52">These are the pages you approved:</p>
 ${pageGrid(o.pages, siteUrl, 4)}
