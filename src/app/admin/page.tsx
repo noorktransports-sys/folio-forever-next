@@ -16,11 +16,15 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthedFromCookieHeader } from '@/lib/admin-auth';
 import './admin.css';
 import AdminLogin from './admin-login';
+import OrdersTable, { type OrderRow } from './OrdersTable';
+import { readDeleted, setJunk, staleUnpaidTokens, STALE_UNPAID_DAYS, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
 
 interface KVNamespace {
   get(key: string): Promise<string | null>;
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 interface Env {
   DESIGN_DRAFTS?: KVNamespace;
@@ -47,6 +51,8 @@ interface OrderEntry {
   albumName?: string;
   proofApprovedAt?: string | null;
   rightsAcceptedAt?: string | null;
+  junk?: boolean;
+  junkAt?: string;
 }
 interface DraftEntry {
   token: string;
@@ -110,18 +116,52 @@ export default async function AdminPage({
   const { tab: tabParam } = await searchParams;
   const tab = tabParam || 'all';
 
-  let orders: OrderEntry[] = [];
+  let allOrders: OrderEntry[] = [];
   let drafts: DraftEntry[] = [];
+  let deletedOrders: OrderEntry[] = [];
   try {
     if (env.DESIGN_DRAFTS) {
       const oj = await env.DESIGN_DRAFTS.get('_orders_index_v1');
-      if (oj) orders = JSON.parse(oj);
+      if (oj) allOrders = JSON.parse(oj);
       const dj = await env.DESIGN_DRAFTS.get('_drafts_index_v1');
       if (dj) drafts = JSON.parse(dj);
+      // Deleted-forever orders still count toward revenue history.
+      deletedOrders = (await readDeleted(env.DESIGN_DRAFTS)).map((d) => ({
+        token: d.token,
+        orderId: d.orderId,
+        customerName: d.customerName ?? '',
+        customerEmail: d.customerEmail ?? '',
+        size: d.size ?? '',
+        photoCount: 0,
+        submittedAt: d.submittedAt ?? d.deletedAt,
+        status: d.status,
+        paidAt: d.paidAt,
+        totalPrice: d.totalPrice,
+      }));
+      // Unpaid for 30+ days → Junk automatically.
+      const stale = staleUnpaidTokens(allOrders);
+      if (stale.length) {
+        try {
+          await setJunk(env.DESIGN_DRAFTS as JunkKV, stale.slice(0, 40), true, {
+            note: `Unpaid for ${STALE_UNPAID_DAYS}+ days — moved to Junk automatically`,
+            by: 'system',
+          });
+          const set = new Set(stale.slice(0, 40));
+          const at = new Date().toISOString();
+          allOrders = allOrders.map((o) => (set.has(o.token) ? { ...o, junk: true, junkAt: at } : o));
+        } catch {
+          /* try again next visit */
+        }
+      }
     }
   } catch {
     /* ignore — show empty state */
   }
+  // Junk folder is kept out of every list, count and the activity feed.
+  const orders = allOrders.filter((o) => !o.junk);
+  const junkOrders = allOrders.filter((o) => o.junk);
+  // Revenue counts every order ever paid: active, in Junk, or deleted.
+  const revenueOrders = [...allOrders, ...deletedOrders];
 
   // ── Stats ──
   const totalOrders = orders.length;
@@ -140,10 +180,10 @@ export default async function AdminPage({
   // Refunded orders STILL show as revenue here (they're gross). The
   // refunds page tracks the offsetting subtractions.
   const paidLike = new Set(['paid', 'in_design', 'in_production', 'shipped', 'delivered', 'refunded']);
-  const totalRevenue = orders
+  const totalRevenue = revenueOrders
     .filter((o) => o.status && paidLike.has(o.status))
     .reduce((sum, o) => sum + totalPriceOf(o), 0);
-  const refundedRevenue = orders
+  const refundedRevenue = revenueOrders
     .filter((o) => o.status === 'refunded')
     .reduce((sum, o) => sum + totalPriceOf(o), 0);
   const netRevenue = totalRevenue - refundedRevenue;
@@ -153,10 +193,10 @@ export default async function AdminPage({
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  const revenueToday = orders
+  const revenueToday = revenueOrders
     .filter((o) => o.paidAt && new Date(o.paidAt).getTime() >= startOfToday.getTime() && o.status !== 'refunded')
     .reduce((s, o) => s + totalPriceOf(o), 0);
-  const revenueWeek = orders
+  const revenueWeek = revenueOrders
     .filter((o) => o.paidAt && new Date(o.paidAt).getTime() >= weekAgo && o.status !== 'refunded')
     .reduce((s, o) => s + totalPriceOf(o), 0);
 
@@ -181,6 +221,7 @@ export default async function AdminPage({
   else if (tab === 'delivered') visibleOrders = orders.filter((o) => o.status === 'delivered');
   else if (tab === 'cancelled') visibleOrders = orders.filter((o) => o.status === 'cancelled');
   else if (tab === 'refunded') visibleOrders = orders.filter((o) => o.status === 'refunded');
+  else if (tab === 'junk') visibleOrders = junkOrders;
   else if (tab === 'drafts') {
     visibleOrders = [];
     showDrafts = true;
@@ -344,6 +385,9 @@ export default async function AdminPage({
         <Link href="/admin?tab=drafts" className={'admin-tab' + (tab === 'drafts' ? ' is-active' : '')}>
           Drafts / leads ({drafts.length})
         </Link>
+        <Link href="/admin?tab=junk" className={'admin-tab admin-tab-junk' + (tab === 'junk' ? ' is-active' : '')}>
+          🗑 Junk ({junkOrders.length})
+        </Link>
       </nav>
 
       {/* ----- table ----- */}
@@ -393,58 +437,34 @@ export default async function AdminPage({
         )
       ) : visibleOrders.length === 0 ? (
         <div className="admin-empty">
-          <h2>Nothing here yet</h2>
-          <p>No orders match this filter. Submitted albums show up here as soon as a customer clicks Submit.</p>
+          <h2>{tab === 'junk' ? 'Junk is empty' : 'Nothing here yet'}</h2>
+          <p>
+            {tab === 'junk'
+              ? `Orders you mark "In production" (sent to print) and unpaid orders older than ${STALE_UNPAID_DAYS} days move here. You can also move any order here with 🗑.`
+              : 'No orders match this filter. Submitted albums show up here as soon as a customer clicks Submit.'}
+          </p>
         </div>
       ) : (
-        <div className="admin-orders">
-          <div className="admin-orders-meta">{visibleOrders.length} order{visibleOrders.length === 1 ? '' : 's'}</div>
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>Submitted</th>
-                <th>Order</th>
-                <th>Customer</th>
-                <th>Album</th>
-                <th>Status</th>
-                <th>Amount</th>
-                <th>Open</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleOrders.map((o) => (
-                <tr key={o.token}>
-                  <td><span className="admin-when">{new Date(o.submittedAt).toLocaleString()}</span></td>
-                  <td><span className="admin-orderid">{o.orderId}</span></td>
-                  <td>
-                    <div className="admin-cust-name">{o.customerName || '(no name)'}</div>
-                    <a className="admin-cust-email" href={`mailto:${encodeURIComponent(o.customerEmail)}`}>
-                      {o.customerEmail || '—'}
-                    </a>
-                  </td>
-                  <td>{o.mode === 'magazine' ? `${o.size || 'Magazine'} · 20 pages · ${o.photoCount} ph` : `${o.size || '—'} · ${totalSpreadsOf(o)} sp · ${o.photoCount} ph`}</td>
-                  <td>
-                    <span className={'admin-status admin-status-' + (o.status || 'submitted')}>
-                      {statusLabel(o.status)}
-                    </span>
-                  </td>
-                  <td>
-                    {totalPriceOf(o) > 0 ? (
-                      <span className={o.status === 'refunded' ? 'admin-paid-no' : 'admin-paid-yes'}>
-                        ${totalPriceOf(o).toFixed(0)}
-                      </span>
-                    ) : (
-                      <span className="admin-paid-no">—</span>
-                    )}
-                  </td>
-                  <td>
-                    <Link href={`/admin/orders/${o.token}`} className="admin-open-btn">View →</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <OrdersTable
+          mode={tab === 'junk' ? 'junk' : 'live'}
+          rows={visibleOrders.map(
+            (o): OrderRow => ({
+              token: o.token,
+              orderId: o.orderId,
+              customerName: o.customerName,
+              customerEmail: o.customerEmail,
+              size: o.size,
+              spreads: totalSpreadsOf(o),
+              photoCount: o.photoCount,
+              submittedAt: o.submittedAt,
+              status: o.status,
+              statusLabel: statusLabel(o.status),
+              total: totalPriceOf(o),
+              mode: o.mode,
+              junkAt: o.junkAt,
+            }),
+          )}
+        />
       )}
     </main>
   );

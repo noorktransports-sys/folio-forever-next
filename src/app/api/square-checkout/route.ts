@@ -221,3 +221,59 @@ export async function POST(request: Request) {
     { headers: { 'Content-Type': 'application/json' } },
   );
 }
+
+/**
+ * GET /api/square-checkout?token=… — the "Complete payment" button in the
+ * client's order-received email. Opens the Square payment page (re-using
+ * the existing link when there is one), or shows a friendly page when the
+ * order is already paid / payment isn't available yet.
+ */
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const token = (url.searchParams.get('token') ?? '').replace(/[^a-f0-9]/gi, '').slice(0, 64);
+  const { env } = getRequestContext() as { env: Env };
+  const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
+
+  const page = (title: string, body: string, status = 200) =>
+    new Response(
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>` +
+        `<body style="margin:0;background:#0e0c09;color:#f5f0e8;font-family:Georgia,serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">` +
+        `<div style="max-width:520px;text-align:center"><div style="letter-spacing:5px;font-size:11px;color:#b8965a">FOLIO FOREVER</div>` +
+        `<h1 style="font-weight:300;font-size:32px;margin:18px 0 10px">${title}</h1><p style="color:#bfb3a0;font:14px/1.7 Arial,sans-serif">${body}</p>` +
+        `<p style="margin-top:26px"><a href="${siteUrl}" style="color:#b8965a;font:12px Arial,sans-serif;letter-spacing:2px">FOLIOFOREVER.COM</a></p></div></body></html>`,
+      { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    );
+
+  if (!token || !env.DESIGN_DRAFTS) return page('Link not valid', 'This payment link is incomplete. Please reply to your order email and we will help.', 400);
+  const raw = await env.DESIGN_DRAFTS.get(token);
+  if (!raw) return page('Order not found', 'We could not find this order. Please reply to your order email and we will help.', 404);
+  let order: StoredOrder & { squareCheckoutUrl?: string; status?: string };
+  try {
+    order = JSON.parse(raw);
+  } catch {
+    return page('Something went wrong', 'Please reply to your order email and we will help.', 500);
+  }
+  const paidLike = ['paid', 'in_design', 'in_production', 'shipped', 'delivered', 'refunded'];
+  if (order.status && paidLike.includes(order.status)) {
+    return page('Already paid — thank you!', `Order <strong>${order.orderId}</strong> is paid. We will email you when it ships.`);
+  }
+  if (order.status === 'cancelled') {
+    return page('Order cancelled', `Order <strong>${order.orderId}</strong> was cancelled. Reply to your order email if this is a mistake.`);
+  }
+  if (order.squareCheckoutUrl) return Response.redirect(order.squareCheckoutUrl, 302);
+
+  const res = await POST(
+    new Request(url.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    }),
+  );
+  const j = (await res.json().catch(() => ({}))) as { url?: string };
+  if (res.ok && j.url) return Response.redirect(j.url, 302);
+  return page(
+    'Payment isn’t open yet',
+    `Your order <strong>${order.orderId}</strong> is saved. Online payment isn’t available right this moment — we will email you a payment link shortly, or just reply to your order email.`,
+    503,
+  );
+}

@@ -24,6 +24,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
+import { setJunk, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
 
@@ -160,7 +161,21 @@ export async function POST(
     console.warn('Folio admin: orders index patch failed', e);
   }
 
-  return new Response(JSON.stringify({ ok: true, status: newStatus }), {
+  // Sent to print → Junk folder automatically (restorable any time).
+  let junked = false;
+  if (newStatus === 'in_production') {
+    try {
+      await setJunk(env.DESIGN_DRAFTS as unknown as JunkKV, [token], true, {
+        note: 'Sent to print — moved to Junk automatically',
+        by: 'system',
+      });
+      junked = true;
+    } catch (e) {
+      console.warn('Folio admin: auto-junk failed', e);
+    }
+  }
+
+  return new Response(JSON.stringify({ ok: true, status: newStatus, junked }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });

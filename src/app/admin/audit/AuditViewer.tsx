@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 
-type AuditType = 'proof' | 'rights' | 'refund'
+type AuditType = 'proof' | 'rights' | 'refund' | 'deleted'
 
 interface AuditItem {
   key: string
@@ -81,6 +81,14 @@ export function AuditViewer() {
         >
           Refunds
         </button>
+        <button
+          type="button"
+          className={`admin-tab ${type === 'deleted' ? 'is-active' : ''}`}
+          onClick={() => setType('deleted')}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+        >
+          Deleted orders
+        </button>
       </div>
 
       <p className="admin-orders-meta">
@@ -96,6 +104,7 @@ export function AuditViewer() {
       {type === 'proof' && <ProofTable items={items} />}
       {type === 'rights' && <RightsTable items={items} />}
       {type === 'refund' && <RefundTable items={items} />}
+      {type === 'deleted' && <DeletedTable items={items} />}
 
       {hasMore && (
         <div style={{ marginTop: 16, textAlign: 'center' }}>
@@ -302,6 +311,62 @@ function RefundTable({ items }: { items: AuditItem[] }) {
   )
 }
 
+type DeletedData = {
+  orderId?: string
+  customerName?: string
+  customerEmail?: string
+  totalPrice?: number
+  status?: string
+  paidAt?: string
+  submittedAt?: string
+  deletedAt?: string
+  filesDeleted?: number
+}
+
+function DeletedTable({ items }: { items: AuditItem[] }) {
+  return (
+    <table className="admin-table">
+      <thead>
+        <tr>
+          <th>Deleted at</th>
+          <th>Order</th>
+          <th>Customer</th>
+          <th>Amount</th>
+          <th>Last status</th>
+          <th>Files removed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((it) => {
+          const d = it.data as DeletedData
+          return (
+            <tr key={it.key}>
+              <td className="admin-when">{(d.deletedAt ?? '').slice(0, 19).replace('T', ' ')}</td>
+              <td>
+                <span className="admin-orderid">{d.orderId ?? '—'}</span>
+              </td>
+              <td>
+                {d.customerName || '—'}
+                <div style={{ fontSize: 11, color: '#6b5e4d' }}>{d.customerEmail || ''}</div>
+              </td>
+              <td>${(d.totalPrice ?? 0).toFixed(0)}</td>
+              <td>{d.status || '—'}</td>
+              <td>{d.filesDeleted ?? 0}</td>
+            </tr>
+          )
+        })}
+        {items.length === 0 && (
+          <tr>
+            <td colSpan={6} style={{ textAlign: 'center', color: '#6b5e4d', padding: 24 }}>
+              No deleted orders.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  )
+}
+
 /* ── CSV export ── */
 
 function exportToCsv(type: AuditType, items: AuditItem[]) {
@@ -350,6 +415,22 @@ function exportToCsv(type: AuditType, items: AuditItem[]) {
         String(Array.isArray(d.lowResPhotos) ? d.lowResPhotos.length : 0),
         d.clientIp ?? '',
         d.userAgent ?? '',
+      ]
+    })
+  } else if (type === 'deleted') {
+    header = ['Deleted at', 'Order ID', 'Customer name', 'Customer email', 'Amount USD', 'Last status', 'Paid at', 'Submitted at', 'Files removed']
+    rows = items.map((it) => {
+      const d = it.data as DeletedData
+      return [
+        d.deletedAt ?? '',
+        d.orderId ?? '',
+        d.customerName ?? '',
+        d.customerEmail ?? '',
+        String(d.totalPrice ?? 0),
+        d.status ?? '',
+        d.paidAt ?? '',
+        d.submittedAt ?? '',
+        String(d.filesDeleted ?? 0),
       ]
     })
   } else {

@@ -14,6 +14,7 @@
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
+import { setJunk, type JunkKV } from '@/lib/order-junk';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -130,6 +131,21 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     console.warn('[bulk-status] index update failed', e);
+  }
+
+  // Sent to print → Junk folder automatically (restorable any time).
+  if (status === 'in_production') {
+    const ok = Object.entries(results).filter(([, r]) => r.ok).map(([t]) => t);
+    if (ok.length) {
+      try {
+        await setJunk(env.DESIGN_DRAFTS as unknown as JunkKV, ok, true, {
+          note: 'Sent to print — moved to Junk automatically',
+          by: 'system',
+        });
+      } catch (e) {
+        console.warn('[bulk-status] auto-junk failed', e);
+      }
+    }
   }
 
   return new Response(JSON.stringify({ ok: true, results }), {

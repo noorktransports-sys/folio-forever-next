@@ -228,6 +228,9 @@ export async function POST(request: Request) {
     squarePaymentId: payment.id ?? null,
     squareReceiptUrl: payment.receipt_url ?? null,
     squareAmountTotalCents: payment.amount_money?.amount ?? null,
+    // A late payment brings an auto-junked (stale unpaid) order back.
+    junk: false,
+    junkAt: undefined,
   };
   await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated), {
     expirationTtl: SUBMITTED_TTL_SECONDS,
@@ -245,6 +248,8 @@ export async function POST(request: Request) {
           status: 'paid',
           paidAt,
           squarePaymentId: payment.id,
+          junk: false,
+          junkAt: undefined,
         };
         await env.DESIGN_DRAFTS.put(ORDERS_INDEX_KEY, JSON.stringify(index));
       }

@@ -446,6 +446,57 @@ export function customerPaidEmailHtml(
 </body></html>`;
 }
 
+/* ── Customer "order received" (sent at submit, before payment) ── */
+
+export interface OrderReceivedEmail {
+  orderId: string;
+  customerName: string;
+  /** e.g. "Wedding magazine · MAHARANI" or "Smart album · 17×24 Layflat" */
+  product: string;
+  /** Extra rows for the summary table: [label, value]. */
+  rows?: Array<[string, string]>;
+  totalDue: number;
+  /** Link that opens (or re-opens) the Square payment page. */
+  payUrl: string;
+  /** Approved page / spread images (site-relative or absolute URLs). */
+  images?: Array<{ url: string; label: string }>;
+  imageCols?: number;
+}
+
+export function customerOrderReceivedEmailHtml(o: OrderReceivedEmail, siteUrl: string): string {
+  const first = escapeHtml(o.customerName.split(' ')[0] || o.customerName);
+  const rows = [['Order number', `<strong>${escapeHtml(o.orderId)}</strong>`], ['Item', escapeHtml(o.product)], ...(o.rows ?? []).map(([k, v]) => [escapeHtml(k), escapeHtml(v)]), ['Total due', `<strong>$${o.totalDue.toFixed(2)}</strong>`]]
+    .map(([k, v]) => `<tr><td style="padding:3px 14px 3px 0;color:#6b5e4e;">${k}</td><td>${v}</td></tr>`)
+    .join('');
+  const cols = o.imageCols ?? 4;
+  const imgs = o.images ?? [];
+  const cells = imgs.map(
+    (im) =>
+      `<td style="padding:3px;width:${Math.floor(100 / cols)}%;vertical-align:top;"><img src="${escapeHtml(abs(siteUrl, im.url))}" alt="${escapeHtml(im.label)}" style="width:100%;display:block;border:1px solid #e3dccf;"/><div style="font:10px Arial,sans-serif;color:#9a8f82;text-align:center;padding-top:2px;">${escapeHtml(im.label)}</div></td>`,
+  );
+  const trs: string[] = [];
+  for (let i = 0; i < cells.length; i += cols) trs.push(`<tr>${cells.slice(i, i + cols).join('')}</tr>`);
+  const grid = trs.length ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0">${trs.join('')}</table>` : '';
+  return `<!doctype html>
+<html><body style="margin:0;font-family:Georgia,serif;color:#2a2218;background:#f5f0e8;padding:24px;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #b8965a;padding:32px;">
+    <div style="text-align:center;letter-spacing:6px;font-size:13px;color:#8a6d3b;margin-bottom:18px;">FOLIO FOREVER</div>
+    <h1 style="font-weight:300;color:#2a2218;margin:0 0 10px;font-size:26px;">Thank you, ${first} — we've received your order.</h1>
+    <p style="font-size:14px;line-height:1.7;margin:0 0 6px;">Your order number is <strong style="color:#8a6d3b;">${escapeHtml(o.orderId)}</strong>. Please keep it for your records.</p>
+    <table style="font-size:13px;line-height:1.7;margin:16px 0;">${rows}</table>
+    <div style="background:#faf6ed;border:1px solid #e0c98e;padding:14px 16px;margin:18px 0;font:13px Arial,sans-serif;line-height:1.6;color:#4a3d2a;">
+      <strong>Payment status: not paid yet.</strong> We start printing once payment is complete.
+      If you already paid, you can ignore this — a payment confirmation will follow.
+    </div>
+    <div style="text-align:center;margin:22px 0;">
+      <a href="${escapeHtml(o.payUrl)}" style="display:inline-block;background:#b8965a;color:#1a120b;text-decoration:none;font:bold 12px Arial,sans-serif;letter-spacing:2px;padding:14px 28px;border-radius:30px;">COMPLETE PAYMENT · $${o.totalDue.toFixed(2)}</a>
+    </div>
+    ${grid ? `<p style="font:12px Arial,sans-serif;color:#6b5e4e;margin:18px 0 8px;">The pages you approved for print:</p>${grid}` : ''}
+    <p style="font:12px Arial,sans-serif;color:#6b5e4e;margin-top:22px;line-height:1.7;">Questions? Just reply to this email and mention your order number.<br><em>— Folio Forever</em></p>
+  </div>
+</body></html>`;
+}
+
 /* ── Resend wrapper ── */
 
 export async function sendResendEmail(

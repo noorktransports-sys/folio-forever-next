@@ -30,6 +30,7 @@ import StatusControl from './status-control';
 import DownloadPrintPackage, { type PrintFile } from './download-print-package';
 import AdminNotes from './admin-notes';
 import OrderActions from './OrderActions';
+import JunkControls from './junk-controls';
 import '../../admin.css';
 
 export const runtime = 'edge';
@@ -90,6 +91,8 @@ interface ShippingBlock {
 interface SavedDesign {
   // Common
   status?: string;
+  junk?: boolean;
+  junkAt?: string;
   orderId?: string;
   submittedAt?: string;
   savedAt?: string;
@@ -242,10 +245,14 @@ export default async function OrderDetail({
             </span>
           </h1>
         </div>
-        <div className="admin-top-actions">
-          <Link href="/admin" className="admin-logout">← All orders</Link>
+        <div className="admin-top-actions" style={{ display: 'flex', gap: 10 }}>
+          {!design.junk && <JunkControls token={token} orderId={design.orderId || ''} junk={false} />}
+          <Link href={design.junk ? '/admin?tab=junk' : '/admin'} className="admin-logout">
+            {design.junk ? '← Junk' : '← All orders'}
+          </Link>
         </div>
       </header>
+      {design.junk && <JunkControls token={token} orderId={design.orderId || ''} junk junkAt={design.junkAt} />}
 
       {/* ── Top meta grid ── */}
       <section className="admin-order-meta">

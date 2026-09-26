@@ -35,9 +35,10 @@ interface Env {
   ADMIN_PASSWORD?: string;
 }
 
-const VALID_TYPES = new Set(['proof', 'rights', 'refund']);
+const VALID_TYPES = new Set(['proof', 'rights', 'refund', 'deleted']);
 const PREFIX: Record<string, string> = {
   proof: 'proof_approval:',
+  deleted: 'deleted_order:',
   rights: 'content_rights:',
   refund: 'refund:',
 };

@@ -19,7 +19,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { sendResendEmail } from '@/lib/smart-order-emails'
+import { sendResendEmail, customerOrderReceivedEmailHtml } from '@/lib/smart-order-emails'
 import { MAG_PAGE_COUNT, MAG_PRICE, getMagStyle, MAG_STYLES } from '@/lib/magazine/pages'
 import { ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails'
 import { magazineShippingUsd } from '@/lib/magazine/pricing'
@@ -196,6 +196,29 @@ export async function POST(request: Request) {
       to: [env.OWNER_EMAIL || DEFAULT_OWNER],
       subject: `[PENDING] ${orderId} — ${name} · Magazine ${style.name} · $${total}`,
       html: ownerMagazineEmailHtml(data, siteUrl, 'pending'),
+    }).catch(() => undefined)
+    // Client gets their order number right away (payment confirmation follows).
+    await sendResendEmail(env.RESEND_API_KEY, {
+      from: env.ORDER_FROM_EMAIL || DEFAULT_FROM,
+      to: [email],
+      subject: `Order received — ${orderId} · your wedding magazine`,
+      html: customerOrderReceivedEmailHtml(
+        {
+          orderId,
+          customerName: name,
+          product: `Wedding magazine · ${style.name}`,
+          rows: [
+            ['Pages', '20 pages · 8.5 × 11 in'],
+            ...(names ? ([['Names', names]] as Array<[string, string]>) : []),
+            ['Shipping', shippingUsd > 0 ? `$${shippingUsd.toFixed(2)}` : 'arranged separately'],
+          ],
+          totalDue: total,
+          payUrl: `${siteUrl}/api/square-checkout?token=${token}`,
+          images: record.spreadComposites.map((c, i) => ({ url: c.url, label: i === 0 ? 'Cover' : String(i + 1) })),
+          imageCols: 5,
+        },
+        siteUrl,
+      ),
     }).catch(() => undefined)
   }
 

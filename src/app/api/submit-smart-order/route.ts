@@ -9,7 +9,8 @@
  *   1. Wizard uploads photos to R2 (via /api/upload)
  *   2. POST here — we mint orderId + token, write to KV with
  *      status='pending_payment', persist audit records, and send the
- *      OWNER a "PENDING PAYMENT" heads-up email. NO customer email yet.
+ *      OWNER a "PENDING PAYMENT" heads-up email + CUSTOMER "order received"
+ *      email (order number + pay link). Payment confirmation follows later.
  *   3. Client takes the returned token to /api/stripe-checkout to build
  *      a Checkout Session and redirects the customer to Stripe.
  *   4. On payment success, /api/stripe-webhook flips status='paid' and
@@ -32,6 +33,7 @@ import { getRequestContext } from '@cloudflare/next-on-pages';
 import {
   ownerPendingPaymentEmailHtml,
   sendResendEmail,
+  customerOrderReceivedEmailHtml,
   type SmartOrderEmailData,
 } from '@/lib/smart-order-emails';
 
@@ -384,6 +386,29 @@ export async function POST(request: Request) {
       html: ownerPendingPaymentEmailHtml(emailData, siteUrl, { clientIp, userAgent }),
     });
     ownerEmailSent = ownerResult.ok;
+    // Client gets their order number right away (payment confirmation
+    // follows from the webhook once they pay).
+    await sendResendEmail(env.RESEND_API_KEY, {
+      from: fromEmail,
+      to: [payload.customer.email],
+      subject: `Order received — ${orderId} · your wedding album`,
+      html: customerOrderReceivedEmailHtml(
+        {
+          orderId,
+          customerName: payload.customer.name,
+          product: `${payload.albumName || 'Wedding album'}`,
+          rows: [
+            ['Album', `${payload.album.size.replace('x', '×')} · ${payload.album.type === 'standard' ? 'Standard' : 'Layflat'}`],
+            ['Spreads', String(payload.album.pageCount)],
+          ],
+          totalDue: payload.album.totalPrice,
+          payUrl: `${siteUrl}/api/square-checkout?token=${token}`,
+          images: (payload.spreadComposites ?? []).map((c, i) => ({ url: c.url, label: `Spread ${i + 1}` })),
+          imageCols: 2,
+        },
+        siteUrl,
+      ),
+    }).catch(() => undefined);
   }
 
   return new Response(

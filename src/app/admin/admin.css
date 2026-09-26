@@ -495,3 +495,41 @@
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   }
 }
+
+/* ── Junk folder ── */
+.admin-logout:disabled { opacity: 0.45; cursor: default; }
+.admin-logout:disabled:hover { background: transparent; color: #6b5e4d; }
+.admin-danger { color: #8a2a2a; border-color: #d8a8a8; }
+.admin-danger:hover:not(:disabled) { background: #fbecec; color: #6a1a1a; }
+.admin-junk-note {
+  background: #f3efe4;
+  border: 0.5px solid #d8cdb4;
+  color: #4a4034;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.admin-row-btn {
+  background: transparent;
+  border: 0.5px solid #d8cdb4;
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.admin-row-btn:hover:not(:disabled) { background: #efe8d6; }
+.admin-tab-junk { margin-left: auto; }
+.admin-junk-banner {
+  background: #f3efe4;
+  border: 0.5px solid #d8cdb4;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #4a4034;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
