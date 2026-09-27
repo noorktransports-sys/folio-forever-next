@@ -24,6 +24,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { verifySquareWebhookSignature } from '@/lib/square';
 import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
+import { markGiveawayCodeUsed } from '@/lib/giveaway';
 import { customerMagazineEmailHtml, ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails';
 import {
   customerPaidEmailHtml,
@@ -310,6 +311,21 @@ export async function POST(request: Request) {
     junkAt: undefined,
   };
   await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
+  // Coupon card: the code is now used for good.
+  const gv = order.giveaway as { code?: string; hash?: string; test?: boolean } | undefined;
+  if (gv?.hash && !gv.test) {
+    try {
+      const other = await markGiveawayCodeUsed(env.DESIGN_DRAFTS, gv.hash, token, String(order.orderId ?? ''));
+      if (other) {
+        await alertOwner(`[CHECK] Coupon code ${gv.code} used twice — ${order.orderId}`, [
+          `Order <b>${order.orderId}</b> was paid with coupon code <b>${gv.code}</b>, but that code was already used by order <b>${other}</b>.`,
+          'Decide which one to keep. You may want to refund one of them in Square.',
+        ]);
+      }
+    } catch (e) {
+      console.warn('[square-webhook] giveaway mark failed', e);
+    }
+  }
   try {
     await patchIndexEntry(kvIdx, token, { status: 'paid', paidAt, squarePaymentId: payment.id, amountPaidCents: amountCents, junk: false, junkAt: undefined });
   } catch (e) {
@@ -338,7 +354,7 @@ export async function POST(request: Request) {
     const o = await sendResendEmail(env.RESEND_API_KEY, {
       from: fromEmail,
       to: [ownerEmail],
-      subject: `[PAID] ${data.orderId} — ${data.customer.name} · Magazine ${data.styleName}`,
+      subject: `[PAID]${gv?.hash ? (gv.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${data.orderId} — ${data.customer.name} · Magazine ${data.styleName}`,
       html: ownerMagazineEmailHtml(data, siteUrl, 'paid'),
     });
     ownerEmailSent = o.ok;

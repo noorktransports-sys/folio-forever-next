@@ -26,6 +26,7 @@ import { getShipping, shippingText } from '@/lib/shipping'
 import { ORDER_SOURCE } from '@/lib/pricing'
 import { putIndexEntry, type IndexKV } from '@/lib/order-index'
 import { allowRequest, tooMany } from '@/lib/rate-limit'
+import { checkGiveawayCode, reserveGiveawayCode, GIVEAWAY } from '@/lib/giveaway'
 
 export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
@@ -60,6 +61,8 @@ type Payload = {
   proofApproval?: { acceptedAt?: string; clauseVersion?: string; clauseText?: string }
   contentRights?: { acceptedAt?: string; clauseVersion?: string; copyrightClause?: string; policyClause?: string }
   termsAccepted?: { acceptedAt?: string; version?: string }
+  /** Printed coupon code (magazine $35 instead of $70). */
+  giveawayCode?: string
 }
 
 function err(status: number, error: string) {
@@ -118,17 +121,27 @@ export async function POST(request: Request) {
   }
   pages.sort((a, b) => a.n - b.n)
 
-  const price = MAG_PRICE
+  const token = mintToken()
+  // Coupon code: checked (and held) here on the server — the browser's
+  // earlier check is only for display.
+  let giveaway: { hash: string; code: string; test: boolean } | null = null
+  if (typeof p.giveawayCode === 'string' && p.giveawayCode.trim()) {
+    const g = await checkGiveawayCode(env.DESIGN_DRAFTS, p.giveawayCode, token)
+    if (!g.ok) return err(400, g.error)
+    giveaway = { hash: g.hash, code: g.display, test: g.test }
+  }
+
+  const price = giveaway ? GIVEAWAY.magazineUsd : MAG_PRICE
   // Delivery speed chosen by the client; the PRICE comes from lib/shipping.
   const ship = getShipping(p.shippingMethod)
   const shippingUsd = ship.usd
   const total = price + shippingUsd
-  const token = mintToken()
   const orderId = `FF-M${token.slice(0, 5).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`
   const submittedAt = new Date().toISOString()
   const names = [str(p.meta?.bride, 40), str(p.meta?.groom, 40)].filter(Boolean).join(' & ')
   const date = str(p.meta?.date, 40)
-  const albumName = `Magazine · ${style.name}${names ? ` · ${names}` : ''}`
+  const tag = giveaway ? (giveaway.test ? 'COUPON TEST · ' : 'COUPON · ') : ''
+  const albumName = `Magazine · ${tag}${style.name}${names ? ` · ${names}` : ''}`
   const clientIp = request.headers.get('cf-connecting-ip')
   const userAgent = request.headers.get('user-agent')
 
@@ -156,12 +169,14 @@ export async function POST(request: Request) {
     // Server-computed price (the ONLY amount checkout will charge) and
     // the marker that proves this record came from this route.
     pricing: { magazineUsd: price, shippingUsd, shippingId: ship.id, totalUsd: total, expectedCents: Math.round(total * 100) },
+    ...(giveaway ? { giveaway: { code: giveaway.code, hash: giveaway.hash, test: giveaway.test, campaign: GIVEAWAY.name } } : {}),
     orderSource: ORDER_SOURCE,
   }
 
   try {
     // No expiry: orders and their legal records are kept.
     await env.DESIGN_DRAFTS.put(token, JSON.stringify(record))
+    if (giveaway && !giveaway.test) await reserveGiveawayCode(env.DESIGN_DRAFTS, giveaway.hash, token, orderId)
     await env.DESIGN_DRAFTS.put(
       `proof_approval:${orderId}`,
       JSON.stringify({ orderId, token, customer: record.customer, proofApproval: p.proofApproval, pages: record.spreadComposites, clientIp, userAgent, serverReceivedAt: submittedAt }),
@@ -209,7 +224,7 @@ export async function POST(request: Request) {
     await sendResendEmail(env.RESEND_API_KEY, {
       from: env.ORDER_FROM_EMAIL || DEFAULT_FROM,
       to: [env.OWNER_EMAIL || DEFAULT_OWNER],
-      subject: `[PENDING] ${orderId} — ${name} · Magazine ${style.name} · $${total}`,
+      subject: `[PENDING]${giveaway ? (giveaway.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${orderId} — ${name} · Magazine ${style.name} · $${total}`,
       html: ownerMagazineEmailHtml(data, siteUrl, 'pending'),
     }).catch(() => undefined)
     // Client gets their order number right away (payment confirmation follows).
@@ -225,6 +240,11 @@ export async function POST(request: Request) {
           rows: [
             ['Pages', '20 pages · 8.5 × 11 in'],
             ...(names ? ([['Names', names]] as Array<[string, string]>) : []),
+            ...(giveaway
+              ? ([
+                  ['Coupon', `${giveaway.code} · ${GIVEAWAY.offLabel} — magazine $${GIVEAWAY.magazineUsd} (was $${MAG_PRICE})`],
+                ] as Array<[string, string]>)
+              : []),
             ['Shipping', `${shippingText(ship)} · $${shippingUsd.toFixed(2)}`],
           ],
           totalDue: total,

@@ -25,6 +25,7 @@ import { createSquareCheckoutLink } from '@/lib/square';
 import { BINDING_LABEL, ORDER_SOURCE } from '@/lib/pricing';
 import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { getShipping, shippingText } from '@/lib/shipping';
+import { GIVEAWAY, type GiveawayHold } from '@/lib/giveaway';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -119,6 +120,18 @@ export async function POST(request: Request) {
   }
   const expectedCents = pricing.expectedCents as number;
 
+  // Coupon orders: the code must not have been paid for by another order.
+  const giveaway = order.giveaway as { code?: string; hash?: string; test?: boolean } | undefined;
+  if (giveaway?.hash && !giveaway.test) {
+    const held = await env.DESIGN_DRAFTS.get(`giveaway:${giveaway.hash}`);
+    try {
+      const h = held ? (JSON.parse(held) as GiveawayHold) : null;
+      if (h && h.status === 'used' && h.token !== order.token) return err(409, 'This coupon code has already been used for another order');
+    } catch {
+      /* ignore a corrupt hold */
+    }
+  }
+
   // Re-use the link we already made for this exact amount (one link per
   // order — no stray payable links floating around).
   if (typeof order.squareCheckoutUrl === 'string' && order.squareCheckoutCents === expectedCents) {
@@ -138,7 +151,7 @@ export async function POST(request: Request) {
   const lineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] = [];
   if (order.mode === 'magazine') {
     lineItems.push({
-      name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)`,
+      name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)${giveaway ? ` · coupon ${giveaway.code ?? ''} (${GIVEAWAY.offLabel})` : ''}`,
       quantity: 1,
       basePriceAmountCents: cents(pricing.magazineUsd),
       note: order.magazine?.names || order.albumName,

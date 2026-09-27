@@ -198,6 +198,41 @@ function MagazineDesigner() {
   const [orderErr, setOrderErr] = useState<string | null>(null)
   const [priceInfo, setPriceInfo] = useState<{ price: number } | null>(null)
   const [shipId, setShipId] = useState<ShippingId>(DEFAULT_SHIPPING)
+  // Printed coupon code (magazine $35 instead of $70). Checked on the
+  // server before the print files are made, and again when ordering.
+  const [gCode, setGCode] = useState('')
+  const [gInfo, setGInfo] = useState<{ code: string; test: boolean; magazineUsd: number; offLabel: string; endsLabel: string } | null>(null)
+  const [gErr, setGErr] = useState<string | null>(null)
+  const [gBusy, setGBusy] = useState(false)
+  useEffect(() => {
+    try {
+      const c = new URLSearchParams(window.location.search).get('code')
+      if (c) setGCode(c.slice(0, 32))
+    } catch {
+      /* no URL access */
+    }
+  }, [])
+  const orderTotal = (gInfo ? gInfo.magazineUsd : priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd
+  const applyGiveaway = useCallback(async () => {
+    const code = gCode.trim()
+    if (!code) return setGErr('Please enter your coupon code.')
+    setGBusy(true)
+    setGErr(null)
+    try {
+      const r = await fetch('/api/giveaway-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+      const j = await r.json().catch(() => ({}))
+      if (r.status === 429) setGErr('Too many tries — please wait a few minutes and try again.')
+      else if (!j.ok) setGErr(j.error || 'That code isn’t valid.')
+      else {
+        setGInfo({ code: j.code, test: !!j.test, magazineUsd: j.magazineUsd, offLabel: j.offLabel, endsLabel: j.endsLabel })
+        setGCode(j.code)
+      }
+    } catch {
+      setGErr('Could not check the code — please try again.')
+    } finally {
+      setGBusy(false)
+    }
+  }, [gCode])
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailAddr, setEmailAddr] = useState('')
   const [emailState, setEmailState] = useState<'idle' | 'working' | 'sent'>('idle')
@@ -406,6 +441,7 @@ function MagazineDesigner() {
           shipping: { recipientName: f.name.trim(), phone: f.phone, line1: f.line1, line2: f.line2, city: f.city, region: f.region, postalCode: f.postalCode, country: f.country, notes: f.notes },
           pages: uploaded,
           shippingMethod: shipId,
+          giveawayCode: gInfo?.code,
           demoPhotos: demoCount,
           photoCount: filledSlots,
           emptyFrames: pages.flat().filter((x) => x === null).length,
@@ -435,7 +471,7 @@ function MagazineDesigner() {
       setOrderStep('ship')
       setProgress(null)
     }
-  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots, shipId, demoCount])
+  }, [pages, albumId, form, SP, renderPage, style, meta, filledSlots, shipId, demoCount, gInfo])
 
   const sendPreview = useCallback(async () => {
     if (!pages || !albumId || demoCount > 0) return
@@ -1438,24 +1474,55 @@ function MagazineDesigner() {
                     </label>
                   ))}
                 </div>
+                <div style={{ marginTop: 14, fontSize: 9.5, letterSpacing: 1.4, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 6 }}>Coupon code</div>
+                {gInfo ? (
+                  <div style={{ padding: '10px 12px', border: `0.5px solid ${GOLD}`, borderRadius: 8, fontSize: 12.5, lineHeight: 1.6, color: 'var(--cream)', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <span>
+                      <b style={{ color: GOLD }}>{gInfo.code}</b> applied{gInfo.test ? ' (test code)' : ''} — {gInfo.offLabel}: your magazine is ${gInfo.magazineUsd}.
+                    </span>
+                    <button type="button" style={{ ...btn(false), padding: '4px 10px', fontSize: 11 }} onClick={() => { setGInfo(null); setGCode('') }}>Remove</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        value={gCode}
+                        onChange={(e) => { setGCode(e.target.value.toUpperCase()); setGErr(null) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') applyGiveaway() }}
+                        placeholder="FF-XXXXX-XXXXX (optional)"
+                        autoCapitalize="characters"
+                        spellCheck={false}
+                        style={{ ...fieldStyle, flex: 1, letterSpacing: 1.5 }}
+                      />
+                      <button type="button" style={btn(false)} onClick={applyGiveaway} disabled={gBusy}>{gBusy ? 'Checking…' : 'Apply'}</button>
+                    </div>
+                    {gErr && <div style={{ fontSize: 11.5, color: '#e8a0a0', marginTop: 6 }}>{gErr}</div>}
+                  </>
+                )}
                 <div style={{ marginTop: 14, fontSize: 9.5, letterSpacing: 1.4, color: 'var(--muted2)', textTransform: 'uppercase', marginBottom: 6 }}>Delivery speed</div>
                 <ShippingPicker value={shipId} onChange={setShipId} />
                 <div style={{ marginTop: 14, padding: '12px 14px', border: '0.5px solid rgba(184,150,90,0.3)', borderRadius: 8, fontSize: 12.5, lineHeight: 1.8, color: 'var(--cream)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Wedding magazine · {style.name} · 20 pages</span><span>${(priceInfo?.price ?? MAG_PRICE).toFixed(2)}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Wedding magazine · {style.name} · 20 pages</span>
+                    <span>
+                      {gInfo && <s style={{ color: 'var(--muted2)', marginRight: 6 }}>${(priceInfo?.price ?? MAG_PRICE).toFixed(2)}</s>}
+                      ${(gInfo ? gInfo.magazineUsd : priceInfo?.price ?? MAG_PRICE).toFixed(2)}
+                    </span>
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted2)' }}>
                     <span>Shipping · {shippingText(getShipping(shipId))}</span>
                     <span>${getShipping(shipId).usd.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '0.5px solid rgba(184,150,90,0.25)', marginTop: 4, paddingTop: 4 }}>
                     <span>Total today</span>
-                    <span>${((priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd).toFixed(2)}</span>
+                    <span>${orderTotal.toFixed(2)}</span>
                   </div>
                 </div>
                 {orderErr && <div style={{ ...warnBox, marginTop: 12 }}>{orderErr}</div>}
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
                   <button type="button" style={btn(false)} onClick={() => setOrderStep('review')}>← Back to review</button>
                   <button type="button" style={btn(true)} onClick={runOrder}>
-                    Continue to secure payment · ${((priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd).toFixed(0)} →
+                    Continue to secure payment · ${orderTotal.toFixed(0)} →
                   </button>
                 </div>
               </>
