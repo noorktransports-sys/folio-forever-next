@@ -320,7 +320,7 @@ export async function POST(request: Request) {
   };
   await env.DESIGN_DRAFTS.put(token, JSON.stringify(updated));
   // Coupon card: the code is now used for good.
-  const gv = order.giveaway as { code?: string; hash?: string; test?: boolean } | undefined;
+  const gv = order.giveaway as { code?: string; hash?: string; test?: boolean; dollar?: boolean } | undefined;
   if (gv?.hash && !gv.test) {
     try {
       const other = await markGiveawayCodeUsed(env.DESIGN_DRAFTS, gv.hash, token, String(order.orderId ?? ''));
@@ -362,7 +362,7 @@ export async function POST(request: Request) {
     const o = await sendResendEmail(env.RESEND_API_KEY, {
       from: fromEmail,
       to: [ownerEmail],
-      subject: `[PAID]${gv?.hash ? (gv.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${data.orderId} — ${data.customer.name} · Magazine ${data.styleName}`,
+      subject: `[PAID]${gv?.hash ? (gv.dollar ? ' [$1 TEST]' : gv.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${data.orderId} — ${data.customer.name} · Magazine ${data.styleName}`,
       html: ownerMagazineEmailHtml(data, siteUrl, 'paid'),
     });
     ownerEmailSent = o.ok;

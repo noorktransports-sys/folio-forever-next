@@ -8,7 +8,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages'
-import { checkGiveawayCode, GIVEAWAY, type GiveawayKV } from '@/lib/giveaway'
+import { checkGiveawayCode, DOLLAR_TEST, GIVEAWAY, type GiveawayKV } from '@/lib/giveaway'
 import { allowRequest, tooMany } from '@/lib/rate-limit'
 
 export const runtime = 'edge'
@@ -31,11 +31,15 @@ export async function POST(request: Request) {
 
   const r = await checkGiveawayCode(env.DESIGN_DRAFTS, body.code)
   if (!r.ok) return json({ ok: false, error: r.error })
+  if (r.dollar) {
+    return json({ ok: true, code: r.display, test: false, magazineUsd: DOLLAR_TEST.totalUsd, shippingFree: true, offLabel: DOLLAR_TEST.label, endsLabel: DOLLAR_TEST.endsLabel })
+  }
   return json({
     ok: true,
     code: r.display,
     test: r.test,
     magazineUsd: GIVEAWAY.magazineUsd,
+    shippingFree: false,
     offLabel: GIVEAWAY.offLabel,
     endsLabel: GIVEAWAY.endsLabel,
   })

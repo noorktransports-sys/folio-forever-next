@@ -26,7 +26,7 @@ import { getShipping, shippingText } from '@/lib/shipping'
 import { ORDER_SOURCE } from '@/lib/pricing'
 import { putIndexEntry, type IndexKV } from '@/lib/order-index'
 import { allowRequest, tooMany } from '@/lib/rate-limit'
-import { checkGiveawayCode, reserveGiveawayCode, GIVEAWAY } from '@/lib/giveaway'
+import { checkGiveawayCode, reserveGiveawayCode, DOLLAR_TEST, GIVEAWAY } from '@/lib/giveaway'
 
 export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
@@ -124,23 +124,24 @@ export async function POST(request: Request) {
   const token = mintToken()
   // Coupon code: checked (and held) here on the server — the browser's
   // earlier check is only for display.
-  let giveaway: { hash: string; code: string; test: boolean } | null = null
+  let giveaway: { hash: string; code: string; test: boolean; dollar: boolean } | null = null
   if (typeof p.giveawayCode === 'string' && p.giveawayCode.trim()) {
     const g = await checkGiveawayCode(env.DESIGN_DRAFTS, p.giveawayCode, token)
     if (!g.ok) return err(400, g.error)
-    giveaway = { hash: g.hash, code: g.display, test: g.test }
+    giveaway = { hash: g.hash, code: g.display, test: g.test, dollar: g.dollar }
   }
 
-  const price = giveaway ? GIVEAWAY.magazineUsd : MAG_PRICE
+  const price = giveaway?.dollar ? DOLLAR_TEST.totalUsd : giveaway ? GIVEAWAY.magazineUsd : MAG_PRICE
   // Delivery speed chosen by the client; the PRICE comes from lib/shipping.
-  const ship = getShipping(p.shippingMethod)
+  // $1 test code: the whole order is $1, so shipping is $0.
+  const ship = giveaway?.dollar ? { ...getShipping(p.shippingMethod), usd: 0 } : getShipping(p.shippingMethod)
   const shippingUsd = ship.usd
   const total = price + shippingUsd
   const orderId = `FF-M${token.slice(0, 5).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`
   const submittedAt = new Date().toISOString()
   const names = [str(p.meta?.bride, 40), str(p.meta?.groom, 40)].filter(Boolean).join(' & ')
   const date = str(p.meta?.date, 40)
-  const tag = giveaway ? (giveaway.test ? 'COUPON TEST · ' : 'COUPON · ') : ''
+  const tag = giveaway ? (giveaway.dollar ? '$1 TEST · ' : giveaway.test ? 'COUPON TEST · ' : 'COUPON · ') : ''
   const albumName = `Magazine · ${tag}${style.name}${names ? ` · ${names}` : ''}`
   const clientIp = request.headers.get('cf-connecting-ip')
   const userAgent = request.headers.get('user-agent')
@@ -169,7 +170,7 @@ export async function POST(request: Request) {
     // Server-computed price (the ONLY amount checkout will charge) and
     // the marker that proves this record came from this route.
     pricing: { magazineUsd: price, shippingUsd, shippingId: ship.id, totalUsd: total, expectedCents: Math.round(total * 100) },
-    ...(giveaway ? { giveaway: { code: giveaway.code, hash: giveaway.hash, test: giveaway.test, campaign: GIVEAWAY.name } } : {}),
+    ...(giveaway ? { giveaway: { code: giveaway.code, hash: giveaway.hash, test: giveaway.test, dollar: giveaway.dollar, campaign: giveaway.dollar ? DOLLAR_TEST.label : GIVEAWAY.name } } : {}),
     orderSource: ORDER_SOURCE,
   }
 
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
     await sendResendEmail(env.RESEND_API_KEY, {
       from: env.ORDER_FROM_EMAIL || DEFAULT_FROM,
       to: [env.OWNER_EMAIL || DEFAULT_OWNER],
-      subject: `[PENDING]${giveaway ? (giveaway.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${orderId} — ${name} · Magazine ${style.name} · $${total}`,
+      subject: `[PENDING]${giveaway ? (giveaway.dollar ? ' [$1 TEST]' : giveaway.test ? ' [COUPON TEST]' : ' [COUPON]') : ''} ${orderId} — ${name} · Magazine ${style.name} · $${total}`,
       html: ownerMagazineEmailHtml(data, siteUrl, 'pending'),
     }).catch(() => undefined)
     // Client gets their order number right away (payment confirmation follows).
@@ -242,7 +243,9 @@ export async function POST(request: Request) {
             ...(names ? ([['Names', names]] as Array<[string, string]>) : []),
             ...(giveaway
               ? ([
-                  ['Coupon', `${giveaway.code} · ${GIVEAWAY.offLabel} — magazine $${GIVEAWAY.magazineUsd} (was $${MAG_PRICE})`],
+                  giveaway.dollar
+                    ? ['Coupon', `${giveaway.code} · ${DOLLAR_TEST.label} — $${DOLLAR_TEST.totalUsd} total`]
+                    : ['Coupon', `${giveaway.code} · ${GIVEAWAY.offLabel} — magazine $${GIVEAWAY.magazineUsd} (was $${MAG_PRICE})`],
                 ] as Array<[string, string]>)
               : []),
             ['Shipping', `${shippingText(ship)} · $${shippingUsd.toFixed(2)}`],

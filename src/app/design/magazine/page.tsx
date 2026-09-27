@@ -240,7 +240,7 @@ function MagazineDesigner() {
   // Printed coupon code (magazine $35 instead of $70). Checked on the
   // server before the print files are made, and again when ordering.
   const [gCode, setGCode] = useState('')
-  const [gInfo, setGInfo] = useState<{ code: string; test: boolean; magazineUsd: number; offLabel: string; endsLabel: string } | null>(null)
+  const [gInfo, setGInfo] = useState<{ code: string; test: boolean; magazineUsd: number; shippingFree: boolean; offLabel: string; endsLabel: string } | null>(null)
   const [gErr, setGErr] = useState<string | null>(null)
   const [gBusy, setGBusy] = useState(false)
   useEffect(() => {
@@ -251,7 +251,8 @@ function MagazineDesigner() {
       /* no URL access */
     }
   }, [])
-  const orderTotal = (gInfo ? gInfo.magazineUsd : priceInfo?.price ?? MAG_PRICE) + getShipping(shipId).usd
+  const shipUsd = gInfo?.shippingFree ? 0 : getShipping(shipId).usd
+  const orderTotal = (gInfo ? gInfo.magazineUsd : priceInfo?.price ?? MAG_PRICE) + shipUsd
   const applyGiveaway = useCallback(async () => {
     const code = gCode.trim()
     if (!code) return setGErr('Please enter your coupon code.')
@@ -263,7 +264,7 @@ function MagazineDesigner() {
       if (r.status === 429) setGErr('Too many tries — please wait a few minutes and try again.')
       else if (!j.ok) setGErr(j.error || 'That code isn’t valid.')
       else {
-        setGInfo({ code: j.code, test: !!j.test, magazineUsd: j.magazineUsd, offLabel: j.offLabel, endsLabel: j.endsLabel })
+        setGInfo({ code: j.code, test: !!j.test, magazineUsd: j.magazineUsd, shippingFree: !!j.shippingFree, offLabel: j.offLabel, endsLabel: j.endsLabel })
         setGCode(j.code)
       }
     } catch {
@@ -1538,7 +1539,7 @@ function MagazineDesigner() {
                 {gInfo ? (
                   <div style={{ padding: '10px 12px', border: `0.5px solid ${GOLD}`, borderRadius: 8, fontSize: 12.5, lineHeight: 1.6, color: 'var(--cream)', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                     <span>
-                      <b style={{ color: GOLD }}>{gInfo.code}</b> applied{gInfo.test ? ' (test code)' : ''} — {gInfo.offLabel}: your magazine is ${gInfo.magazineUsd}.
+                      <b style={{ color: GOLD }}>{gInfo.code}</b> applied{gInfo.test ? ' (test code)' : ''} — {gInfo.shippingFree ? `${gInfo.offLabel}: $${gInfo.magazineUsd} total, shipping included.` : `${gInfo.offLabel}: your magazine is $${gInfo.magazineUsd}.`}
                     </span>
                     <button type="button" style={{ ...btn(false), padding: '4px 10px', fontSize: 11 }} onClick={() => { setGInfo(null); setGCode('') }}>Remove</button>
                   </div>
@@ -1571,7 +1572,7 @@ function MagazineDesigner() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--muted2)' }}>
                     <span>Shipping · {shippingText(getShipping(shipId))}</span>
-                    <span>${getShipping(shipId).usd.toFixed(2)}</span>
+                    <span>${shipUsd.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '0.5px solid rgba(184,150,90,0.25)', marginTop: 4, paddingTop: 4 }}>
                     <span>Total today</span>

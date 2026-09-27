@@ -121,7 +121,7 @@ export async function POST(request: Request) {
   const expectedCents = pricing.expectedCents as number;
 
   // Coupon orders: the code must not have been paid for by another order.
-  const giveaway = order.giveaway as { code?: string; hash?: string; test?: boolean } | undefined;
+  const giveaway = order.giveaway as { code?: string; hash?: string; test?: boolean; dollar?: boolean } | undefined;
   if (giveaway?.hash && !giveaway.test) {
     const held = await env.DESIGN_DRAFTS.get(`giveaway:${giveaway.hash}`);
     try {
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
   const lineItems: { name: string; quantity: number; basePriceAmountCents: number; note?: string }[] = [];
   if (order.mode === 'magazine') {
     lineItems.push({
-      name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)${giveaway ? ` · coupon ${giveaway.code ?? ''} (${GIVEAWAY.offLabel})` : ''}`,
+      name: `Wedding magazine · ${order.magazine?.styleName ?? 'Custom'} · 20 pages (8.5×11)${giveaway ? ` · coupon ${giveaway.code ?? ''} (${giveaway.dollar ? '$1 test order' : GIVEAWAY.offLabel})` : ''}`,
       quantity: 1,
       basePriceAmountCents: cents(pricing.magazineUsd),
       note: order.magazine?.names || order.albumName,

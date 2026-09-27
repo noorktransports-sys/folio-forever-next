@@ -113,3 +113,8 @@ export const GIVEAWAY_TEST_HASHES: readonly string[] = [
   '1320fde632379bb7db0895f42c2149ac98517d1110a524c15ec4352d8b5619c6',
   '44cfb6fa46a13d60b1cb8f3aa79ffd4dc88e28fa57a66f350d712a79b16c942a',
 ]
+
+/** ONE $1 test code: whole magazine order (incl. shipping) = $1. Single use. */
+export const GIVEAWAY_DOLLAR_HASHES: readonly string[] = [
+  '58278cba32ad8bfaed3d8b5f7b8a217b80840cc30fdf6e70b3fd040852e0fc92',
+]

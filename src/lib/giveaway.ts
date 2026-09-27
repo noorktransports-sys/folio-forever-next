@@ -9,7 +9,7 @@
 // KV keys (DESIGN_DRAFTS):
 //   giveaway:<hash>  → { status: 'reserved' | 'used', token, orderId, at }
 
-import { GIVEAWAY_CODE_HASHES, GIVEAWAY_TEST_HASHES } from './giveaway-codes'
+import { GIVEAWAY_CODE_HASHES, GIVEAWAY_DOLLAR_HASHES, GIVEAWAY_TEST_HASHES } from './giveaway-codes'
 
 export const GIVEAWAY = {
   name: 'Coupon card · 50% off magazine',
@@ -23,6 +23,15 @@ export const GIVEAWAY = {
   holdMinutes: 60,
 } as const
 
+/** Owner's single-use $1 test code: the WHOLE magazine order (magazine +
+ *  shipping) costs $1, so a real payment can be tested end to end. */
+export const DOLLAR_TEST = {
+  totalUsd: 1,
+  endsAt: '2026-11-01T07:00:00Z',
+  endsLabel: 'Oct 31, 2026',
+  label: '$1 test order',
+} as const
+
 export interface GiveawayKV {
   get(key: string): Promise<string | null>
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
@@ -31,7 +40,7 @@ export interface GiveawayKV {
 export type GiveawayHold = { status: 'reserved' | 'used'; token: string; orderId: string; at: string }
 
 export type GiveawayCheck =
-  | { ok: true; hash: string; test: boolean; display: string }
+  | { ok: true; hash: string; test: boolean; dollar: boolean; display: string }
   | { ok: false; error: string }
 
 /** "ff-hfghx g3k93" → "FFHFGHXG3K93" (case, spaces and dashes ignored). */
@@ -42,6 +51,7 @@ export function normalizeCode(raw: unknown): string {
 /** "FFHFGHXG3K93" → "FF-HFGHX-G3K93" (for emails / admin). */
 export function displayCode(norm: string): string {
   if (norm.startsWith('TEST') && norm.length === 12) return `TEST-${norm.slice(4, 8)}-${norm.slice(8)}`
+  if (norm.startsWith('ONE') && norm.length === 11) return `ONE-${norm.slice(3, 7)}-${norm.slice(7)}`
   if (norm.startsWith('FF') && norm.length === 12) return `FF-${norm.slice(2, 7)}-${norm.slice(7)}`
   return norm
 }
@@ -66,11 +76,15 @@ export async function checkGiveawayCode(kv: GiveawayKV, raw: unknown, token?: st
   if (!giveawayOpen()) return { ok: false, error: `This coupon expired on ${GIVEAWAY.endsLabel} and can no longer be used.` }
   const hash = await hashCode(norm)
   const test = GIVEAWAY_TEST_HASHES.includes(hash)
-  if (!test && !GIVEAWAY_CODE_HASHES.includes(hash)) {
+  const dollar = GIVEAWAY_DOLLAR_HASHES.includes(hash)
+  if (!test && !dollar && !GIVEAWAY_CODE_HASHES.includes(hash)) {
     return { ok: false, error: 'That code isn’t valid. Please check the letters and numbers and try again.' }
   }
+  if (dollar && Date.now() >= Date.parse(DOLLAR_TEST.endsAt)) {
+    return { ok: false, error: `This test code expired on ${DOLLAR_TEST.endsLabel}.` }
+  }
   const display = displayCode(norm)
-  if (test) return { ok: true, hash, test, display }
+  if (test) return { ok: true, hash, test, dollar: false, display }
   const held = await kv.get(`giveaway:${hash}`)
   if (held) {
     let h: GiveawayHold | null = null
@@ -87,7 +101,7 @@ export async function checkGiveawayCode(kv: GiveawayKV, raw: unknown, token?: st
       }
     }
   }
-  return { ok: true, hash, test, display }
+  return { ok: true, hash, test, dollar, display }
 }
 
 /** Hold the code for an unpaid order (released automatically after holdMinutes). */
