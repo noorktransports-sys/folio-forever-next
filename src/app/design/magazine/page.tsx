@@ -18,7 +18,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { saveBlob, loadAlbumBlobs, deleteBlob } from '../smart/edit/photo-blob-store'
+import { saveBlob, loadAlbumBlobs, deleteBlob, requestPersistentStorage } from '../smart/edit/photo-blob-store'
 import { readJpegCaptureTime } from '@/lib/exif'
 import {
   DEFAULT_MAG_STYLE,
@@ -130,6 +130,45 @@ function upsertIndex(id: string, patch: Partial<IndexEntry>) {
 }
 function newId(): string {
   return 'm' + Math.random().toString(36).slice(2, 11) + Math.random().toString(36).slice(2, 6)
+}
+
+/** Long edge of the photo copy we keep. A full 8.5 × 11 in page at 300 DPI
+ *  needs 3300 px, so 3600 px prints just as sharp — and is 5–10× smaller
+ *  than a camera original, so the browser's storage doesn't fill up. */
+const KEEP_EDGE = 3600
+
+/**
+ * Print-size copy of an uploaded photo (EXIF rotation applied). Photos
+ * already small enough are kept as they are. Falls back to the original
+ * file if the browser can't decode it.
+ */
+async function printCopy(f: File): Promise<{ blob: Blob; width: number; height: number } | null> {
+  try {
+    const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' })
+    const { width: w, height: h } = bmp
+    const scale = KEEP_EDGE / Math.max(w, h)
+    if (scale >= 1 && f.type === 'image/jpeg') {
+      bmp.close()
+      return { blob: f, width: w, height: h }
+    }
+    const k = Math.min(1, scale)
+    const c = document.createElement('canvas')
+    c.width = Math.round(w * k)
+    c.height = Math.round(h * k)
+    const ctx = c.getContext('2d')
+    if (!ctx) {
+      bmp.close()
+      return null
+    }
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(bmp, 0, 0, c.width, c.height)
+    bmp.close()
+    const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.92))
+    c.width = c.height = 0
+    return blob ? { blob, width: Math.round(w * k), height: Math.round(h * k) } : null
+  } catch {
+    return null
+  }
 }
 
 function imageSize(src: string): Promise<{ width: number; height: number }> {
@@ -245,6 +284,8 @@ function MagazineDesigner() {
   const [armed, setArmed] = useState<string | null>(null) // tray photo picked up
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  /** Photos / edits the browser refused to save on this device. */
+  const [saveProblem, setSaveProblem] = useState<null | { photos: number; state: boolean }>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const fillTarget = useRef<{ page: number; slot: number } | null>(null)
 
@@ -288,14 +329,20 @@ function MagazineDesigner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /* ── keep saved photos even when the device is low on space ── */
+  useEffect(() => {
+    requestPersistentStorage()
+  }, [])
+
   /* ── autosave ── */
   useEffect(() => {
     if (!hydrated || !albumId) return
     const s: SavedState = { v: 1, photos, pages, adjusts, styleId, meta, textEdits }
     try {
       localStorage.setItem(`${STATE_PREFIX}:${albumId}`, JSON.stringify(s))
+      setSaveProblem((p) => (p?.state ? (p.photos ? { photos: p.photos, state: false } : null) : p))
     } catch {
-      /* quota */
+      setSaveProblem((p) => ({ photos: p?.photos ?? 0, state: true }))
     }
     upsertIndex(albumId, { mode: 'magazine' })
   }, [hydrated, albumId, photos, pages, adjusts, styleId, meta, textEdits])
@@ -532,20 +579,27 @@ function MagazineDesigner() {
       setBusy(`Adding ${list.length} photo${list.length === 1 ? '' : 's'}…`)
       const base = photos.reduce((m, p) => Math.max(m, p.order + 1), 0)
       const added: Photo[] = []
+      let unsaved = 0
       for (let k = 0; k < list.length; k++) {
         const f = list[k]
+        if (list.length > 1) setBusy(`Adding photo ${k + 1} of ${list.length}…`)
         const id = 'p' + Math.random().toString(36).slice(2, 10)
-        const preview = URL.createObjectURL(f)
-        const dims = await imageSize(preview)
+        // Keep a print-size copy (not the 10–30 MB original) so it fits in
+        // the browser's storage and survives a refresh.
+        const copy = await printCopy(f)
+        const blob: Blob = copy?.blob ?? f
+        const preview = URL.createObjectURL(blob)
+        const dims = copy ? { width: copy.width, height: copy.height } : await imageSize(preview)
         let capturedAt: number | undefined
         try {
           capturedAt = (await readJpegCaptureTime(f)) ?? undefined
         } catch {
           /* no EXIF */
         }
-        await saveBlob(albumId, id, f)
+        if (!(await saveBlob(albumId, id, blob))) unsaved++
         added.push({ id, preview, ...dims, capturedAt, order: base + k })
       }
+      if (unsaved) setSaveProblem((p) => ({ photos: (p?.photos ?? 0) + unsaved, state: p?.state ?? false }))
       // Real uploads replace the demo photos entirely.
       const isSample = (p: Photo) => p.id.startsWith('sample-')
       const hadSamples = photos.some(isSample)
@@ -1068,6 +1122,12 @@ function MagazineDesigner() {
           )}
         </div>
         {busy && <div style={{ width: '100%', fontSize: 11, color: GOLD }}>{busy}</div>}
+        {saveProblem && (
+          <div role="alert" style={{ ...warnBox, width: '100%' }}>
+            ⚠ Your browser couldn’t save {saveProblem.photos ? `${saveProblem.photos} photo${saveProblem.photos === 1 ? '' : 's'}` : 'your latest changes'} on this device
+            {' '}(storage full, or a private/incognito window). <b>Don’t refresh or close this tab</b> — finish and order now, or free up space / use a normal browser window.
+          </div>
+        )}
         {!pages && photos.length > 0 && photos.length < needed && (
           <div style={{ width: '100%', fontSize: 11, color: 'var(--muted2)' }}>
             You can build now — any empty frames can be filled later.

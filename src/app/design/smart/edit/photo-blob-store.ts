@@ -43,13 +43,21 @@ function openDb(): Promise<IDBDatabase> {
 
 const composite = (albumId: string, photoId: string) => `${albumId}::${photoId}`
 
-/** Persist one File/Blob under a composite key. Silent on failure. */
+/**
+ * Persist one File/Blob under a composite key. Never throws; resolves
+ * true when the blob is safely stored, false when it could not be (storage
+ * full, private window, IndexedDB disabled) so callers can warn the user.
+ *
+ * Note: a full disk ABORTS the transaction (QuotaExceededError) without a
+ * request error — without `onabort` the promise would never settle and the
+ * caller would hang.
+ */
 export async function saveBlob(
   albumId: string,
   photoId: string,
   blob: Blob,
-): Promise<void> {
-  if (!isBrowser) return
+): Promise<boolean> {
+  if (!isBrowser) return false
   try {
     const db = await openDb()
     await new Promise<void>((resolve, reject) => {
@@ -57,9 +65,26 @@ export async function saveBlob(
       tx.objectStore(STORE).put(blob, composite(albumId, photoId))
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error ?? new Error('IDB save failed'))
+      tx.onabort = () => reject(tx.error ?? new Error('IDB save aborted'))
     })
+    return true
   } catch (err) {
     console.warn('[photo-blob-store] save failed', err)
+    return false
+  }
+}
+
+/**
+ * Ask the browser to keep this site's storage even when the device runs
+ * low on space (otherwise saved photos can be evicted). Best-effort.
+ */
+export async function requestPersistentStorage(): Promise<void> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+      if (!(await navigator.storage.persisted())) await navigator.storage.persist()
+    }
+  } catch {
+    /* not supported */
   }
 }
 
@@ -114,6 +139,7 @@ export async function deleteBlob(albumId: string, photoId: string): Promise<void
       tx.objectStore(STORE).delete(composite(albumId, photoId))
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error ?? new Error('IDB delete failed'))
+      tx.onabort = () => reject(tx.error ?? new Error('IDB delete aborted'))
     })
   } catch (err) {
     console.warn('[photo-blob-store] delete failed', err)
