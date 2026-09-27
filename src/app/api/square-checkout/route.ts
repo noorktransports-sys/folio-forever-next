@@ -92,6 +92,9 @@ export async function POST(request: Request) {
 
   const { env } = getRequestContext() as { env: Env };
   if (!env.SQUARE_ACCESS_TOKEN || !env.SQUARE_LOCATION_ID) {
+    if (env.DESIGN_DRAFTS) {
+      await env.DESIGN_DRAFTS.put('square:last-checkout-error', JSON.stringify({ at: new Date().toISOString(), detail: `Missing ${!env.SQUARE_ACCESS_TOKEN ? 'SQUARE_ACCESS_TOKEN' : 'SQUARE_LOCATION_ID'} at runtime` })).catch(() => undefined);
+    }
     return err(500, 'Square not configured');
   }
   if (!env.DESIGN_DRAFTS) return err(500, 'Storage not configured');
@@ -225,6 +228,11 @@ export async function POST(request: Request) {
 
   if (!result.ok || !result.url) {
     console.warn('[square-checkout] Square error', result.error);
+    // Keep Square's exact reason so /api/admin/square-health can show it.
+    await env.DESIGN_DRAFTS.put(
+      'square:last-checkout-error',
+      JSON.stringify({ at: new Date().toISOString(), mode: envName, orderId: order.orderId, detail: String(result.error ?? 'unknown').slice(0, 500) }),
+    ).catch(() => undefined);
     return err(502, 'Payment could not be started — please try again in a moment');
   }
 

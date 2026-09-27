@@ -18,6 +18,7 @@ export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
 interface Env {
+  DESIGN_DRAFTS?: { get(key: string): Promise<string | null> }
   ADMIN_PASSWORD?: string
   SQUARE_ENV?: string
   SQUARE_ACCESS_TOKEN?: string
@@ -76,6 +77,13 @@ export async function GET(request: Request) {
     } catch (e) {
       out.token = `Could not reach Square: ${e instanceof Error ? e.message : 'error'}`
     }
+  }
+  // Square's exact reason for the most recent failed checkout, if any.
+  try {
+    const last = await env.DESIGN_DRAFTS?.get('square:last-checkout-error')
+    out.lastCheckoutError = last ? JSON.parse(last) : null
+  } catch {
+    out.lastCheckoutError = null
   }
   out.ready =
     out.token === `OK — accepted by ${mode} Square` && out.locationId === 'OK — belongs to this token' && (out.present as Record<string, boolean>).SQUARE_WEBHOOK_SIGNATURE_KEY
