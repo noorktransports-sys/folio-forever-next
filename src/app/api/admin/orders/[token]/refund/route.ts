@@ -22,7 +22,7 @@
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { isAuthed } from '@/lib/admin-auth';
 import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
-import { mintIdempotencyKey, refundSquarePayment } from '@/lib/square';
+import { mintIdempotencyKey, refundSquarePayment, squareEnvName } from '@/lib/square';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -118,7 +118,7 @@ export async function POST(
   }
 
   const envName: 'production' | 'sandbox' =
-    env.SQUARE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    squareEnvName(env.SQUARE_ENV);
   const idempotencyKey = mintIdempotencyKey(`refund_${token}`);
   const result = await refundSquarePayment({
     accessToken: env.SQUARE_ACCESS_TOKEN,

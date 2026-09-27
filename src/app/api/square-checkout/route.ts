@@ -21,7 +21,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { createSquareCheckoutLink } from '@/lib/square';
+import { createSquareCheckoutLink, squareEnvName } from '@/lib/square';
 import { BINDING_LABEL, ORDER_SOURCE } from '@/lib/pricing';
 import { allowRequest, tooMany } from '@/lib/rate-limit';
 import { getShipping, shippingText } from '@/lib/shipping';
@@ -203,7 +203,7 @@ export async function POST(request: Request) {
   }
 
   const envName: 'production' | 'sandbox' =
-    env.SQUARE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    squareEnvName(env.SQUARE_ENV);
 
   const result = await createSquareCheckoutLink({
     accessToken: env.SQUARE_ACCESS_TOKEN,

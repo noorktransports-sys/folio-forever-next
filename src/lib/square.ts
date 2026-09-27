@@ -19,7 +19,18 @@
 
 const SQUARE_API_VERSION = '2024-12-18';
 
-function squareApiBase(envName: 'production' | 'sandbox' = 'production'): string {
+/**
+ * SQUARE_ENV → 'sandbox' | 'production'. Read at RUNTIME from the
+ * Cloudflare request context (secrets are not available at build time).
+ * Forgiving about case, spaces and quotes pasted into the dashboard
+ * ("Sandbox", " sandbox\n", "\"sandbox\"") — anything else = production.
+ */
+export function squareEnvName(raw: unknown): 'production' | 'sandbox' {
+  const v = typeof raw === 'string' ? raw.trim().replace(/^["']|["']$/g, '').toLowerCase() : ''
+  return v === 'sandbox' ? 'sandbox' : 'production'
+}
+
+export function squareApiBase(envName: 'production' | 'sandbox' = 'production'): string {
   return envName === 'sandbox'
     ? 'https://connect.squareupsandbox.com'
     : 'https://connect.squareup.com';
@@ -104,7 +115,7 @@ export async function createSquareCheckoutLink(
     idempotency_key: input.idempotencyKey,
     quick_pay: undefined,
     order: {
-      location_id: input.locationId,
+      location_id: input.locationId.trim(),
       line_items: input.lineItems.map((li) => ({
         name: li.name,
         quantity: String(li.quantity),
@@ -137,7 +148,7 @@ export async function createSquareCheckoutLink(
     method: 'POST',
     headers: {
       'Square-Version': SQUARE_API_VERSION,
-      Authorization: `Bearer ${input.accessToken}`,
+      Authorization: `Bearer ${input.accessToken.trim()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -202,7 +213,7 @@ export async function refundSquarePayment(
     method: 'POST',
     headers: {
       'Square-Version': SQUARE_API_VERSION,
-      Authorization: `Bearer ${input.accessToken}`,
+      Authorization: `Bearer ${input.accessToken.trim()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),

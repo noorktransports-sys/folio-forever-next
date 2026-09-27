@@ -22,7 +22,7 @@
  */
 
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { verifySquareWebhookSignature } from '@/lib/square';
+import { squareApiBase, squareEnvName, verifySquareWebhookSignature } from '@/lib/square';
 import { patchIndexEntry, type IndexKV } from '@/lib/order-index';
 import { markGiveawayCodeUsed } from '@/lib/giveaway';
 import { customerMagazineEmailHtml, ownerMagazineEmailHtml, type MagazineOrderEmail } from '@/lib/magazine/emails';
@@ -101,13 +101,11 @@ async function lookupOrderToken(
   squareOrderId: string,
 ): Promise<string | null> {
   const base =
-    envName === 'sandbox'
-      ? 'https://connect.squareupsandbox.com'
-      : 'https://connect.squareup.com';
+    squareApiBase(envName);
   const r = await fetch(`${base}/v2/orders/${encodeURIComponent(squareOrderId)}`, {
     headers: {
       'Square-Version': '2024-12-18',
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${accessToken.trim()}`,
     },
   });
   if (!r.ok) return null;
@@ -136,15 +134,25 @@ export async function POST(request: Request) {
 
   // Read raw body (signature is over the bytes Square sent + our URL).
   const rawBody = await request.text();
+  // Square signs `${notification URL}${body}` with the subscription's key,
+  // so the URL must be EXACTLY the one saved in the Square subscription.
+  // Primary: SITE_URL + /api/square-webhook. Fallback: the URL this request
+  // actually arrived on (covers www / non-www differences). The key stays
+  // secret, so accepting either URL doesn't weaken the check.
   const siteUrl = (env.SITE_URL || 'https://folioforever.com').replace(/\/$/, '');
-  const notificationUrl = `${siteUrl}/api/square-webhook`;
-  const valid = await verifySquareWebhookSignature(
-    rawBody,
-    sig,
-    notificationUrl,
-    env.SQUARE_WEBHOOK_SIGNATURE_KEY,
+  const hit = new URL(request.url);
+  const candidates = Array.from(
+    new Set([`${siteUrl}/api/square-webhook`, `https://${hit.host}${hit.pathname}`]),
   );
+  let valid = false;
+  for (const url of candidates) {
+    if (await verifySquareWebhookSignature(rawBody, sig, url, env.SQUARE_WEBHOOK_SIGNATURE_KEY.trim())) {
+      valid = true;
+      break;
+    }
+  }
   if (!valid) {
+    console.warn('[square-webhook] signature failed for', candidates.join(' | '));
     return new Response('Signature verification failed', { status: 400 });
   }
 
@@ -170,7 +178,7 @@ export async function POST(request: Request) {
   // just record the attempt so the admin can see what happened.
   if ((payment.status === 'FAILED' || payment.status === 'CANCELED') && payment.order_id && env.SQUARE_ACCESS_TOKEN && env.DESIGN_DRAFTS) {
     try {
-      const envName0: 'production' | 'sandbox' = env.SQUARE_ENV === 'sandbox' ? 'sandbox' : 'production';
+      const envName0: 'production' | 'sandbox' = squareEnvName(env.SQUARE_ENV);
       const tok = await lookupOrderToken(env.SQUARE_ACCESS_TOKEN, envName0, payment.order_id);
       const raw0 = tok ? await env.DESIGN_DRAFTS.get(tok) : null;
       if (tok && raw0) {
@@ -205,7 +213,7 @@ export async function POST(request: Request) {
 
   // Resolve our token via the Square Orders API
   const envName: 'production' | 'sandbox' =
-    env.SQUARE_ENV === 'sandbox' ? 'sandbox' : 'production';
+    squareEnvName(env.SQUARE_ENV);
   const token = await lookupOrderToken(env.SQUARE_ACCESS_TOKEN, envName, squareOrderId);
   if (!token) return new Response('Could not resolve order token', { status: 404 });
 
