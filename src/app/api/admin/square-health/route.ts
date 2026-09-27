@@ -42,7 +42,32 @@ export async function GET(request: Request) {
   const token = (env.SQUARE_ACCESS_TOKEN ?? '').trim()
   const locationId = (env.SQUARE_LOCATION_ID ?? '').trim()
 
+  // Safe fingerprint of what's stored (never the value): lets the owner
+  // compare it with the token on Square's page without sharing it.
+  const raw = env.SQUARE_ACCESS_TOKEN ?? ''
+  const kind = token.startsWith('sandbox-sq0idb')
+    ? 'WRONG VALUE: this is the Sandbox APPLICATION ID, not the access token'
+    : token.startsWith('sandbox-sq0csb')
+      ? 'WRONG VALUE: this is the Sandbox APPLICATION SECRET, not the access token'
+      : token.startsWith('sq0idp')
+        ? 'WRONG VALUE: this is the Production APPLICATION ID'
+        : token.startsWith('sq0csp')
+          ? 'WRONG VALUE: this is the Production APPLICATION SECRET'
+          : token.startsWith('EAAA')
+            ? 'looks like an access token (sandbox and production look alike)'
+            : token
+              ? 'does not look like a Square access token (should start with EAAA)'
+              : 'empty'
+  const tokenFingerprint = {
+    length: token.length,
+    startsWith: token.slice(0, 4),
+    endsWith: token.slice(-4),
+    kind,
+    hadExtraSpacesOrQuotes: raw !== token || /["'\s]/.test(token),
+  }
+
   const out: Record<string, unknown> = {
+    tokenFingerprint,
     mode,
     squareEnvRaw: env.SQUARE_ENV === undefined ? '(not set → production)' : JSON.stringify(env.SQUARE_ENV),
     apiHost,
